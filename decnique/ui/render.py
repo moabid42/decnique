@@ -117,7 +117,8 @@ def show(s: Session, ident: str | None) -> None:
         return
     for d in s.lib.detections:
         if d.id == ident:
-            _print_source("detection", d.id, fmt.detection(d))
+            _print_source("detection", d.id, fmt.detection(d), approximate=d.approximate)
+            _print_untranslated(d)
             return
     for c in s.lib.bundle.candidates:
         if c.id == ident:
@@ -126,18 +127,90 @@ def show(s: Session, ident: str | None) -> None:
     console.print(f"[warn]no detection or candidate named {ident!r}[/warn]")
 
 
-def _print_source(kind: str, ident: str, text: str) -> None:
+def _print_source(kind: str, ident: str, text: str, *, approximate: bool = False) -> None:
+    tag = Text()
+    tag.append(f"{kind}  ", style="muted")
+    tag.append(ident, style="brand")
+    if approximate:
+        tag.append("   ~approx", style="approx")
     console.print(
         Panel(
             Text(text),
-            title=Text(f"{kind}  {ident}", style="brand"),
+            title=tag,
             title_align="left",
-            subtitle=Text("canonical DSL — parse(format(x)) == x", style="muted"),
+            subtitle=Text("what decnique translated this rule to (canonical DSL)", style="muted"),
             subtitle_align="left",
             border_style="rule",
             padding=(0, 1),
         )
     )
+
+
+# Human-readable reasons a construct could not be translated, keyed by label prefix.
+_UNTRANSLATED_WHY: dict[str, str] = {
+    "events:unparsed": "the event predicate could not be parsed into the model",
+    "events:cross_variable": "compares fields across two event variables (a join the model can't express here)",
+    "events:no_event_variable": "the rule declares no usable event variable",
+    "match:unbound_placeholder": "the match section joins on a placeholder that maps to no event-model field",
+    "match:event_variable": "the match key is an event variable rather than a field value",
+    "match:anchor": "an anchored match window the model doesn't support",
+    "match:window": "a match window form the model doesn't support",
+    "match:no_window": "a multi-event correlation with no window to bound it",
+    "secops:same_var_field_compare": "compares two fields of the same event (field-to-field, no literal)",
+    "secops:cross_variable": "a cross-event-variable comparison (a join)",
+    "secops:placeholder_op": "an operation on a placeholder the model can't interpret",
+    "secops:placeholder_literal": "a placeholder bound to a literal in a way the model can't pin",
+    "secops:placeholder_compare": "two placeholders compared to each other",
+    "secops:in_ref_operand": "an `in %reference_list` used where the model expects a value",
+    "secops:unparsed": "a statement that could not be parsed",
+    "secops:unsupported": "a construct outside the model's grammar",
+    "condition:unparsed": "the count/condition expression could not be parsed",
+    "condition:unknown_count": "a count over something the model can't identify",
+    "condition:unknown_variable": "the condition names an unknown event variable",
+    "condition:partially_lowered": "only part of the condition could be lowered",
+}
+
+
+def _untranslated_rows(d) -> list[tuple[str, str, str]]:
+    """(construct, detail, why) for everything the front-end could not translate on this rule."""
+    from decnique.model.predicates import unknowns
+
+    rows: list[tuple[str, str, str]] = []
+    seen: set[str] = set()
+    for lbl in d.source.unsupported if d.source else ():
+        parts = lbl.split(":")
+        key = ":".join(parts[:2]) if len(parts) >= 2 else parts[0]
+        detail = ":".join(parts[2:]) if len(parts) > 2 else ""
+        why = _UNTRANSLATED_WHY.get(key) or _UNTRANSLATED_WHY.get(parts[0]) or "unsupported construct"
+        rows.append((key, detail, why))
+        seen.add(key)
+    # the raw text of any Unknown atom left in a predicate (extra detail beyond the label)
+    for e in d.spec.events:
+        for u in unknowns(e.pred):
+            if u.raw and u.label not in seen:
+                rows.append((u.label, u.raw[:80], _UNTRANSLATED_WHY.get(u.label, "unsupported construct")))
+                seen.add(u.label)
+    return rows
+
+
+def _print_untranslated(d) -> None:
+    """Show what did NOT translate, so an approximate verdict is legible at the source."""
+    rows = _untranslated_rows(d)
+    if not rows:
+        console.print("[safe]✓ fully translated — this rule is exact (no Unknown atoms).[/safe]")
+        return
+    placeholders = [e.name for e in d.spec.events
+                    if type(e.pred).__name__ == "Const" and e.pred.value is False]
+    t = _table(
+        "not translated — why this rule is ~approximate",
+        [("CONSTRUCT",), ("DETAIL",), ("WHY",)],
+        caption="these became `unknown`, so the engine answers three-valued (yes/no/don't-know) "
+                "rather than pretend to a false verdict"
+                + (f" · event(s) dropped to `false`: {', '.join(placeholders)}" if placeholders else ""),
+    )
+    for construct, detail, why in rows:
+        _add(t, (construct, "approx"), detail or "—", why)
+    console.print(t)
 
 
 def admits(s: Session, method: str | None) -> None:

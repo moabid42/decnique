@@ -145,10 +145,10 @@ def find_gap(
     cat = account.catalog
     if not account.reachable(permission):
         return NoGap(permission, "unreachable")
-    logged = [m for m in cat.methods_for(permission) if account.logged(m)]
+    logged = sorted(m for m in cat.methods_for(permission) if account.logged(m))
     if not logged:
         return NoGap(permission, "no_logged_method")
-    principals = account.principals_with(permission)
+    principals = sorted(account.principals_with(permission))
     if not principals:
         return NoGap(permission, "unreachable")
 
@@ -156,6 +156,7 @@ def find_gap(
     enc = Encoder(ev=ev)
     paths = _probe_paths(lib)
     s = z3.Solver()
+    s.set("random_seed", 0)  # reproducible witnesses (plan §4: reproducible numbers)
 
     # domain: a logged, permission-relevant method attributable to an allowed principal
     s.add(z3.Or(*[ev.term("method") == z3.StringVal(m) for m in logged]))

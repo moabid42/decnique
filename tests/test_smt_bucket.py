@@ -5,6 +5,7 @@ from __future__ import annotations
 from decnique.detections import DetectionLibrary
 from decnique.dsl.parser import parse_text
 from decnique.env.model import Account, Grant, LogConfig
+from decnique.eval import fires
 from decnique.smt.bucket import bucketed_gaps, coverage_signature
 from decnique.smt.coverage import Gap, find_gap
 
@@ -44,6 +45,10 @@ def _account() -> Account:
 
 
 def test_bucketed_equals_unbucketed():
+    # Equivalence is verdict-level: a Z3 witness is not unique (several methods can satisfy the
+    # same permission), so two independent solves may return different — but equally valid —
+    # events.  What must match is the coverage verdict, the approximate flag, and the
+    # unknown-rule set; and the bucketed witness must itself still be a sound gap (replay-clean).
     lib, acct = _lib(), _account()
     perms = (
         "iam.serviceAccountKeys.create",
@@ -58,8 +63,10 @@ def test_bucketed_equals_unbucketed():
         assert type(got) is type(direct), p
         if isinstance(direct, Gap):
             assert isinstance(got, Gap)
-            assert got.event == direct.event, p
             assert got.approximate == direct.approximate, p
+            assert set(got.unknown_rules) == set(direct.unknown_rules), p
+            # the bucketed witness is a real, sound gap: no rule fires on it
+            assert all(fires(d.spec, [got.event]) is not True for d in lib.detections), p
         else:
             assert got.reason == direct.reason, p
     assert stats.permissions == len(perms)

@@ -140,6 +140,7 @@ def stealth_feasible(
     fp_methods = {s.method for s in fp.steps}
     trace = build_trace(fp, share=candidate.share)
     s = z3.Solver()
+    s.set("random_seed", 0)  # reproducible schedules (plan §4)
     for c in footprint_constraints(trace, fp):
         s.add(c)
     # pin the shared principal to a feasible one

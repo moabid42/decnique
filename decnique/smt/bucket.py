@@ -2,10 +2,12 @@
 
 The coverage solve for a permission depends only on its *coverage signature*: whether it is
 reachable, which of its methods are logged, and which principals can exercise it (the rule set is
-shared).  Permissions with an identical signature pose an identical ``find_gap`` problem and, Z3
-being deterministic, yield an identical witness — so we solve once per signature and stamp the
-rest.  This preserves results exactly while cutting solver invocations from O(#permissions) to
-O(#signatures).
+shared).  Permissions with an identical signature pose an identical ``find_gap`` problem, so we
+solve once per signature and stamp the representative's result onto the rest — cutting solver
+invocations from O(#permissions) to O(#signatures).  The stamped *verdict* (gap / covered /
+unreachable, the approximate flag, the unknown-rule set) is exactly the one a direct solve would
+produce; the witness *event* is a valid example but not canonical, since a Z3 model is not unique
+(several methods can satisfy one permission).
 
 In practice the pruning that matters most is Invariant #2's reachability filter: for an account
 that touches a handful of services, the reachable permission set is already small, so this

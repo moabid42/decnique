@@ -121,6 +121,37 @@ def cmd_admits(ns: argparse.Namespace) -> int:
     return 0
 
 
+def _tri(t: object) -> str:
+    return "yes" if t is True else "no" if t is False else "unknown"
+
+
+def cmd_trace(ns: argparse.Namespace) -> int:
+    from decnique.eval import fires, matches_footprint
+
+    lib = DetectionLibrary.load(*ns.paths, options=_opts(ns))
+    raw = json.loads(Path(ns.events).read_text(encoding="utf-8"))
+    entries = raw if isinstance(raw, list) else [raw]
+    events = [event_from_audit_log(e) if "protoPayload" in e else e for e in entries]
+
+    detections = []
+    for d in lib.detections:
+        t = fires(d.spec, events)
+        if t is not False or ns.all_rules:
+            detections.append(
+                {"id": d.id, "fires": _tri(t), "approximate": d.approximate, "paradigm": d.paradigm}
+            )
+    candidates = [
+        {"id": c.id, "matches": _tri(matches_footprint(c.footprint, events))}
+        for c in lib.bundle.candidates
+    ]
+    print(
+        json.dumps(
+            {"events": len(events), "detections": detections, "candidates": candidates}, indent=2
+        )
+    )
+    return 0
+
+
 def cmd_show(ns: argparse.Namespace) -> int:
     for f in ns.files:
         b = load_file(Path(f), _opts(ns))
@@ -157,6 +188,7 @@ def main(argv: list[str] | None = None) -> int:
         ("import", cmd_import),
         ("load", cmd_load),
         ("event", cmd_event),
+        ("trace", cmd_trace),
         ("admits", cmd_admits),
         ("show", cmd_show),
     ):
@@ -177,6 +209,18 @@ def main(argv: list[str] | None = None) -> int:
                 "--event",
                 required=True,
                 help="JSON file: event-model dict or a Cloud Audit Log entry",
+            )
+        if name == "trace":
+            p.add_argument(
+                "-e",
+                "--events",
+                required=True,
+                help="JSON file: an ordered list of event-model dicts or Cloud Audit Log entries",
+            )
+            p.add_argument(
+                "--all-rules",
+                action="store_true",
+                help="report every detection, not only those that fire / are uncertain",
             )
         if name == "admits":
             p.add_argument("-m", "--method", required=True)

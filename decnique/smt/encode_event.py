@@ -80,3 +80,10 @@ class SymEvent:
 def _always_present(path: str) -> bool:
     # tags.* and udm:* are optional families; a model field is always-present iff no exists-bit.
     return path in ef.EVENT_FIELDS and ef.EVENT_FIELDS[path].exists_bit is None
+
+
+def pin_fields(ev: SymEvent, fields: dict[str, str]) -> list[z3.BoolRef]:
+    """Equality constraints binding string fields of ``ev`` to fixed values — used to pin the
+    fields a real audit event fixes by its method (service, product_name), so the solver cannot
+    fabricate an unrealistic event that dodges the rules (plan §M2 realism invariants)."""
+    return [ev.term(path) == z3.StringVal(value) for path, value in fields.items()]

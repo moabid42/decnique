@@ -23,6 +23,7 @@ from decnique.detections import DetectionLibrary
 from decnique.dsl.ast import Candidate
 from decnique.env.model import Account
 from decnique.eval import fires, matches_footprint
+from decnique.model import event_fields as ef
 from decnique.model.predicates import referenced_fields
 from decnique.smt.encode_trace import (
     Occurrence,
@@ -73,17 +74,21 @@ def feasible(candidate: Candidate, account: Account) -> tuple[str, ...]:
     return account.principals_with_all(perms)
 
 
-def _relevant_paths(candidate: Candidate, rate_specs: list) -> tuple[str, ...]:  # type: ignore[no-untyped-def]
-    paths = {"method", "time", "principal"}
+def _relevant_paths(candidate: Candidate, lib: DetectionLibrary) -> tuple[str, ...]:
+    """Fields to decode into each schedule event.  Covers the footprint's own fields *and* every
+    field any detection reads, plus the invariant fields, so the concrete replay that decides
+    ``Evasive`` sees faithful events (not ones missing ``granted``/``product_name``)."""
+    paths = set(ef.FIELD_NAMES)  # every closed-vocabulary field, so each schedule event is complete
     for step in candidate.footprint.steps:
         for qf in step.distinct:
             paths.add(qf[1])
         if step.where is not None:
             for _, p in referenced_fields(step.where):
                 paths.add(p)
-    for spec in rate_specs:
-        for _, p in referenced_fields(spec.events[0].pred):
-            paths.add(p)
+    for d in lib.detections:
+        for e in d.spec.events:
+            for _, p in referenced_fields(e.pred):
+                paths.add(p)
     return tuple(sorted(paths))
 
 
@@ -141,7 +146,7 @@ def stealth_feasible(
     trace = build_trace(fp, share=candidate.share)
     s = z3.Solver()
     s.set("random_seed", 0)  # reproducible schedules (plan §4)
-    for c in footprint_constraints(trace, fp):
+    for c in footprint_constraints(trace, fp, account.catalog):
         s.add(c)
     # pin the shared principal to a feasible one
     if "principal" in candidate.share and trace.occs:
@@ -163,7 +168,7 @@ def stealth_feasible(
         else:
             approx_rules.append(d.id)
 
-    paths = _relevant_paths(candidate, rate_specs)
+    paths = _relevant_paths(candidate, lib)
 
     for _ in range(max_refine):
         if s.check() != z3.sat:

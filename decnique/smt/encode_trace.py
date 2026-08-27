@@ -62,12 +62,19 @@ def _abs_le(d: z3.ExprRef, w: int) -> z3.BoolRef:
     return z3.And(d <= z3.IntVal(w), d >= z3.IntVal(-w))
 
 
-def footprint_constraints(trace: SymTrace, fp) -> list[z3.BoolRef]:  # type: ignore[no-untyped-def]
+def footprint_constraints(trace: SymTrace, fp, catalog=None) -> list[z3.BoolRef]:  # type: ignore[no-untyped-def]
     cons: list[z3.BoolRef] = []
     for occ in trace.occs:
         cons.append(occ.ev.term("method") == z3.StringVal(occ.method))
         cons.append(occ.ev.present("method"))
         cons.append(occ.time >= z3.IntVal(0))
+        # realism invariants (plan §M3): a real event fixes service/product_name by its method,
+        # and a feasible actor's action is authorized (granted), so the solver cannot propose an
+        # unrealistic schedule that evades a rule only by mangling those fields.
+        if catalog is not None:
+            for path, value in catalog.field_invariants(occ.method).items():
+                cons.append(occ.ev.term(path) == z3.StringVal(value))
+            cons.append(occ.ev.term("granted") == z3.BoolVal(True))
 
     steps = {s.id: s for s in fp.steps}
     for step in fp.steps:

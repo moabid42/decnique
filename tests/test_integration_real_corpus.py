@@ -68,15 +68,28 @@ def test_stealth_schedules_replay_clean(lib, account):
 
 
 def test_stealthy_chain_is_valid_hop_by_hop(lib, account):
+    """Soundness of the chain search, and its corrected verdict under the realism invariants.
+
+    A real ``CreateServiceAccountKey`` event carries ``product_name = "Google Cloud IAM"`` and
+    ``granted = true`` (both fixed by the method / authorization), so the corpus rule that watches
+    for key creation fires on it — the step is *not* stealthy.  The demo account therefore has no
+    stealthy escalation running through key creation (the earlier "found" chain was an artifact of
+    the solver fabricating a key-creation event with an empty product_name).  Whatever path the
+    search *does* return must still replay clean hop by hop.
+    """
     import json
+
+    from decnique.smt.stealth import Evasive, stealth_feasible
 
     attack = json.loads((_EXAMPLES / "account.json").read_text())["attack"]
     rep = chains_report(lib, account, attack)
-    assert rep["found"] is True
-    assert [h["technique"] for h in rep["hops"]] == [
-        "create_service_account_key",
-        "mint_access_token",
-    ]
-    for hop in rep["hops"]:
+
+    # soundness: every hop of any returned path is unobserved by all rules
+    for hop in rep.get("hops", ()):
         for d in lib.detections:
             assert fires(d.spec, hop["schedule"], ref_lists=lib.ref_lists) is not True
+
+    # root cause of the corrected verdict: key creation is caught, so no stealthy path exists
+    kc = next(c for c in lib.bundle.candidates if c.id == "create_service_account_key")
+    assert not isinstance(stealth_feasible(kc, lib, account), Evasive)
+    assert rep["found"] is False

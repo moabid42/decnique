@@ -61,6 +61,36 @@ def test_covered_permission_returns_no_gap():
     assert r.reason == "all_covered"
 
 
+def test_realism_invariants_stop_fabricated_witnesses():
+    # A rule that fires only on a *realistic* key-creation event: product_name and granted are
+    # fixed by the method / by authorization.  Without the method→field invariants the solver
+    # could dodge it with an empty product_name (a false blind spot); with them the rule always
+    # fires, so the permission is covered.
+    lib = _lib(
+        """
+        detection watch_key {
+          event method = "google.iam.admin.v1.CreateServiceAccountKey"
+            and product_name = "Google Cloud IAM" and granted = true
+        }
+        """
+    )
+    acct = _account("iam.serviceAccountKeys.create")
+    r = find_gap("iam.serviceAccountKeys.create", lib, acct)
+    assert isinstance(r, NoGap) and r.reason == "all_covered"
+
+
+def test_witness_is_a_complete_realistic_event():
+    # a permission no rule covers still yields a gap, and its witness carries the fields a real
+    # audit event fixes by its method (service, product_name) plus an authorized granted.
+    lib = _lib("""detection d { event method = "storage.objects.get" }""")
+    acct = _account("resourcemanager.projects.setIamPolicy")
+    r = find_gap("resourcemanager.projects.setIamPolicy", lib, acct)
+    assert isinstance(r, Gap)
+    assert r.event.get("granted") is True
+    assert r.event.get("service") == "cloudresourcemanager.googleapis.com"
+    assert r.event.get("product_name") == "Google Cloud Platform"
+
+
 def test_unreachable_permission():
     lib = _lib("""detection d { event method = "storage.objects.get" }""")
     acct = _account("iam.serviceAccountKeys.create")  # grants a different permission

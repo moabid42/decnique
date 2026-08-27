@@ -23,7 +23,7 @@ from decnique.env.model import Account
 from decnique.eval import fires
 from decnique.model import event_fields as ef
 from decnique.model.predicates import referenced_fields
-from decnique.smt.encode_event import SymEvent
+from decnique.smt.encode_event import SymEvent, pin_fields
 from decnique.smt.encode_pred import Encoder
 
 
@@ -126,11 +126,15 @@ def _block(ev: SymEvent, model: z3.ModelRef, paths: tuple[str, ...]) -> z3.BoolR
 
 
 def _probe_paths(lib: DetectionLibrary) -> tuple[str, ...]:
-    paths = {"method", "principal", "resource"}
+    """Fields to decode into the witness event.  This must cover *every* field any rule (single-
+    or multi-event) reads, plus the invariant fields, so the concrete replay that decides
+    soundness sees a faithful event — not one silently missing ``granted`` or ``product_name``,
+    which would make a rule spuriously not-fire and turn a covered permission into a false gap."""
+    paths = set(ef.FIELD_NAMES)  # every closed-vocabulary field, so the witness is a complete event
     for d in lib.detections:
-        if d.spec.is_single_event:
-            for _, p in referenced_fields(d.spec.events[0].pred):
-                paths.add(p)
+        for e in d.spec.events:
+            for _, p in referenced_fields(e.pred):
+                paths.add(p)  # plus any udm:/tags. leaves a rule reads
     return tuple(sorted(paths))
 
 
@@ -162,6 +166,16 @@ def find_gap(
     s.add(z3.Or(*[ev.term("method") == z3.StringVal(m) for m in logged]))
     s.add(ev.present("principal"))
     s.add(z3.Or(*[ev.term("principal") == z3.StringVal(p) for p in principals]))
+
+    # realism invariants (plan §M2): a real audit event fixes some fields by its method
+    # (service, product_name), and — since we only probe permissions the principal can *reach* —
+    # the action is authorized, so ``granted`` is true.  Without these the solver would fabricate
+    # an event with, e.g., an empty product_name that dodges the very rule watching for it.
+    for m in logged:
+        cons = pin_fields(ev, cat.field_invariants(m))
+        if cons:
+            s.add(z3.Implies(ev.term("method") == z3.StringVal(m), z3.And(*cons)))
+    s.add(ev.term("granted") == z3.BoolVal(True))
 
     single_rules = [d for d in lib.detections if d.spec.is_single_event]
     obs = [_observes_formula(enc, d.spec) for d in single_rules]

@@ -152,3 +152,26 @@ def test_unsupported_schema_version_raises():
 
     with pytest.raises(AccountSchemaError):
         account_from_dict({"version": 99, "bindings": {}})
+
+
+# --- method → field invariants (M2 realism) ----------------------------------------------
+
+
+def test_catalog_field_invariants_known_method():
+    cat = Catalog.seed()
+    inv = cat.field_invariants("google.iam.admin.v1.CreateServiceAccountKey")
+    assert inv["service"] == "iam.googleapis.com"
+    assert inv["product_name"] == "Google Cloud IAM"
+
+
+def test_catalog_field_invariants_unknown_method_asserts_nothing():
+    # honesty: a method the catalog does not know pins no fields (never unsound)
+    assert Catalog.seed().field_invariants("some.unknown.Method") == {}
+
+
+def test_catalog_product_name_from_service_map():
+    cat = Catalog.seed()
+    assert cat.product_name("google.cloud.resourcemanager.v3.Projects.SetIamPolicy") == (
+        "Google Cloud Platform"
+    )
+    assert cat.product_name("some.unknown.Method") is None

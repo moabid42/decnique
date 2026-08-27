@@ -26,6 +26,21 @@ class MethodInfo:
     permissions: tuple[str, ...]
     service: str
     data_access: bool = False  # True → a Data-Access log (off by default in GCP)
+    product_name: str | None = None  # UDM metadata.product_name a real event of this method carries
+
+
+# UDM ``metadata.product_name`` a Cloud Audit Log carries, keyed by service.  Grounded in the
+# literals the vendored corpus filters on (``metadata.product_name = "…"``); a service absent
+# here has no invariant asserted, so its product_name stays free (honest, never unsound).
+SERVICE_PRODUCT: dict[str, str] = {
+    "iam.googleapis.com": "Google Cloud IAM",
+    "cloudresourcemanager.googleapis.com": "Google Cloud Platform",
+    "compute.googleapis.com": "Google Compute Engine",
+    "storage.googleapis.com": "Google Cloud Storage",
+    "bigquery.googleapis.com": "BigQuery",
+    "logging.googleapis.com": "Google Cloud Platform",
+    "cloudkms.googleapis.com": "Google Cloud Platform",
+}
 
 
 # A seed catalog.  method -> (permissions it checks, service, is-data-access).
@@ -152,6 +167,7 @@ class Catalog:
                 permissions=tuple(info.get("permissions", ())),
                 service=info.get("service", _service_of(method)),
                 data_access=bool(info.get("data_access", False)),
+                product_name=info.get("product_name"),
             )
         return cls(by_method=merged)
 
@@ -178,6 +194,28 @@ class Catalog:
     def is_data_access(self, method: str) -> bool:
         m = self.by_method.get(method)
         return bool(m and m.data_access)
+
+    def product_name(self, method: str) -> str | None:
+        """UDM ``metadata.product_name`` a real event of ``method`` carries, or ``None`` when the
+        catalog cannot say (then no invariant is asserted — the field stays free)."""
+        m = self.by_method.get(method)
+        if m and m.product_name is not None:
+            return m.product_name
+        return SERVICE_PRODUCT.get(self.service_of(method))
+
+    def field_invariants(self, method: str) -> dict[str, str]:
+        """Event-model fields a real audit event *fixes* by virtue of its ``method`` — the
+        service, and (when known) the product_name.  These are functionally determined by the
+        method, so the symbolic encoders may pin them without losing soundness, which stops the
+        solver fabricating unrealistic witnesses (e.g. a CreateServiceAccountKey with an empty
+        product_name that dodges the rule watching for it)."""
+        inv: dict[str, str] = {}
+        if self.known(method):
+            inv["service"] = self.service_of(method)
+        pn = self.product_name(method)
+        if pn is not None:
+            inv["product_name"] = pn
+        return inv
 
     def all_permissions(self) -> frozenset[str]:
         return frozenset(p for m in self.by_method.values() for p in m.permissions)

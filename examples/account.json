@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "name": "demo-prod",
+  "bindings": {
+    "attacker@demo.iam.gserviceaccount.com": [
+      {"permission": "iam.serviceAccountKeys.create", "resource": "*"},
+      {"permission": "storage.objects.get", "resource": "projects/demo"}
+    ],
+    "admin@demo.com": [
+      {"permission": "resourcemanager.projects.setIamPolicy", "resource": "*"}
+    ]
+  },
+  "hierarchy": {
+    "//storage.googleapis.com/projects/demo/buckets/secrets": "projects/demo"
+  },
+  "logging": {
+    "admin_activity": true,
+    "data_access_services": ["iamcredentials.googleapis.com"],
+    "disabled_methods": []
+  },
+  "attack": {
+    "principal": "attacker@demo.iam.gserviceaccount.com",
+    "initial_state": ["iam.serviceAccountKeys.create"],
+    "goal": "resourcemanager.projects.setIamPolicy",
+    "effects": {
+      "create_service_account_key": ["iam.serviceAccounts.getAccessToken"],
+      "mint_access_token": ["resourcemanager.projects.setIamPolicy"],
+      "escalate_project_iam": ["resourcemanager.projects.getIamPolicy"]
+    }
+  }
+}

@@ -1,0 +1,14 @@
+candidate create_service_account_key {
+  required { iam.serviceAccountKeys.create }
+  footprint { act: "google.iam.admin.v1.CreateServiceAccountKey" span 1h }
+}
+
+candidate mint_access_token {
+  required { iam.serviceAccounts.getAccessToken }
+  footprint { act: "iam.serviceAccounts.getAccessToken" repeat 3 distinct caller_ip span 1h }
+}
+
+candidate escalate_project_iam {
+  required { resourcemanager.projects.setIamPolicy }
+  footprint { act: "google.cloud.resourcemanager.v3.Projects.SetIamPolicy" span 1h }
+}

@@ -332,9 +332,29 @@ def _with_quant(p: Pred, quant: str | None) -> Pred:
     return p
 
 
+def _unwrap_case(operand):  # type: ignore[no-untyped-def]
+    """``strings.to_lower($f)`` / ``strings.to_upper($f)`` → ``($f, nocase=True)``; anything else
+    passes through unchanged.  Rules routinely lowercase a field before matching it against a
+    lowercase literal (``strings.contains(strings.to_lower($f), "x")``); unwrapping the case call
+    turns that into a plain case-insensitive match the model represents exactly."""
+    if (
+        isinstance(operand, y.Call)
+        and operand.fn.lower() in {"strings.to_lower", "strings.to_upper"}
+        and len(operand.args) == 1
+        and isinstance(operand.args[0], y.FieldRef)
+    ):
+        return operand.args[0], True
+    return operand, False
+
+
 def _func_pred(call: y.Call, nocase: bool, var: str, st: _State, udm: UdmMap) -> Pred:
     fn = call.fn.lower()
-    args = call.args
+    args = list(call.args)
+    if args:  # a case-normalized field argument becomes a case-insensitive match on the field
+        inner, folded = _unwrap_case(args[0])
+        if folded:
+            args[0] = inner
+            nocase = True
     if (
         fn == "re.regex"
         and len(args) == 2

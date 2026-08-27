@@ -11,6 +11,8 @@ dependencies = [
     "lark>=1.1",
     "pyyaml>=6.0",
     "z3-solver>=4.12",
+    "rich>=13",
+    "prompt_toolkit>=3",
 ]
 
 [project.optional-dependencies]
@@ -34,6 +36,7 @@ packages = [
     "decnique.eval",
     "decnique.smt",
     "decnique.graph",
+    "decnique.ui",
     "decnique.frontends",
     "decnique.frontends.secops",
 ]

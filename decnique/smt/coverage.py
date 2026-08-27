@@ -125,6 +125,33 @@ def _block(ev: SymEvent, model: z3.ModelRef, paths: tuple[str, ...]) -> z3.BoolR
     return z3.Or(*diffs) if diffs else z3.BoolVal(False)
 
 
+def _fires_on_one_event(spec) -> bool:  # type: ignore[no-untyped-def]
+    """True when a *single* matching event makes the rule fire — one event variable and a count
+    condition met by one occurrence (``#v >= 1`` and the like).  Such correlation rules (very
+    common: ``#gcp >= 1``) constrain single-event coverage exactly, so folding them into the
+    ``Observes`` formula lets the search *prove* a permission covered instead of merely exhausting
+    its refinement bound.  Value-aggregate or ``>= N (N>1)`` conditions need several events, so
+    they are excluded (a single-event witness can never realise them) and left to concrete replay.
+    """
+    from decnique.model.trace import Count, CTrue
+
+    if len(spec.events) != 1:
+        return False
+    c = spec.condition
+    if isinstance(c, CTrue):
+        return True
+    if isinstance(c, Count) and c.var == spec.events[0].name:
+        return _count_true(c.op, 1, c.n) and not _count_true(c.op, 0, c.n)
+    return False
+
+
+def _count_true(op: str, x: int, n: int) -> bool:
+    return {
+        ">=": x >= n, ">": x > n, "<=": x <= n, "<": x < n, "==": x == n, "=": x == n,
+        "!=": x != n,
+    }.get(op, False)
+
+
 def _probe_paths(lib: DetectionLibrary) -> tuple[str, ...]:
     """Fields to decode into the witness event.  This must cover *every* field any rule (single-
     or multi-event) reads, plus the invariant fields, so the concrete replay that decides
@@ -177,7 +204,7 @@ def find_gap(
             s.add(z3.Implies(ev.term("method") == z3.StringVal(m), z3.And(*cons)))
     s.add(ev.term("granted") == z3.BoolVal(True))
 
-    single_rules = [d for d in lib.detections if d.spec.is_single_event]
+    single_rules = [d for d in lib.detections if _fires_on_one_event(d.spec)]
     obs = [_observes_formula(enc, d.spec) for d in single_rules]
     if obs:
         s.add(z3.Not(z3.Or(*obs)))

@@ -177,3 +177,27 @@ def test_small_domain_completeness_unsat():
     r = find_gap("resourcemanager.projects.setIamPolicy", lib, acct)
     assert isinstance(r, NoGap)
     assert not _brute_force_gap_exists(lib, acct, "resourcemanager.projects.setIamPolicy")
+
+
+def test_fires_on_one_event_folds_only_single_event_triggers():
+    # a #v>=1 correlation rule fires on one event → foldable into the coverage formula; a #v>=2
+    # (or multi-variable) rule needs several events, so it must NOT be folded (would be unsound).
+    from dataclasses import dataclass
+
+    from decnique.model.trace import Count, CTrue
+    from decnique.smt.coverage import _count_true, _fires_on_one_event
+
+    @dataclass
+    class E:
+        name: str
+
+    @dataclass
+    class S:
+        events: list
+        condition: object
+
+    assert _fires_on_one_event(S([E("e")], Count(var="e", op=">=", n=1))) is True
+    assert _fires_on_one_event(S([E("e")], CTrue())) is True
+    assert _fires_on_one_event(S([E("e")], Count(var="e", op=">=", n=2))) is False
+    assert _fires_on_one_event(S([E("e"), E("f")], Count(var="e", op=">=", n=1))) is False
+    assert _count_true(">=", 1, 1) and not _count_true(">=", 1, 2)

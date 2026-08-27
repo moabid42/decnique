@@ -37,12 +37,17 @@ def _c(code: str, text: str) -> str:
     return f"\033[{code}m{text}\033[0m" if _USE_COLOR else text
 
 
-def _tri(t: object) -> str:
+def _tri_cell(t: object):
+    """A three-valued verdict as a coloured table cell (text, color_code)."""
     if t is True:
-        return _c("32", "yes")
+        return ("yes", "32")
     if t is False:
-        return _c("90", "no")
-    return _c("33", "unknown")
+        return ("no", "90")
+    return ("unknown", "33")
+
+
+def _approx_cell(approximate: bool):
+    return ("~approx", "33") if approximate else ("exact", "90")
 
 
 def _events_from(raw: object) -> list[dict]:
@@ -302,9 +307,15 @@ class Session:
             print("usage: admits <method>")
             return
         hits = list(self.lib.admitting(method))
-        for d in hits:
-            print(f" {_c('33', '~') if d.approximate else ' '} {d.id}")
-        print(f"   {len(hits)} detections could involve {method!r}")
+        if not hits:
+            print(f"   no detections could involve {method!r}")
+            return
+        rows = [
+            [d.id, d.source.frontend if d.source else "dsl", d.paradigm, _approx_cell(d.approximate)]
+            for d in hits
+        ]
+        print(_c("1", f"detections that could involve {method!r} ({len(hits)})"))
+        print(_render_table(["ID", "SOURCE", "TYPE", "STATUS"], rows))
 
     def event(self, file: str | None) -> None:
         if not self._need_lib() or not file:
@@ -313,36 +324,49 @@ class Session:
         raw = json.loads(Path(file).read_text(encoding="utf-8"))
         ev = _events_from(raw)[0]
         obs = self.lib.observing(ev)
-        print(f"observed_by : {', '.join(obs.observed_by) or '(none)'}")
-        print(f"fires_single: {', '.join(obs.fires_single) or '(none)'}")
-        print(f"unknown     : {', '.join(obs.unknown) or '(none)'}")
-        print(f"approximate : {_tri(obs.approximate)}")
+        print(_c("1", "single-event observation"))
+        rows = [
+            ["observed_by", ", ".join(obs.observed_by) or "(none)",
+             "detections that match this event"],
+            ["fires_single", ", ".join(obs.fires_single) or "(none)",
+             "single-event rules that fire on it"],
+            ["unknown", ", ".join(obs.unknown) or "(none)",
+             "rules that returned don't-know"],
+            ["approximate", _tri_cell(obs.approximate), "any Unknown atom in play"],
+        ]
+        print(_render_table(["FIELD", "VALUE", "MEANING"], rows))
 
     def trace(self, show_all: bool) -> None:
         if not self._need_lib() or not self._need_events():
             return
         rows = []
+        fired = unk = 0
         for d in self.lib.detections:
             t = fires(d.spec, self.events, ref_lists=self.lib.ref_lists)
+            fired += t is True
+            unk += t is None
             if t is not False or show_all:
-                rows.append((d.id, t, d.approximate))
-        for rid, t, approx in rows:
-            flag = _c("33", "~") if approx else " "
-            print(f" {flag} {_tri(t):18} {rid}")
-        fired = sum(1 for _, t, _ in rows if t is True)
-        unk = sum(1 for _, t, _ in rows if t is None)
-        print(f"   {fired} fire, {unk} unknown, over {len(self.events)} events")
+                rows.append([d.id, _tri_cell(t), d.paradigm, _approx_cell(d.approximate)])
+        print(_c("1", f"trace over {len(self.events)} events — {fired} fire, {unk} unknown"))
+        if rows:
+            print(_render_table(["ID", "FIRES", "TYPE", "STATUS"], rows))
+        else:
+            print("   no detection fires or is uncertain (use `trace all` to see every rule)")
 
     def footprint(self, ident: str | None) -> None:
         if not self._need_lib() or not self._need_events():
             return
+        rows = []
         for c in self.lib.bundle.candidates:
-            if ident and c.id != ident:
-                continue
-            if not c.footprint:
+            if (ident and c.id != ident) or not c.footprint:
                 continue
             t = matches_footprint(c.footprint, self.events, ref_lists=self.lib.ref_lists)
-            print(f" {_tri(t):18} {c.id}")
+            rows.append([c.id, _tri_cell(t), _footprint_str(c.footprint)])
+        if not rows:
+            print("   no candidates to match" + (f" for {ident!r}" if ident else ""))
+            return
+        print(_c("1", f"footprint match over {len(self.events)} events"))
+        print(_render_table(["CANDIDATE", "MATCHES", "FOOTPRINT"], rows))
 
     # -- coverage engine (M2 / M3 / M4) ----------------------------------------------------
 
@@ -352,13 +376,21 @@ class Session:
         from decnique.report import blindspots_report
 
         rep = blindspots_report(self.lib, self.account, tuple(perms) or None)
-        print(json.dumps(rep["summary"]))
-        for g in rep["gaps"]:
-            flag = _c("33", "~") if g["tag"] == "approximate" else " "
-            ev = g["event"]
-            print(f" {flag} GAP  {g['permission']:45} method={ev.get('method')}")
-        for p in rep["unlogged"]:
-            print(f"   UNLOGGED {p}  (methods not written to audit logs)")
+        s = rep["summary"]
+        print(_c("1", f"blind spots — {s['gaps']} gaps ({s['approximate']} approximate), "
+                      f"{s['covered']} covered, {s['unreachable']} unreachable, "
+                      f"{s['unlogged']} unlogged, of {s['permissions_probed']} probed"))
+        if rep["gaps"]:
+            rows = [
+                [g["permission"], g["event"].get("method", "-"),
+                 (g["event"].get("principal", "-")),
+                 _approx_cell(g["tag"] == "approximate")]
+                for g in rep["gaps"]
+            ]
+            print(_render_table(["PERMISSION (gap)", "METHOD", "PRINCIPAL", "STATUS"], rows))
+        if rep["unlogged"]:
+            print(_c("90", "  unlogged (no audit log → invisible regardless of rules): "
+                          + ", ".join(rep["unlogged"])))
         if not rep["gaps"] and not rep["unlogged"]:
             print("   no blind spots for the probed permissions")
 
@@ -367,15 +399,28 @@ class Session:
             return
         from decnique.smt.stealth import Evasive, stealth_feasible
 
+        rows = []
         for c in self.lib.bundle.candidates:
             if ident and c.id != ident:
                 continue
             r = stealth_feasible(c, self.lib, self.account)
             if isinstance(r, Evasive):
-                tag = _c("33", "~approx") if r.approximate else _c("32", "evasive")
-                print(f" {tag:16} {c.id}  ({len(r.schedule)} events as {r.principal})")
+                verdict = ("evasive", "32")
+                detail = f"{len(r.schedule)} events as {r.principal}"
+                status = _approx_cell(r.approximate)
             else:
-                print(f" {_c('90', r.verdict):16} {c.id}")
+                verdict = (r.verdict, "90")
+                detail = ", ".join(getattr(r, "missing", ())) if r.verdict == "not_feasible" else "-"
+                status = ("-", "90")
+            rows.append([c.id, verdict, detail, status])
+        if not rows:
+            print("   no candidates to evaluate" + (f" for {ident!r}" if ident else ""))
+            return
+        evasive = sum(1 for r in rows if r[1][0] == "evasive")
+        print(_c("1", f"stealth — {evasive} of {len(rows)} techniques evade every rule"))
+        print(_render_table(["TECHNIQUE", "VERDICT", "DETAIL", "STATUS"], rows))
+        print(_c("90", "  VERDICT=evasive/always_detected/not_feasible/exhausted · "
+                      "DETAIL=schedule size or missing permissions"))
 
     def chains(self, goal: str | None) -> None:
         if not self._need_lib() or not self._need_account():
@@ -390,14 +435,19 @@ class Session:
         from decnique.report import chains_report
 
         rep = chains_report(self.lib, self.account, attack)
-        if rep["found"]:
-            tag = _c("33", "~approx") if rep["tag"] == "approximate" else _c("32", "stealthy")
-            print(f" {tag} path to {rep['goal']}:")
-            for h in rep["hops"]:
-                print(f"   → {h['technique']:20} gains {', '.join(h['gains'])}")
-        else:
-            print(f" {_c('90', 'no stealthy path')} to {rep['goal']} "
-                  f"({rep['reason']}, {rep['states_explored']} states explored)")
+        if not rep["found"]:
+            print(_c("1", f"no stealthy path to {rep['goal']}"))
+            print(_c("90", f"  proven by exhausting {rep['states_explored']} states "
+                          f"({rep['reason']})"))
+            return
+        tag = "~approx" if rep["tag"] == "approximate" else "stealthy"
+        print(_c("1", f"{tag} escalation path to {rep['goal']} ({len(rep['hops'])} hops)"))
+        rows = [
+            [str(i + 1), h["technique"], ", ".join(h["gains"]) or "-", str(h["events"])]
+            for i, h in enumerate(rep["hops"])
+        ]
+        print(_render_table(["#", "TECHNIQUE", "GAINS (new permissions)", "EVENTS"],
+                            rows, aligns=["<", "<", "<", ">"]))
 
 
 # --- dispatch -----------------------------------------------------------------------------

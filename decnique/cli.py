@@ -5,6 +5,7 @@
     decnique.cli import  PATHS... -o DIR     native/vendored rules -> .decn (+ --yaml/--json AST)
     decnique.cli load    PATHS...            load a corpus and print a summary
     decnique.cli event   PATHS... -e FILE    which loaded detections observe a concrete event
+    decnique.cli coverage PATHS... -a ACCT   blind spots + stealth verdicts (+ chains) for an account
     decnique.cli admits  PATHS... -m METHOD  which loaded detections can involve a method
 
 Exit codes: 0 ok, 1 issues (errors), 3 input error.
@@ -152,6 +153,21 @@ def cmd_trace(ns: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_coverage(ns: argparse.Namespace) -> int:
+    """Plan §4 top-level answer: blind spots + stealth verdicts (+ chains) for an account."""
+    from decnique.env import load_account
+    from decnique.report import full_report
+
+    lib = DetectionLibrary.load(*ns.paths, options=_opts(ns))
+    account = load_account(ns.account)
+    doc = json.loads(Path(ns.account).read_text(encoding="utf-8"))
+    attack = doc.get("attack")
+    perms = tuple(ns.permission) if ns.permission else None
+    rep = full_report(lib, account, permissions=perms, attack=attack)
+    print(json.dumps(rep, indent=2))
+    return 0
+
+
 def cmd_show(ns: argparse.Namespace) -> int:
     for f in ns.files:
         b = load_file(Path(f), _opts(ns))
@@ -189,6 +205,7 @@ def main(argv: list[str] | None = None) -> int:
         ("load", cmd_load),
         ("event", cmd_event),
         ("trace", cmd_trace),
+        ("coverage", cmd_coverage),
         ("admits", cmd_admits),
         ("show", cmd_show),
     ):
@@ -221,6 +238,15 @@ def main(argv: list[str] | None = None) -> int:
                 "--all-rules",
                 action="store_true",
                 help="report every detection, not only those that fire / are uncertain",
+            )
+        if name == "coverage":
+            p.add_argument(
+                "-a", "--account", required=True, help="JSON account model (Reach / Log)"
+            )
+            p.add_argument(
+                "--permission",
+                action="append",
+                help="probe only these permissions (repeatable); default: reachable catalog",
             )
         if name == "admits":
             p.add_argument("-m", "--method", required=True)

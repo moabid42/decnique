@@ -61,6 +61,8 @@ class Session:
         self.events: list[dict] = []
         self.events_src: str = ""
         self.options = LoadOptions()
+        self.account = None
+        self.account_doc: dict = {}
 
     # -- loading ---------------------------------------------------------------------------
 
@@ -86,6 +88,14 @@ class Session:
         self.events_src = file
         print(f"loaded {len(self.events)} events from {file}")
 
+    def account_load(self, file: str) -> None:
+        from decnique.env import account_from_dict
+
+        self.account_doc = json.loads(Path(file).read_text(encoding="utf-8"))
+        self.account = account_from_dict(self.account_doc)
+        principals = len(self.account.bindings)
+        print(f"loaded account {self.account.name!r}: {principals} principals")
+
     # -- guards ----------------------------------------------------------------------------
 
     def _need_lib(self) -> bool:
@@ -97,6 +107,12 @@ class Session:
     def _need_events(self) -> bool:
         if not self.events:
             print("no events loaded — run: events <file.json>")
+            return False
+        return True
+
+    def _need_account(self) -> bool:
+        if self.account is None:
+            print("no account loaded — run: account <file.json>")
             return False
         return True
 
@@ -188,11 +204,60 @@ class Session:
             t = matches_footprint(c.footprint, self.events, ref_lists=self.lib.ref_lists)
             print(f" {_tri(t):18} {c.id}")
 
-    # -- forward-looking (need later milestones) -------------------------------------------
+    # -- coverage engine (M2 / M3 / M4) ----------------------------------------------------
 
-    def not_yet(self, verb: str, needs: str) -> None:
-        print(f"{verb}: not available yet — needs {needs}.")
-        print("  (M0 concrete evaluator is live: try `trace` and `footprint`.)")
+    def blindspots(self, perms: list[str]) -> None:
+        if not self._need_lib() or not self._need_account():
+            return
+        from decnique.report import blindspots_report
+
+        rep = blindspots_report(self.lib, self.account, tuple(perms) or None)
+        print(json.dumps(rep["summary"]))
+        for g in rep["gaps"]:
+            flag = _c("33", "~") if g["tag"] == "approximate" else " "
+            ev = g["event"]
+            print(f" {flag} GAP  {g['permission']:45} method={ev.get('method')}")
+        for p in rep["unlogged"]:
+            print(f"   UNLOGGED {p}  (methods not written to audit logs)")
+        if not rep["gaps"] and not rep["unlogged"]:
+            print("   no blind spots for the probed permissions")
+
+    def stealth(self, ident: str | None) -> None:
+        if not self._need_lib() or not self._need_account():
+            return
+        from decnique.smt.stealth import Evasive, stealth_feasible
+
+        for c in self.lib.bundle.candidates:
+            if ident and c.id != ident:
+                continue
+            r = stealth_feasible(c, self.lib, self.account)
+            if isinstance(r, Evasive):
+                tag = _c("33", "~approx") if r.approximate else _c("32", "evasive")
+                print(f" {tag:16} {c.id}  ({len(r.schedule)} events as {r.principal})")
+            else:
+                print(f" {_c('90', r.verdict):16} {c.id}")
+
+    def chains(self, goal: str | None) -> None:
+        if not self._need_lib() or not self._need_account():
+            return
+        attack = dict(self.account_doc.get("attack", {}))
+        if goal:
+            attack["goal"] = goal
+        if "goal" not in attack or "principal" not in attack:
+            print("chains: the account file needs an `attack` block "
+                  "(principal, initial_state, goal, effects) — or pass a goal permission.")
+            return
+        from decnique.report import chains_report
+
+        rep = chains_report(self.lib, self.account, attack)
+        if rep["found"]:
+            tag = _c("33", "~approx") if rep["tag"] == "approximate" else _c("32", "stealthy")
+            print(f" {tag} path to {rep['goal']}:")
+            for h in rep["hops"]:
+                print(f"   → {h['technique']:20} gains {', '.join(h['gains'])}")
+        else:
+            print(f" {_c('90', 'no stealthy path')} to {rep['goal']} "
+                  f"({rep['reason']}, {rep['states_explored']} states explored)")
 
 
 # --- dispatch -----------------------------------------------------------------------------
@@ -208,9 +273,10 @@ _HELP = """commands:
   event <file.json>        single event: which detections observe it
   trace [all]              run every detection over the loaded trace (three-valued)
   footprint [id]           match candidate footprint(s) against the loaded trace
-  blindspots               [needs M1+M2] reachable+logged events no rule observes
-  stealth <id>             [needs M3]     can this technique evade every rule
-  chains                   [needs M4]     stealthy privilege-escalation paths
+  account <file.json>      load the GCP account model (Reach / Log constraints)
+  blindspots [perm...]     reachable+logged events no rule observes (M2)
+  stealth [id]             can a technique evade every rule? evasive schedule (M3)
+  chains [goal]            stealthy privilege-escalation paths (M4; needs `attack` block)
   help                     this list
   quit / exit              leave
 """
@@ -243,16 +309,18 @@ def dispatch(s: Session, line: str) -> bool:
             s.events_load(args[0]) if args else print("usage: events <file.json>")
         elif cmd == "event":
             s.event(args[0] if args else None)
+        elif cmd == "account":
+            s.account_load(args[0]) if args else print("usage: account <file.json>")
         elif cmd == "trace":
             s.trace(show_all=bool(args) and args[0] == "all")
         elif cmd == "footprint":
             s.footprint(args[0] if args else None)
         elif cmd == "blindspots":
-            s.not_yet("blindspots", "the M1 account model + M2 single-event SMT")
+            s.blindspots(args)
         elif cmd == "stealth":
-            s.not_yet("stealth", "the M3 symbolic stealth solver")
+            s.stealth(args[0] if args else None)
         elif cmd == "chains":
-            s.not_yet("chains", "the M4 attack-graph search")
+            s.chains(args[0] if args else None)
         else:
             print(f"unknown command {cmd!r} — type `help`")
     except (OSError, json.JSONDecodeError) as e:
@@ -290,8 +358,9 @@ def main(argv: list[str] | None = None) -> int:
     if not argv:
         return repl(s)
     # one-shot: a bare `load ...` etc., or delegate richer forms to decnique.cli
-    if argv[0] in {"parse", "fmt", "import", "load", "event", "trace", "admits", "show"} and (
-        "-e" in argv or "-o" in argv or "--yaml" in argv
+    delegated = {"parse", "fmt", "import", "event", "trace", "coverage", "admits", "show"}
+    if argv[0] in delegated and (
+        {"-e", "-o", "-a", "--account", "--yaml", "--permission"} & set(argv)
     ):
         from decnique.cli import main as cli_main
 

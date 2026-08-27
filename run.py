@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import shlex
+import shutil
 import sys
 from pathlib import Path
 
@@ -47,6 +48,105 @@ def _tri(t: object) -> str:
 def _events_from(raw: object) -> list[dict]:
     entries = raw if isinstance(raw, list) else [raw]
     return [event_from_audit_log(e) if "protoPayload" in e else e for e in entries]
+
+
+# --- table rendering ----------------------------------------------------------------------
+
+# A cell is either a plain string, or (text, color_code) for a coloured cell.
+Cell = "str | tuple[str, str]"
+
+
+def _term_width(default: int = 100) -> int:
+    try:
+        return shutil.get_terminal_size((default, 24)).columns
+    except OSError:
+        return default
+
+
+def _truncate(s: str, w: int) -> str:
+    return s if len(s) <= w else (s[: max(0, w - 1)] + "…" if w > 0 else "")
+
+
+def _cell_text(cell) -> tuple[str, str | None]:
+    if isinstance(cell, tuple):
+        return str(cell[0]), cell[1]
+    return str(cell), None
+
+
+def _render_table(headers, rows, *, aligns=None, gap: int = 2) -> str:
+    """Render an aligned, coloured, terminal-width-aware table.  The last column is the flexible
+    one that shrinks first when the terminal is narrow."""
+    cols = len(headers)
+    aligns = aligns or ["<"] * cols
+    widths = [len(h) for h in headers]
+    plain_rows = [[_cell_text(c) for c in r] for r in rows]
+    for r in plain_rows:
+        for i, (text, _) in enumerate(r):
+            widths[i] = max(widths[i], len(text))
+
+    budget = _term_width()
+    total = sum(widths) + gap * (cols - 1)
+    if total > budget:  # shrink the flexible (last) column, then the widest, down to a floor
+        shrink = total - budget
+        for i in sorted(range(cols), key=lambda k: widths[k], reverse=True):
+            if shrink <= 0:
+                break
+            room = widths[i] - max(8, len(headers[i]))
+            take = min(room, shrink)
+            widths[i] -= take
+            shrink -= take
+
+    sep = " " * gap
+
+    def pad(text: str, color: str | None, i: int) -> str:
+        cell = f"{_truncate(text, widths[i]):{aligns[i]}{widths[i]}}"
+        return _c(color, cell) if color else cell
+
+    lines = [_c("1;36", sep.join(pad(h, None, i) for i, h in enumerate(headers)))]
+    lines.append(_c("90", sep.join("─" * widths[i] for i in range(cols))))
+    for r in plain_rows:
+        lines.append(sep.join(pad(text, color, i) for i, (text, color) in enumerate(r)))
+    return "\n".join(lines)
+
+
+def _window_str(spec) -> str:
+    w = spec.window
+    if w is None:
+        return "-"
+    return f"{w.seconds}s" if w.side == "around" else f"{w.seconds}s/{w.side}"
+
+
+def _cond_str(c) -> str:
+    from decnique.model.trace import AggCmp, CAnd, CNot, COr, Count, CTrue
+
+    if isinstance(c, CTrue):
+        return "always"
+    if isinstance(c, Count):
+        return f"#{c.var}{c.op}{c.n}"
+    if isinstance(c, AggCmp):
+        return f"{c.name}{c.op}{c.n}"
+    if isinstance(c, CAnd):
+        return " & ".join(_cond_str(x) for x in c.children)
+    if isinstance(c, COr):
+        return " | ".join(_cond_str(x) for x in c.children)
+    if isinstance(c, CNot):
+        return f"!({_cond_str(c.child)})"
+    return "?"
+
+
+def _footprint_str(fp) -> str:
+    parts = []
+    for s in fp.steps:
+        tag = s.id + (f"×{s.repeat}" if s.repeat and s.repeat != 1 else "")
+        extras = []
+        if s.within_seconds is not None:
+            extras.append(f"within {s.within_seconds}s")
+        if s.distinct:
+            extras.append("distinct " + ",".join(q[1] for q in s.distinct))
+        if extras:
+            tag += f" ({'; '.join(extras)})"
+        parts.append(tag)
+    return ", ".join(parts)
 
 
 # --- session ------------------------------------------------------------------------------
@@ -121,22 +221,62 @@ class Session:
     def rules(self, filt: str | None) -> None:
         if not self._need_lib():
             return
-        for d in self.lib.detections:
-            if filt and filt not in d.id:
-                continue
-            kind = "1ev" if d.spec.is_single_event else "trace"
-            flag = _c("33", "~") if d.approximate else " "
-            fe = d.source.frontend if d.source else "dsl"
-            print(f" {flag} {fe:8} {d.paradigm:11} {kind:5} {d.id}")
-        print(f"   {len(self.lib.detections)} detections")
+        shown = [d for d in self.lib.detections if not filt or filt in d.id]
+        if not shown:
+            print(f"   no detections match {filt!r}" if filt else "   no detections loaded")
+            return
+        rows = []
+        approx = 0
+        for d in shown:
+            approx += bool(d.approximate)
+            status = ("~approx", "33") if d.approximate else ("exact", "90")
+            rows.append([
+                d.id,
+                d.source.frontend if d.source else "dsl",
+                d.paradigm,
+                str(len(d.spec.events)),
+                _window_str(d.spec),
+                _cond_str(d.spec.condition),
+                status,
+            ])
+        title = f"detections ({len(shown)}" + (f" of {len(self.lib.detections)}" if filt else "")
+        print(_c("1", f"{title}, {approx} approximate)"))
+        print(_render_table(
+            ["ID", "SOURCE", "TYPE", "#EV", "WINDOW", "CONDITION", "STATUS"],
+            rows,
+            aligns=["<", "<", "<", ">", "<", "<", "<"],
+        ))
+        print(_c("90",
+                 "  SOURCE=front-end · TYPE=event(single)/correlation(multi) · #EV=event vars · "
+                 "WINDOW=correlation span · STATUS=~approx has Unknown atoms"))
 
     def candidates(self) -> None:
         if not self._need_lib():
             return
-        for c in self.lib.bundle.candidates:
-            steps = ", ".join(s.id for s in c.footprint.steps) if c.footprint else "-"
-            print(f"   {c.id:30} steps: {steps}")
-        print(f"   {len(self.lib.bundle.candidates)} candidates")
+        cands = self.lib.bundle.candidates
+        if not cands:
+            print("   no candidates loaded — techniques come from .decn `candidate {…}` blocks")
+            return
+        rows = []
+        for c in cands:
+            reqs = ", ".join(r.permission for r in c.required) or "-"
+            fp = c.footprint
+            rows.append([
+                c.id,
+                reqs,
+                _footprint_str(fp) if fp else "-",
+                " < ".join(fp.order) if fp and fp.order else "-",
+                f"{fp.span_seconds}s" if fp and fp.span_seconds is not None else "-",
+            ])
+        print(_c("1", f"candidates ({len(cands)})"))
+        print(_render_table(
+            ["ID", "REQUIRES", "FOOTPRINT", "ORDER", "SPAN"],
+            rows,
+            aligns=["<", "<", "<", "<", ">"],
+        ))
+        print(_c("90",
+                 "  REQUIRES=permissions the actor must hold · FOOTPRINT=step×repeat (guards) · "
+                 "ORDER=step sequence · SPAN=max duration · full detail: show <id>"))
 
     def show(self, ident: str | None) -> None:
         if not self._need_lib() or not ident:

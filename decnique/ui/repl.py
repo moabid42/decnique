@@ -166,24 +166,33 @@ def print_help() -> None:
 # --- prompt_toolkit front (with a plain fallback) -----------------------------------------
 
 
-def _toolbar_text(s: Session):
-    from prompt_toolkit.formatted_text import HTML
+def _term_width(default: int = 80) -> int:
+    import shutil
+
+    return max(24, shutil.get_terminal_size((default, 24)).columns)
+
+
+def _esc(text: str) -> str:
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _status_chips(s: Session) -> str:
+    """The `rules · candidates · account · events` chips for the bottom status line."""
 
     def chip(label: str, value: str, on: bool) -> str:
-        style = "ansicyan" if on else "ansibrightblack"
-        return f'<style fg="{style}">{label}</style> {value}'
+        cls = "tb.on" if on else "tb.off"
+        return f"<{cls}>{label}</{cls}> <tb.val>{_esc(value)}</tb.val>"
 
     rules = str(len(s.lib.detections)) if s.lib else "—"
     cands = str(len(s.lib.bundle.candidates)) if s.lib else "—"
     acct = s.account.name if s.account else "—"
     evs = str(len(s.events)) if s.events else "—"
-    parts = [
+    return "   ·   ".join([
         chip("rules", rules, bool(s.lib)),
         chip("candidates", cands, bool(s.lib)),
         chip("account", acct, bool(s.account)),
         chip("events", evs, bool(s.events)),
-    ]
-    return HTML("  " + "   ·   ".join(parts))
+    ])
 
 
 def _make_completer():
@@ -213,6 +222,8 @@ def _make_completer():
 
 
 def _repl_ptk(s: Session) -> int:
+    import os
+
     from prompt_toolkit import PromptSession
     from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
     from prompt_toolkit.formatted_text import HTML
@@ -220,25 +231,54 @@ def _repl_ptk(s: Session) -> int:
     from prompt_toolkit.styles import Style
 
     style = Style.from_dict({
-        "prompt": "bold cyan",
-        "bottom-toolbar": "bg:#1c1c1c #d0d0d0",
+        "frame": "#6c6c6c",           # the rounded input box
+        "prompt": "bold cyan",        # the ›
+        "bottom-toolbar": "noreverse",  # the status line under the box — no filled bar
+        "placeholder": "#585858 italic",
+        "tb.on": "cyan",
+        "tb.off": "#6c6c6c",
+        "tb.val": "#bcbcbc",
     })
-    history_path = f"{__import__('os').path.expanduser('~')}/.decnique_history"
+
+    def message() -> HTML:
+        """Top border of the box, then the input line's left edge:  ╭───╮ / │ › ."""
+        w = _term_width()
+        top = "╭" + "─" * (w - 2) + "╮"
+        return HTML(f"<frame>{top}</frame>\n<frame>│</frame> <prompt>›</prompt> ")
+
+    def rprompt() -> HTML:
+        """Close the input line's right edge."""
+        return HTML("<frame>│</frame>")
+
+    def bottom_toolbar() -> HTML:
+        """Bottom border of the box, then the status chips under it."""
+        w = _term_width()
+        base = "╰" + "─" * (w - 2) + "╯"
+        return HTML(f"<frame>{base}</frame>\n  {_status_chips(s)}")
+
+    history_path = os.path.join(os.path.expanduser("~"), ".decnique_history")
     session: PromptSession = PromptSession(
+        message=message,
+        rprompt=rprompt,
+        bottom_toolbar=bottom_toolbar,
+        placeholder=HTML('<placeholder>type a command — try "blindspots", "rules", or "help"</placeholder>'),
         history=FileHistory(history_path),
         auto_suggest=AutoSuggestFromHistory(),
         completer=_make_completer(),
         complete_while_typing=True,
+        reserve_space_for_menu=0,  # the box hugs the input; the completion menu expands it on demand
+        erase_when_done=True,  # the box lives only around the active input; scrollback stays clean
         style=style,
-        bottom_toolbar=lambda: _toolbar_text(s),
     )
     while True:
         try:
-            line = session.prompt(HTML("<prompt>decnique ›</prompt> "))
+            line = session.prompt()
         except EOFError:
             break
         except KeyboardInterrupt:
             continue
+        if line.strip():  # echo the submitted command cleanly above its output (Claude-Code style)
+            console.print(f"[brand]›[/brand] {line.strip()}")
         if not dispatch(s, line):
             break
     console.print("[muted]bye[/muted]")

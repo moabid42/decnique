@@ -332,11 +332,50 @@ def dispatch(s: Session, line: str) -> bool:
     return True
 
 
-def repl(s: Session) -> int:
+_COMMANDS = [
+    "load", "rules", "candidates", "show", "summary", "admits", "events", "event",
+    "account", "trace", "footprint", "blindspots", "stealth", "chains", "help", "quit", "exit",
+]
+
+
+def _install_readline() -> None:
+    """Enable history + Tab completion (command names, then filesystem paths).
+
+    On macOS, Python's ``readline`` is usually libedit, which binds Tab differently from GNU
+    readline — hence the ``__doc__`` check.  Completer delimiters are narrowed to whitespace so a
+    path token (which contains ``/``, ``.``, ``-`` …) completes as a whole."""
     try:
-        import readline  # noqa: F401  (enables history/editing where available)
+        import readline
     except ImportError:
-        pass
+        return
+    import glob
+    import os
+
+    def _paths(text: str) -> list[str]:
+        try:
+            matches = glob.glob(os.path.expanduser(text) + "*")
+        except OSError:
+            return []
+        return sorted(m + ("/" if os.path.isdir(m) else " ") for m in matches)
+
+    def completer(text: str, state: int) -> str | None:
+        stripped = readline.get_line_buffer().lstrip()
+        if " " not in stripped:  # still typing the command word
+            opts = sorted(c + " " for c in _COMMANDS if c.startswith(text))
+        else:  # an argument → complete filesystem paths
+            opts = _paths(text)
+        return opts[state] if state < len(opts) else None
+
+    readline.set_completer_delims(" \t\n")
+    readline.set_completer(completer)
+    if "libedit" in (readline.__doc__ or ""):
+        readline.parse_and_bind("bind ^I rl_complete")
+    else:
+        readline.parse_and_bind("tab: complete")
+
+
+def repl(s: Session) -> int:
+    _install_readline()
     print("decnique — interactive coverage shell.  type `help`, `quit` to leave.")
     while True:
         try:

@@ -54,7 +54,11 @@ def event_brief(ev: dict, *, keys: tuple[str, ...] = ("method", "principal", "re
     they carry no information for a reader, so they are dropped."""
 
     def informative(v) -> bool:
-        return v not in (None, "") and not (isinstance(v, str) and v.startswith("!"))
+        # drop absent values, z3 placeholders (!0!), and model-completion defaults (0, "0.0.0.0")
+        # that carry no witness information
+        if v in (None, "", 0, "0.0.0.0"):
+            return False
+        return not (isinstance(v, str) and v.startswith("!"))
 
     shown = [f"{k}={ev[k]}" for k in keys if informative(ev.get(k))]
     rest = [f"{k}={v}" for k, v in ev.items() if k not in keys and informative(v)]

@@ -10,6 +10,7 @@ requires-python = ">=3.11"
 dependencies = [
     "lark>=1.1",
     "pyyaml>=6.0",
+    "z3-solver>=4.12",
 ]
 
 [project.optional-dependencies]
@@ -29,6 +30,10 @@ packages = [
     "decnique",
     "decnique.dsl",
     "decnique.model",
+    "decnique.env",
+    "decnique.eval",
+    "decnique.smt",
+    "decnique.graph",
     "decnique.frontends",
     "decnique.frontends.secops",
 ]

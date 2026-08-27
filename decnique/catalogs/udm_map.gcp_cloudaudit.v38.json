@@ -1,0 +1,27 @@
+{
+  "version": "2026-08-26",
+  "parser_version": "38.0",
+  "generated_from": "Google SecOps 'Collect Google Cloud Audit Logs' parser doc (GCP_CLOUDAUDIT), plan §5.7.4; rows with verified=false come from usage in chronicle/detection-rules and IAMouflage's parse_gsecops and still need confirming (VERIFY V5)",
+  "rows": [
+    {"udm": "metadata.product_event_type", "event": "method", "transform": null, "verified": true},
+    {"udm": "metadata.event_type", "event": "event_type", "transform": null, "verified": true},
+    {"udm": "metadata.product_name", "event": "product_name", "transform": null, "verified": true},
+    {"udm": "metadata.vendor_name", "event": null, "transform": "const:Google Cloud Platform", "verified": true},
+    {"udm": "metadata.log_type", "event": null, "transform": "const:GCP_CLOUDAUDIT", "verified": true},
+    {"udm": "metadata.url_back_to_product", "event": "log_name", "transform": null, "verified": true},
+    {"udm": "principal.user.email_addresses", "event": "principal", "transform": "lower", "verified": true},
+    {"udm": "principal.user.userid", "event": "principal", "transform": "lower", "verified": false},
+    {"udm": "principal.ip", "event": "caller_ip", "transform": null, "verified": true},
+    {"udm": "principal.user.attribute.permissions.name", "event": "permission", "transform": null, "verified": true},
+    {"udm": "target.resource_ancestors.attribute.permissions.name", "event": "permission", "transform": null, "verified": true},
+    {"udm": "principal.resource.name", "event": "resource", "transform": null, "verified": true},
+    {"udm": "principal.resource.resource_subtype", "event": "resource_type", "transform": null, "verified": true},
+    {"udm": "target.resource_ancestors.attribute.labels[authorization_granted]", "event": "granted", "transform": "bool", "verified": true},
+    {"udm": "target.resource_ancestors.attribute.labels[resource_attribute_service]", "event": "service", "transform": null, "verified": true},
+    {"udm": "network.http.user_agent", "event": "user_agent", "transform": null, "verified": true},
+    {"udm": "principal.user.account_type", "event": "principal_type", "transform": "account_type", "verified": false},
+    {"udm": "target.application", "event": "service", "transform": null, "verified": false},
+    {"udm": "target.resource.name", "event": "resource", "transform": null, "verified": false},
+    {"udm": "security_result.action", "event": "granted", "transform": "action", "verified": false}
+  ]
+}

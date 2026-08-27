@@ -1,0 +1,132 @@
+// validator/dsl/grammar.lark — plan §5.10.1.  Lark, parser="lalr", lexer="contextual".
+// Comments run from // to end of line.  Keywords are plain string terminals: Lark's
+// "unless" mechanism turns a NAME token into the keyword only when the whole
+// identifier equals the keyword, so `events_total`, `android`, `order_id` stay NAMEs.
+
+start: item*
+?item: detection | candidate | check | ruleset
+
+// ===== detections =====
+detection: "detection" NAME "{" meta? events join? group_by? window? order? aggregates? condition? options? "}"
+meta: "meta" "{" meta_entry* "}"
+meta_entry: NAME "=" literal
+events: "event" expr                          -> single_event
+      | "events" "{" event_var+ "}"           -> multi_event
+event_var: NAME ":" expr
+join: "join" "{" join_eq+ "}"
+join_eq: qfield "=" qfield
+group_by: "group" "by" qfield ("," qfield)*
+window: "window" DURATION window_anchor?
+window_anchor: "before" NAME                  -> before
+             | "after" NAME                   -> after
+order: "order" NAME ("<" NAME)+
+aggregates: "aggregates" "{" agg_def+ "}"
+agg_def: NAME "=" agg
+?agg: agg "+" agg_term                        -> agg_add
+    | agg "-" agg_term                        -> agg_sub
+    | agg_term
+?agg_term: agg_term "*" NUMBER                -> agg_mul
+         | agg_term "/" NUMBER                -> agg_div
+         | agg_atom
+?agg_atom: aggfn "(" qfield? ")"              -> agg_call
+         | NUMBER                             -> agg_const
+         | NAME                               -> agg_ref
+         | "if" "(" expr "," agg "," agg ")"  -> agg_if
+         | "(" agg ")"
+aggfn: "sum" -> sum | "max" -> max | "min" -> min | "count" -> count | "count_distinct" -> count_distinct
+condition: "condition" cond
+?cond: cond "or" cond_and                     -> cor
+     | cond_and
+?cond_and: cond_and "and" cond_not            -> cand
+         | cond_not
+?cond_not: "not" cond_not                     -> cnot
+         | cond_atom
+?cond_atom: "(" cond ")"
+          | "#" NAME cmpop NUMBER             -> count_cmp
+          | "#" NAME                          -> count_exists
+          | NAME cmpop NUMBER                 -> agg_cmp
+options: "options" "{" meta_entry* "}"
+
+// ===== single-event predicates (matchers) =====
+?expr: expr "or" expr_and                     -> or_
+     | expr_and
+?expr_and: expr_and "and" expr_not            -> and_
+         | expr_not
+?expr_not: "not" expr_not                     -> not_
+         | expr_atom
+?expr_atom: "(" expr ")"
+          | quant? qfield cmpop value nocase?                       -> cmp
+          | quant? qfield "like" STRING nocase?                     -> like
+          | quant? qfield "matches" rx nocase?                      -> regex
+          | quant? qfield strfn STRING nocase?                      -> strfn
+          | quant? qfield "in" "[" value ("," value)* "]" nocase?   -> in_values
+          | quant? qfield "in" "cidr" "[" STRING ("," STRING)* "]"  -> in_cidr
+          | quant? qfield "in" "%" refname nocase?                  -> in_ref
+          | quant? qfield "in" "regex" "%" refname nocase?          -> in_ref_regex
+          | quant? qfield "in" "cidr" "%" refname                   -> in_ref_cidr
+          | qfield "exists"                                         -> exists
+          | qfield "missing"                                        -> missing
+          | bool_                                                   -> const
+          | "unknown" "(" STRING ")"                                -> unknown
+rx: REGEX | STRING
+quant: "all" -> all | "any" -> any
+strfn: "startswith" -> startswith | "endswith" -> endswith | "contains" -> contains
+cmpop: "=" -> eq | "!=" -> ne | "<" -> lt | "<=" -> le | ">" -> gt | ">=" -> ge
+nocase: "nocase"
+qfield: DOTTED                                -> qf_dotted
+      | NAME                                  -> qf_name
+      | "udm" "(" STRING ")"                  -> qf_udm
+      | DOTTED "(" STRING ")"                 -> qf_var_udm      // e.g. gcp.udm("principal.user.userid")
+refname: DOTTED | NAME
+value: STRING | NUMBER | bool_
+bool_: "true" -> true | "false" -> false
+literal: STRING | NUMBER | bool_ | DURATION
+
+// ===== candidates (adversary techniques) =====
+candidate: "candidate" NAME "{" meta? actor? required footprint context? share? "}"
+actor: "actor" expr
+required: "required" "{" req+ "}"
+req: DOTTED ("on" expr)?
+footprint: "footprint" "{" step+ fp_order? span? "}"
+step: NAME ":" method stepopt*
+method: STRING | DOTTED | NAME
+stepopt: "repeat" NUMBER                      -> repeat
+       | "within" DURATION                    -> within
+       | "distinct" qfield ("," qfield)*      -> distinct
+       | "where" expr                         -> where
+fp_order: "order" NAME ("<" NAME)+
+span: "span" DURATION
+context: "context" expr
+share: "share" NAME ("," NAME)*
+
+// ===== checks and rulesets =====
+check: "check" NAME "{" "type" typename checkopt* "}"
+typename: NAME | "candidate" -> candidate_type
+checkopt: "event" expr                        -> co_event
+        | "permission" DOTTED                 -> co_permission
+        | "permissions" "like" STRING         -> co_permissions
+        | "resource" "like" STRING            -> co_resource
+        | "allowed" expr                      -> co_allowed
+        | "mode" NAME                         -> co_mode
+        | "rules" "[" NAME ("," NAME)* "]"    -> co_rules
+        | "for" NAME                          -> co_for
+        | "step" NAME                         -> co_step
+        | "left" NAME                         -> co_left
+        | "right" NAME                        -> co_right
+        | "scope" "[" DOTTED ("," DOTTED)* "]" -> co_scope
+ruleset: "ruleset" NAME "{" rsitem* "}"
+rsitem: "include" STRING                      -> rs_include
+      | "disable" NAME                        -> rs_disable
+      | "enable" NAME                         -> rs_enable
+
+// ===== terminals =====
+NAME: /[A-Za-z_][A-Za-z0-9_]*/
+DOTTED: /[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z0-9_\-]+)+/
+DURATION: /[0-9]+(ms|s|m|h|d)/
+NUMBER: /[0-9]+/
+STRING: /"([^"\\]|\\.)*"/
+REGEX: /\/([^\/\\\n]|\\.)+\//
+COMMENT: /\/\/[^\n]*/
+%ignore COMMENT
+%import common.WS
+%ignore WS

@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "decnique"
+version = "0.1.0"
+description = "A DSL for detections and attacker techniques over one shared event model"
+requires-python = ">=3.11"
+dependencies = [
+    "lark>=1.1",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+decnique = "decnique.cli:main"
+
+[tool.setuptools]
+packages = [
+    "decnique",
+    "decnique.dsl",
+    "decnique.model",
+    "decnique.frontends",
+    "decnique.frontends.secops",
+]
+
+[tool.setuptools.package-data]
+"decnique.dsl" = ["*.lark"]
+"decnique" = ["catalogs/*.json"]

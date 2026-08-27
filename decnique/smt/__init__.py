@@ -17,12 +17,28 @@ from decnique.smt.coverage import (
     find_gap,
     probe_permissions,
 )
+from decnique.smt.stealth import (
+    AlwaysDetected,
+    Evasive,
+    Exhausted,
+    NotFeasible,
+    StealthResult,
+    feasible,
+    stealth_feasible,
+)
 
 __all__ = [
+    "AlwaysDetected",
     "CoverageReport",
+    "Evasive",
+    "Exhausted",
     "Gap",
     "GapResult",
     "NoGap",
+    "NotFeasible",
+    "StealthResult",
+    "feasible",
     "find_gap",
     "probe_permissions",
+    "stealth_feasible",
 ]

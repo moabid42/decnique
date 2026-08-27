@@ -9,6 +9,7 @@ sound regardless of encoding precision (Invariant #3).
 
 from __future__ import annotations
 
+from decnique.smt.bucket import BucketStats, bucketed_gaps, coverage_signature
 from decnique.smt.coverage import (
     CoverageReport,
     Gap,
@@ -29,7 +30,10 @@ from decnique.smt.stealth import (
 
 __all__ = [
     "AlwaysDetected",
+    "BucketStats",
     "CoverageReport",
+    "bucketed_gaps",
+    "coverage_signature",
     "Evasive",
     "Exhausted",
     "Gap",

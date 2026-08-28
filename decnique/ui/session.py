@@ -66,7 +66,7 @@ class Session:
         """Parse DSL typed at the prompt (or read from a file) and merge it into the library.
         An item with an id already loaded replaces the old one, so a block can be re-typed."""
         new = parse_text(text, file)
-        old = self.lib.bundle if self.lib else Bundle()
+        old = self.lib.bundle if self.lib is not None else Bundle()  # lib is falsy with 0 detections
         ids = {i.id for i in (*new.detections, *new.candidates, *new.checks, *new.rulesets)}
         kept = Bundle(
             tuple(d for d in old.detections if d.id not in ids),
@@ -75,7 +75,7 @@ class Session:
             tuple(r for r in old.rulesets if r.id not in ids),
             old.issues,
         )
-        self.lib = DetectionLibrary(kept + new, self.lib.ref_lists if self.lib else None)
+        self.lib = DetectionLibrary(kept + new, self.lib.ref_lists if self.lib is not None else None)
         for kind, items in (("detection", new.detections), ("candidate", new.candidates),
                             ("check", new.checks), ("ruleset", new.rulesets)):
             for i in items:

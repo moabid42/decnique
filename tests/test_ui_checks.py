@@ -23,4 +23,7 @@ def test_define_merges_and_replaces_by_id(tmp_path):
     dispatch(s, "check c { type redundant_rules }")  # same id → replaced, not duplicated
     assert [c.type for c in s.lib.bundle.checks] == ["redundant_rules"]
     assert dispatch(s, "check c { type nonsense }") is True  # a DSL error is reported, not raised
+    dispatch(s, 'candidate k { required { iam.serviceAccountKeys.create } footprint { a: "X" } }')
+    dispatch(s, "check c { type candidate for k }")
+    assert [c.id for c in s.lib.bundle.candidates] == ["k"]  # candidates survive a redefine
     assert dispatch(s, "checks") is True and dispatch(s, "check c") is True  # no account → cannot run

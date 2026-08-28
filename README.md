@@ -1,5 +1,8 @@
 # decnique
 
+> New here (human or AI)? Start with [`AGENTS.md`](AGENTS.md) — a two-minute explanation,
+> the layout, the invariants, and the traps.
+
 A domain-specific language for writing **detections** (a security team's alarm rules)
 and **candidates** (an attacker's technique) against **one shared event model**, so the
 two can be compared directly.

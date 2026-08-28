@@ -409,6 +409,8 @@ def fires(spec: TraceSpec, events: Sequence[Event], *, ref_lists: RefLists | Non
     aggregates = spec.aggregate_map
     groups = _group(spec, matched)
     if not groups:  # let count conditions like ``#e = 0`` see an empty group
+        if isinstance(spec.condition, CTrue):
+            return False  # nothing matched and nothing was asked of the count: no alert
         return _eval_cond(spec.condition, [], aggregates)
     per_group: list[Tri] = []
     for g in groups:

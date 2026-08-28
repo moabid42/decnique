@@ -367,6 +367,8 @@ def blindspots(s: Session, perms: list[str]) -> None:
         r.note(f"witness: {event_brief(res.event)}")
         r.replay(f"replay: {n_fire}/{len(lib.detections)} rules fire, {n_unk} unknown → "
                  f"{'sound' if n_fire == 0 else 'REJECTED'}", sound=(n_fire == 0))
+        for c in res.caveats:
+            r.note(f"caveat: {c}")
         tag = "approximate" if res.approximate else "exact"
         r.verdict_gap(f"BLIND SPOT ({tag}) — {res.event.get('method', '—')} unobserved")
         gaps.append({"permission": p, "event": res.event, "approximate": res.approximate})

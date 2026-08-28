@@ -201,3 +201,58 @@ def test_fires_on_one_event_folds_only_single_event_triggers():
     assert _fires_on_one_event(S([E("e")], Count(var="e", op=">=", n=2))) is False
     assert _fires_on_one_event(S([E("e"), E("f")], Count(var="e", op=">=", n=1))) is False
     assert _count_true(">=", 1, 1) and not _count_true(">=", 1, 2)
+
+
+# --- realism: a policy-change witness carries its change list -------------------------------
+
+
+def test_setiampolicy_witness_carries_event_type_and_binding_deltas():
+    # No rule covers the permission, but the witness must still look like a real audit event:
+    # event_type pinned by the method, and the binding-delta labels present with values.
+    lib = _lib("""detection d { event method = "storage.objects.get" }""")
+    acct = _account("resourcemanager.projects.setIamPolicy")
+    r = find_gap("resourcemanager.projects.setIamPolicy", lib, acct)
+    assert isinstance(r, Gap)
+    assert r.event["method"] == "SetIamPolicy"  # the verified v1 name is preferred
+    assert r.event["event_type"] == "USER_RESOURCE_UPDATE_PERMISSIONS"
+    labels = r.event["udm"]
+    assert labels["target.resource.attribute.labels[ser_binding_deltas_action]"] in ("ADD", "REMOVE")
+    assert labels["target.resource.attribute.labels[ser_binding_deltas_role]"].startswith("roles/")
+    assert "admin" in labels["target.resource.attribute.labels[ser_binding_deltas_member]"] or "@" in labels[
+        "target.resource.attribute.labels[ser_binding_deltas_member]"
+    ]
+    assert not r.caveats and not r.approximate
+
+
+def test_delta_rule_forces_values_not_absence():
+    # A rule on ADD+owner: the solver may no longer dodge it by omitting the delta labels; the
+    # witness must carry a *different* action or role.
+    lib = _lib(
+        """
+        detection owner_added {
+          event method = "SetIamPolicy"
+            and udm("target.resource.attribute.labels[ser_binding_deltas_action]") = "ADD"
+            and udm("target.resource.attribute.labels[ser_binding_deltas_role]") = "roles/owner"
+        }
+        """
+    )
+    acct = _account("resourcemanager.projects.setIamPolicy")
+    r = find_gap("resourcemanager.projects.setIamPolicy", lib, acct)
+    assert isinstance(r, Gap)
+    labels = r.event["udm"]
+    assert (
+        labels["target.resource.attribute.labels[ser_binding_deltas_action]"] != "ADD"
+        or labels["target.resource.attribute.labels[ser_binding_deltas_role]"] != "roles/owner"
+    )
+
+
+def test_unverified_method_witness_is_approximate_with_caveat():
+    from dataclasses import replace
+
+    lib = _lib("""detection d { event method = "storage.objects.get" }""")
+    acct = _account("resourcemanager.projects.setIamPolicy")
+    acct = replace(acct, logging=replace(acct.logging, disabled_methods=frozenset({"SetIamPolicy"})))
+    r = find_gap("resourcemanager.projects.setIamPolicy", lib, acct)
+    assert isinstance(r, Gap)
+    assert r.event["method"] == "google.cloud.resourcemanager.v3.Projects.SetIamPolicy"
+    assert r.approximate and r.caveats and "not confirmed" in r.caveats[0]

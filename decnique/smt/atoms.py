@@ -167,8 +167,11 @@ class Realizer:
             self._memo[key] = a.holds(value)
         return self._memo[key]
 
-    def realize(self, true: list[Atom], false: list[Atom]) -> Realized:
-        for cand in self._candidates(true):
+    def realize(
+        self, true: list[Atom], false: list[Atom], examples: tuple[str, ...] = ()
+    ) -> Realized:
+        """``examples`` are realistic values to prefer when no atom forces a value."""
+        for cand in self._candidates(true, examples):
             if all(self.holds(a, cand) is True for a in true) and all(
                 self.holds(a, cand) is False for a in false
             ):
@@ -177,7 +180,7 @@ class Realizer:
 
     # -- candidates ----------------------------------------------------------------------
 
-    def _candidates(self, true: list[Atom]) -> list[str]:
+    def _candidates(self, true: list[Atom], examples: tuple[str, ...] = ()) -> list[str]:
         eqs = [a for a in true if a.kind == "eq"]
         if eqs:
             lit = next((a.text for a in eqs if not a.nocase), eqs[0].text)
@@ -192,7 +195,7 @@ class Realizer:
         tail = suf[0] if suf else ""
         mids = [m for m in mid if m.lower() not in head.lower() and m.lower() not in tail.lower()]
         if not (head or tail or mids):
-            return ["", "-", "x"]
+            return _dedupe([*examples, "", "-", "x"])
         out: list[str] = []
         for order in (mids, list(reversed(mids))):
             for sep in ("", "-", "_", " ", "/"):

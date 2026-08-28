@@ -41,6 +41,7 @@ def blindspots_report(
             "tag": _tag(g.approximate),
             "event": g.event,
             "unknown_rules": list(g.unknown_rules),
+            "caveats": list(g.caveats),
         }
         for g in rep.gaps
     ]

@@ -74,6 +74,8 @@ def footprint_constraints(trace: SymTrace, fp, catalog=None) -> list[z3.BoolRef]
         if catalog is not None:
             for path, value in catalog.field_invariants(occ.method).items():
                 cons.append(occ.ev.term(path) == z3.StringVal(value))
+            for path in catalog.required_fields(occ.method):
+                cons.append(occ.ev.present(path))
             cons.append(occ.ev.term("granted") == z3.BoolVal(True))
 
     steps = {s.id: s for s in fp.steps}

@@ -42,6 +42,7 @@ class Gap:
     event: dict
     approximate: bool
     unknown_rules: tuple[str, ...] = ()
+    caveats: tuple[str, ...] = ()  # model-side reasons the witness is only approximate
 
     @property
     def found(self) -> bool:
@@ -182,6 +183,8 @@ class CoverageContext:
             for path, value in account.catalog.field_invariants(m).items():
                 if is_string_sort(path):
                     out.append(z3.Implies(t.eq("method", m), z3.And(*self._determine(path, value))))
+            for path in account.catalog.required_fields(m):  # ... and always carries others
+                out.append(z3.Implies(t.eq("method", m), ev.present(path)))
         out.append(ev.term("granted") == z3.BoolVal(True))
         return out
 
@@ -213,7 +216,8 @@ class CoverageContext:
             "granted": True,
         }
         event.update(account.catalog.field_invariants(m))
-        for path in self.paths:
+        required = account.catalog.required_fields(m)  # carried even if no rule reads them
+        for path in (*self.paths, *(p for p in required if p not in self.paths)):
             if path in event or path in ENUMERATED:
                 continue
             if not self._present(model, path):
@@ -223,7 +227,8 @@ class CoverageContext:
                 true = [a for a in atoms if self._true(model, self.table.var(a))]
                 tset = set(true)
                 false = [a for a in atoms if a not in tset]
-                r = self.realizer.realize(true, false)
+                examples = account.catalog.example_values(path, principal=event["principal"])
+                r = self.realizer.realize(true, false, examples)
                 if not r.ok:
                     return None, list(r.learned)
                 _put(event, path, r.value)
@@ -301,6 +306,9 @@ def find_gap(
     try:
         for c in ctx.domain(permission, logged, principals, account):
             s.add(c)
+        for m in logged:  # prefer a witness on a method confirmed to appear in audit logs
+            if not cat.verified(m):
+                s.add_soft(z3.Not(ctx.table.eq("method", m)), weight=100)
         for _ in range(max_refine):
             ctx.stats["checks"] += 1
             if s.check() != z3.sat:
@@ -335,11 +343,18 @@ def find_gap(
                 s.add(ctx.block(model))
                 continue
             unknown_rules = tuple(rid for rid, v in verdicts.items() if v is None)
+            caveats: tuple[str, ...] = ()
+            if not cat.verified(event["method"]):
+                caveats += (
+                    f"method {event['method']} is not confirmed to appear in audit logs "
+                    "(catalog entry unverified)",
+                )
             return Gap(
                 permission=permission,
                 event=event,
-                approximate=bool(unknown_rules),
+                approximate=bool(unknown_rules) or bool(caveats),
                 unknown_rules=unknown_rules,
+                caveats=caveats,
             )
         return NoGap(permission, "exhausted")
     finally:

@@ -27,6 +27,7 @@ class MethodInfo:
     service: str
     data_access: bool = False  # True → a Data-Access log (off by default in GCP)
     product_name: str | None = None  # UDM metadata.product_name a real event of this method carries
+    verified: bool = True  # False: the name is plausible but not confirmed to appear in audit logs
 
 
 # UDM ``metadata.product_name`` a Cloud Audit Log carries, keyed by service.  Grounded in the
@@ -40,6 +41,33 @@ SERVICE_PRODUCT: dict[str, str] = {
     "bigquery.googleapis.com": "BigQuery",
     "logging.googleapis.com": "Google Cloud Platform",
     "cloudkms.googleapis.com": "Google Cloud Platform",
+}
+
+
+# UDM ``metadata.event_type`` a Cloud Audit Log carries, keyed by the method's last segment.
+# Grounded the same way as SERVICE_PRODUCT: the literals Google's own SecOps rules filter on
+# (``metadata.event_type = "USER_RESOURCE_UPDATE_PERMISSIONS"`` next to ``SetIamPolicy``).
+METHOD_EVENT_TYPE: dict[str, str] = {
+    "SetIamPolicy": "USER_RESOURCE_UPDATE_PERMISSIONS",
+    "SetIAMPolicy": "USER_RESOURCE_UPDATE_PERMISSIONS",
+}
+
+# Fields a *policy-changing* audit event carries besides its method: the IAM binding deltas
+# (``protoPayload.serviceData.policyDelta.bindingDeltas[]``: action / role / member), which the
+# GCP_CLOUDAUDIT parser exposes as these target labels and which every SetIamPolicy detection
+# reads.  Forcing them *present* stops the solver proposing a policy change with no change list —
+# such an event can exist (a no-op SetIamPolicy, or an export that stripped ``serviceData``) but
+# is the least informative witness of a blind spot.  Values stay free: the solver must pick them.
+_DELTA = "udm:target.resource.attribute.labels[ser_binding_deltas_{}]"
+POLICY_DELTA_FIELDS: tuple[str, ...] = tuple(_DELTA.format(k) for k in ("action", "role", "member"))
+
+# Realistic example values a witness falls back to when no rule constrains a field; ordered by
+# how ordinary they are.  ``{principal}`` is the acting principal.  Purely a readability aid: every
+# candidate is still checked against the rules' atoms and replayed through the oracle.
+EXAMPLE_VALUES: dict[str, tuple[str, ...]] = {
+    _DELTA.format("action"): ("ADD", "REMOVE"),
+    _DELTA.format("role"): ("roles/viewer", "roles/editor", "roles/owner"),
+    _DELTA.format("member"): ("user:{principal}", "serviceAccount:{principal}", "group:team@example.com"),
 }
 
 
@@ -91,10 +119,16 @@ _SEED: tuple[MethodInfo, ...] = (
         "iam.googleapis.com",
     ),
     # --- resource manager ---
+    # Google's audit-logging reference lists the v3 operation as
+    # ``cloudresourcemanager.v3.projects.setIamPolicy``; every published detection and Google's
+    # own log query key on the v1 ``methodName`` ``SetIamPolicy``.  This gRPC-style spelling is
+    # plausible but unconfirmed in real logs, so a blind spot reached only through it is
+    # reported approximate with a caveat rather than as a proven evasion.
     MethodInfo(
         "google.cloud.resourcemanager.v3.Projects.SetIamPolicy",
         ("resourcemanager.projects.setIamPolicy",),
         "cloudresourcemanager.googleapis.com",
+        verified=False,
     ),
     # --- compute (actAs escalation, metadata) ---
     MethodInfo(
@@ -215,7 +249,27 @@ class Catalog:
         pn = self.product_name(method)
         if pn is not None:
             inv["product_name"] = pn
+        et = METHOD_EVENT_TYPE.get(method.rsplit(".", 1)[-1])
+        if et is not None:
+            inv["event_type"] = et
         return inv
+
+    def required_fields(self, method: str) -> tuple[str, ...]:
+        """Fields a real event of ``method`` always carries (values free) — the binding deltas
+        of an IAM policy change.  See :data:`POLICY_DELTA_FIELDS`."""
+        if method.rsplit(".", 1)[-1] in METHOD_EVENT_TYPE:
+            return POLICY_DELTA_FIELDS
+        return ()
+
+    def example_values(self, path: str, *, principal: str | None = None) -> tuple[str, ...]:
+        """Realistic fallback values for a witness field (see :data:`EXAMPLE_VALUES`)."""
+        return tuple(
+            v.format(principal=principal or "someone@example.com") for v in EXAMPLE_VALUES.get(path, ())
+        )
+
+    def verified(self, method: str) -> bool:
+        m = self.by_method.get(method)
+        return m.verified if m else False
 
     def all_permissions(self) -> frozenset[str]:
         return frozenset(p for m in self.by_method.values() for p in m.permissions)

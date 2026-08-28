@@ -33,9 +33,19 @@ class Session:
     # -- loading ---------------------------------------------------------------------------
 
     def load(self, paths: list[str]) -> None:
+        # flags mirror the CLI: --all (every platform, not just GCP), --deprecated
+        flags = {a for a in paths if a.startswith("--")}
+        paths = [a for a in paths if not a.startswith("--")]
         if not paths:
-            console.print("[muted]usage:[/muted] load <path> [path …]   (dirs or .decn/native rule files)")
+            console.print(
+                "[muted]usage:[/muted] load [--all] [--deprecated] <path> [path …]   "
+                "(dirs or .decn/native rule files; default = GCP rules only, _deprecated skipped)"
+            )
             return
+        self.options = LoadOptions(
+            gcp_only=not ({"--all", "--all-platforms"} & flags),
+            include_deprecated="--deprecated" in flags,
+        )
         self.lib = DetectionLibrary.load(*paths, options=self.options)
         self.paths = paths
         b = self.lib.bundle

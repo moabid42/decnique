@@ -25,7 +25,7 @@ from .theme import BULLET, console
 
 # verb -> (argument hint, one-line help).  Single source for completion, help, and dispatch.
 COMMANDS: dict[str, tuple[str, str]] = {
-    "load": ("<paths…>", "load detections + candidates into the session"),
+    "load": ("[--all] [--deprecated] <paths…>", "load detections + candidates (default: GCP only, skips _deprecated)"),
     "account": ("<file.json>", "load the GCP account model (Reach / Log constraints)"),
     "events": ("<file.json>", "load an ordered event trace into the session"),
     "rules": ("[substr]", "list loaded detections (~ = approximate)"),

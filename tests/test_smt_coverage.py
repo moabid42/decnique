@@ -256,3 +256,12 @@ def test_unverified_method_witness_is_approximate_with_caveat():
     assert isinstance(r, Gap)
     assert r.event["method"] == "google.cloud.resourcemanager.v3.Projects.SetIamPolicy"
     assert r.approximate and r.caveats and "not confirmed" in r.caveats[0]
+
+
+def test_unverified_method_cannot_be_the_reason_for_a_gap():
+    # The rule watches the confirmed v1 name; the catalog also lists an unverified v3 spelling.
+    # The solver must not "find" a gap by switching to the unverified name.
+    lib = _lib("""detection d { event method = "SetIamPolicy" }""")
+    acct = _account("resourcemanager.projects.setIamPolicy")
+    r = find_gap("resourcemanager.projects.setIamPolicy", lib, acct)
+    assert isinstance(r, NoGap) and r.reason == "all_covered"

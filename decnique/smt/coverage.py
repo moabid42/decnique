@@ -286,14 +286,21 @@ def find_gap(
     *,
     max_refine: int = 64,
     ctx: CoverageContext | None = None,
+    extra: tuple[z3.BoolRef, ...] = (),
 ) -> GapResult:
-    """Solve ``Reach ∧ Log ∧ ¬⋁Observes`` for one permission; return a verified witness."""
+    """Solve ``Reach ∧ Log ∧ ¬⋁Observes`` for one permission; return a verified witness.
+    ``extra`` adds constraints to the domain (used to ask "is there a gap *with* this atom?")."""
     cat = account.catalog
     if not account.reachable(permission):
         return NoGap(permission, "unreachable")
     logged = sorted(m for m in cat.methods_for(permission) if account.logged(m))
     if not logged:
         return NoGap(permission, "no_logged_method")
+    # A method name the catalog cannot confirm in real audit logs must not be the *reason* a
+    # gap exists: it would let the solver dodge every rule that names the real method.  Search
+    # over confirmed names when there are any; fall back to unverified ones (with a caveat).
+    verified = [m for m in logged if cat.verified(m)]
+    logged = verified or logged
     principals = sorted(account.principals_with(permission))
     if not principals:
         return NoGap(permission, "unreachable")
@@ -305,6 +312,8 @@ def find_gap(
     s.push()
     try:
         for c in ctx.domain(permission, logged, principals, account):
+            s.add(c)
+        for c in extra:
             s.add(c)
         for m in logged:  # prefer a witness on a method confirmed to appear in audit logs
             if not cat.verified(m):
@@ -430,3 +439,95 @@ def probe_permissions(
         approximate=tuple(approximate),
         exhausted=tuple(exhausted),
     )
+
+
+def describe_atom(a: Atom) -> str:
+    f = a.field
+    if f.startswith("udm:"):
+        f = f[4:].replace("target.resource.attribute.labels[", "labels[")
+    op = {"eq": "=", "contains": "contains", "startswith": "startswith", "endswith": "endswith",
+          "glob": "like", "regex": "matches"}[a.kind]
+    return f'{f} {op} "{a.text}"' + (" nocase" if a.nocase else "")
+
+
+@dataclass(frozen=True, slots=True)
+class AtomVerdict:
+    """Coverage of a change — one or two atomic tests held together — on this permission's
+    events: is there an unobserved event on which they hold?"""
+
+    atoms: tuple[Atom, ...]
+    result: GapResult
+
+    @property
+    def covered(self) -> bool:
+        return isinstance(self.result, NoGap) and self.result.reason == "all_covered"
+
+    def describe(self) -> str:
+        return "  ∧  ".join(describe_atom(a) for a in self.atoms)
+
+
+def probe_atoms(
+    permission: str,
+    lib: DetectionLibrary,
+    account: Account,
+    *,
+    ctx: CoverageContext | None = None,
+    max_atoms: int = 40,
+) -> tuple[AtomVerdict, ...]:
+    """The blind *region* of a permission, one atom at a time: for every atomic test the rules
+    make on the fields a real event of this permission carries (its binding deltas, user agent,
+    …), ask whether an unobserved event exists **on which that test holds**.  "covered" atoms
+    are the changes the corpus watches; "gap" atoms are the changes it does not.  Answers the
+    question ``blindspots`` alone cannot: not *whether* there is a hole, but *which* changes
+    fall into it."""
+    from decnique.dsl.interpret import spec_methods_literal
+
+    ctx = ctx or CoverageContext(lib)
+    cat = account.catalog
+    logged = sorted(m for m in cat.methods_for(permission) if account.logged(m))
+    if not logged or not account.reachable(permission):
+        return ()
+    fields: set[str] = set()
+    for m in logged:
+        fields.update(cat.required_fields(m))
+    for d in lib.detections:  # fields read by rules that name one of this permission's methods
+        lits = spec_methods_literal(d.spec)
+        if lits and not lits.isdisjoint(logged):
+            for e in d.spec.events:
+                for _, pth in referenced_fields(e.pred):
+                    fields.add(pth)
+    skip = set(ENUMERATED) | {"service", "product_name", "event_type", "granted"}
+    atoms = [
+        a for f in sorted(fields) if f not in skip
+        for a in ctx.table.by_field.get(f, ())
+    ]
+    seen: set[tuple[str, str, str, bool]] = set()
+    picked: list[Atom] = []
+    for a in atoms:
+        key = (a.field, a.kind, a.text.lower(), a.nocase)
+        if key not in seen:
+            seen.add(key)
+            picked.append(a)
+    # What is watched is usually a *combination* (ADD ∧ owner ∧ serviceAccount), so besides
+    # each atom alone, probe combinations over the required fields: one atom per field, always
+    # including the first required field (the delta *action*) so "grant" and "revoke" are never
+    # lumped together.
+    required_order = [f for m in logged for f in cat.required_fields(m)]
+    required = list(dict.fromkeys(required_order))
+    combos: list[tuple[Atom, ...]] = [(a,) for a in picked[:max_atoms]]
+    by_req: dict[str, list[Atom]] = {f: [a for a in picked if a.field == f] for f in required}
+    if required and by_req[required[0]]:
+        import itertools
+
+        head = required[0]
+        rest = [f for f in required[1:] if by_req[f]]
+        for k in range(1, len(rest) + 1):
+            for fields_k in itertools.combinations(rest, k):
+                for tail in itertools.product(*[by_req[f] for f in fields_k]):
+                    for a in by_req[head]:
+                        combos.append((a, *tail))
+    out = []
+    for atoms in combos[: max_atoms * 3]:
+        r = find_gap(permission, lib, account, ctx=ctx, extra=tuple(ctx.table.var(a) for a in atoms))
+        out.append(AtomVerdict(atoms, r))
+    return tuple(out)

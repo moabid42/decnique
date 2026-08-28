@@ -189,6 +189,7 @@ class Realizer:
         suf = [a.text for a in true if a.kind == "endswith"]
         mid = [a.text for a in true if a.kind == "contains"]
         mid += [_glob_seed(a.text) for a in true if a.kind == "glob"]
+        mid += [_regex_seed(a.text) for a in true if a.kind == "regex"]
         pre.sort(key=len, reverse=True)
         suf.sort(key=len, reverse=True)
         head = pre[0] if pre else ""
@@ -269,6 +270,16 @@ def simple_glob(pattern: str) -> tuple[str, str]:
     if lead:
         return "endswith", core
     return "eq", core
+
+
+def _regex_seed(pattern: str) -> str:
+    """A plausible literal for a simple regex: first alternative, anchors and ``.*`` dropped,
+    escapes undone (``.*@gmail\\.com`` → ``x@gmail.com``).  Only a *candidate* — it is verified."""
+    alt = pattern.split("|")[0]
+    alt = re.sub(r"^\^|\$$", "", alt).replace(".*", "").replace(".+", "")
+    alt = re.sub(r"\\(.)", r"\1", alt)
+    alt = re.sub(r"[\[\](){}?+*]", "", alt)
+    return ("x" + alt) if alt.startswith("@") else alt
 
 
 def _glob_seed(pattern: str) -> str:

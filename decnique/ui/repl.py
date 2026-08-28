@@ -40,6 +40,7 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "stealth": ("[id]", "can a technique evade every rule?  (SMT · M3)"),
     "chains": ("[goal]", "stealthy privilege-escalation paths  (graph+SMT · M4)"),
     "config": ("[key [value|reset]]", "show or change settings (e.g. blindspots.explain rules|formula|both)"),
+    "clear": ("", "clear the screen (session state is kept)"),
     "help": ("", "show this command list"),
     "quit": ("", "leave the shell"),
 }
@@ -68,6 +69,8 @@ def dispatch(s: Session, line: str) -> bool:
             print_help()
         elif cmd == "config":
             render.config(s, args)
+        elif cmd in ("clear", "cls"):
+            console.clear()
         elif cmd == "load":
             s.load(args)
         elif cmd == "account":
@@ -152,7 +155,7 @@ def print_help() -> None:
         ("inspect", ["rules", "candidates", "show", "admits", "summary"]),
         ("run over a trace", ["event", "trace", "footprint"]),
         ("coverage — the math", ["blindspots", "stealth", "chains"]),
-        ("shell", ["config", "help", "quit"]),
+        ("shell", ["config", "clear", "help", "quit"]),
     ]
     for heading, verbs in groups:
         t = Table(box=None, padding=(0, 2, 0, 0), show_header=False, pad_edge=False)

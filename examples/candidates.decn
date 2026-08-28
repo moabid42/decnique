@@ -8,7 +8,17 @@ candidate mint_access_token {
   footprint { act: "iam.serviceAccounts.getAccessToken" repeat 3 distinct caller_ip span 1h }
 }
 
+// The attacker does not merely *call* SetIamPolicy — they add themselves as Owner.  The
+// `where` payload is what the detections read (the IAM binding deltas), so the stealth
+// question becomes "can a human grant themselves Owner unseen?", not "can anyone touch the
+// policy unseen?".  `SetIamPolicy` is the methodName real Cloud Audit Logs carry (v1).
 candidate escalate_project_iam {
   required { resourcemanager.projects.setIamPolicy }
-  footprint { act: "google.cloud.resourcemanager.v3.Projects.SetIamPolicy" span 1h }
+  footprint {
+    act: "SetIamPolicy"
+      where udm("target.resource.attribute.labels[ser_binding_deltas_action]") = "ADD"
+        and udm("target.resource.attribute.labels[ser_binding_deltas_role]") = "roles/owner"
+        and udm("target.resource.attribute.labels[ser_binding_deltas_member]") startswith "user:"
+    span 1h
+  }
 }

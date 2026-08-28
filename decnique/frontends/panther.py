@@ -26,11 +26,15 @@ _STR = r"(?:\"([^\"\\]*(?:\\.[^\"\\]*)*)\"|'([^'\\]*(?:\\.[^'\\]*)*)')"
 _ENDSWITH = re.compile(r"\.endswith\(\s*" + _STR + r"\s*\)")
 _STARTSWITH = re.compile(r"\.startswith\(\s*" + _STR + r"\s*\)")
 _EQ = re.compile(r"(?:==|!=)\s*" + _STR)
+_STR_IN = re.compile(_STR + r"\s+in\s+([^\n:]{0,160})")  # ``"X" in <method expr>``
 _IN_SET = re.compile(r"\bin\s*[\[({]([^\])}]*)[\])}]", re.S)
 _SET_DEF = re.compile(r"^([A-Z_][A-Z0-9_]*)\s*=\s*[\[({]([^\])}]*)[\])}]", re.M | re.S)
 _ANY_STR = re.compile(_STR)
 _PERM_CTX = re.compile(r"permission\W{0,10}" + _STR, re.I)
-_METHOD_LIKE = re.compile(r"^[A-Za-z][A-Za-z0-9_.*-]*\.[A-Za-z][A-Za-z0-9_*-]*$")
+# a dotted method / permission name, or a bare CamelCase v1 method such as ``SetIamPolicy``
+_METHOD_LIKE = re.compile(
+    r"^(?:[A-Za-z][A-Za-z0-9_.*-]*\.[A-Za-z][A-Za-z0-9_*-]*|[A-Z][a-z]+(?:[A-Z][A-Za-z0-9]*)+)$"
+)
 
 
 def is_panther_gcp(doc: dict[str, AnyT]) -> bool:
@@ -153,6 +157,10 @@ def _python_pred(py_text: str | None, unsupported: list[str]) -> Pred:
         s = _first(m)
         if _METHOD_CTX.search(body[max(0, m.start() - 80) : m.start()]):
             methods.append(StrFn(field=(None, "method"), fn="startswith", value=s))
+    for m in _STR_IN.finditer(body):  # substring test on the method name
+        s = _first(m)
+        if _METHOD_CTX.search(m.group(m.lastindex)) and _METHOD_LIKE.match(s):
+            methods.append(StrFn(field=(None, "method"), fn="contains", value=s))
     for m in _EQ.finditer(body):
         s = _first(m)
         ctx = body[max(0, m.start() - 80) : m.start()]

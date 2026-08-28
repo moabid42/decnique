@@ -26,11 +26,14 @@ REGISTRY: dict[str, Setting] = {
     for s in (
         Setting(
             "blindspots.explain",
-            ("rules", "formula", "both"),
+            ("rules", "formula", "both", "words"),
             "rules",
             "how blindspots explains a permission's blind region: "
             "'rules' = per kind of change, which rules catch it / which conditions it dodges; "
-            "'formula' = the blind region as a formula over the rules' own tests; 'both'",
+            "'formula' = the blind region as a formula over the rules' own tests; 'both'; "
+            "'words' = plain-English sentences — HARD-CODED, only knows GCP IAM binding deltas "
+            "(action/role/member) and a few role/member patterns; everything else falls back "
+            "to the rules' syntax (see ui/words.py)",
         ),
         Setting(
             "blindspots.raw",

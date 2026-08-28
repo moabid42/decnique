@@ -443,7 +443,12 @@ def blindspots(s: Session, perms: list[str]) -> None:
             verdicts = {d.id: fires(d.spec, [res.event], ref_lists=lib.ref_lists) for d in lib.detections}
         n_fire = sum(v is True for v in verdicts.values())
         n_unk = sum(v is None for v in verdicts.values())
-        r.note(f"example nobody catches: {event_sentence(res.event)}")
+        if explain == "words":
+            from .words import event_sentence as _plain_event
+
+            r.note(f"example nobody catches: {_plain_event(res.event)}   (wording is hard-coded, IAM only)")
+        else:
+            r.note(f"example nobody catches: {event_sentence(res.event)}")
         if show_raw:
             r.note(f"raw: {event_brief(res.event)}")
         r.replay(f"replay: {n_fire}/{len(lib.detections)} rules fire, {n_unk} unknown → "
@@ -455,6 +460,22 @@ def blindspots(s: Session, perms: list[str]) -> None:
         # way the user configured (`config blindspots.explain rules|formula|both`).
         logged = [m for m in account.catalog.methods_for(p) if account.logged(m)]
         naming = rules_naming(lib, logged)
+        if explain == "words":
+            # HARD-CODED wording (ui/words.py): only IAM binding-delta fields get sentences
+            from .words import change_sentence
+
+            with r.thinking("which kinds of change are watched…"):
+                verdicts = probe_atoms(p, lib, account, ctx=ctx)
+            if verdicts:
+                r.math("per kind of change t:  ∃ e : t(e) ∧ Reach ∧ Log ∧ ¬(⋁ Observes)   (plain words; hard-coded vocabulary)")
+                shown = [v for v in verdicts if not _redundant_single(v, verdicts)]
+                for v in sorted(shown, key=lambda v: (not v.covered, change_sentence(v))):
+                    if v.covered:
+                        r.ok(f"watched:    {change_sentence(v)}")
+                    elif isinstance(v.result, Gap):
+                        r.no(f"UNWATCHED:  {change_sentence(v)}")
+                    else:
+                        r.note(f"unclear:    {change_sentence(v)}  ({v.result.reason})")
         if explain in ("rules", "both"):
             with r.thinking("which kinds of change are watched, and by which rules…"):
                 verdicts = probe_atoms(p, lib, account, ctx=ctx)
@@ -485,7 +506,7 @@ def blindspots(s: Session, perms: list[str]) -> None:
                 n_approx = len(ctx.single_rules) - len(ctx.exact_rules)
                 r.note(f"every cube is proven against the {len(ctx.exact_rules)} exactly-translated rules; "
                        f"{n_approx} approximate rule(s) are left out and might observe more")
-        verdicts = verdicts if explain in ("rules", "both") else ()
+        verdicts = verdicts if explain in ("rules", "both", "words") else ()
         # And the techniques that need this permission — the attacker's actual payloads.
         techs = [c for c in lib.bundle.candidates if any(q.permission == p for q in c.required)]
         detected_techs = []

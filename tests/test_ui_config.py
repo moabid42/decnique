@@ -65,3 +65,18 @@ def test_no_gap_when_rule_is_unconditional():
     r = find_gap("resourcemanager.projects.setIamPolicy", lib, _account())
     assert isinstance(r, NoGap) and r.covered_by == ("all",)
     assert blind_region("resourcemanager.projects.setIamPolicy", lib, _account()) == ()
+
+
+def test_words_mode_is_hardcoded_and_falls_back():
+    from decnique.smt.atoms import Atom
+    from decnique.smt.coverage import AtomVerdict, NoGap
+    from decnique.ui.words import change_sentence, event_sentence
+
+    d = "udm:target.resource.attribute.labels[ser_binding_deltas_{}]"
+    v = AtomVerdict((Atom(d.format("action"), "eq", "ADD"), Atom(d.format("role"), "eq", "roles/owner")), NoGap("p", "all_covered"))
+    assert change_sentence(v) == "someone grants the Owner role to anyone"
+    other = AtomVerdict((Atom("user_agent", "contains", "curl", True),), NoGap("p", "all_covered"))
+    assert change_sentence(other).startswith("an event where user_agent contains")  # fallback
+    assert "grants roles/owner to/from user:x" in event_sentence(
+        {"principal": "a", "method": "SetIamPolicy", "udm": {d.format("action")[4:]: "ADD", d.format("role")[4:]: "roles/owner", d.format("member")[4:]: "user:x"}}
+    )

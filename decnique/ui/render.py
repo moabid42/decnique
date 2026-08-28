@@ -369,6 +369,12 @@ def blindspots(s: Session, perms: list[str]) -> None:
                  f"{'sound' if n_fire == 0 else 'REJECTED'}", sound=(n_fire == 0))
         for c in res.caveats:
             r.note(f"caveat: {c}")
+        r.note("this is the *simplest* event no rule observes — not the attacker's specific change; "
+               "blindspots ignores candidate payloads")
+        techs = [c.id for c in lib.bundle.candidates if any(q.permission == p for q in c.required)]
+        if techs:
+            r.note("to test what an attacker actually does with it, run:  "
+                   + "   ".join(f"stealth {t}" for t in techs))
         tag = "approximate" if res.approximate else "exact"
         r.verdict_gap(f"BLIND SPOT ({tag}) — {res.event.get('method', '—')} unobserved")
         gaps.append({"permission": p, "event": res.event, "approximate": res.approximate})

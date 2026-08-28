@@ -10,7 +10,9 @@ import json
 from pathlib import Path
 
 from decnique.detections import DetectionLibrary, event_from_audit_log
+from decnique.dsl.ast import Bundle
 from decnique.dsl.loader import LoadOptions
+from decnique.dsl.parser import parse_text
 
 from .config import Settings
 from .theme import CHECK, console
@@ -59,6 +61,26 @@ class Session:
         )
         for i in errs:
             console.print(f"    [err]error[/err] {i.file}: {i.message}")
+
+    def define(self, text: str, file: str = "<repl>") -> Bundle:
+        """Parse DSL typed at the prompt (or read from a file) and merge it into the library.
+        An item with an id already loaded replaces the old one, so a block can be re-typed."""
+        new = parse_text(text, file)
+        old = self.lib.bundle if self.lib else Bundle()
+        ids = {i.id for i in (*new.detections, *new.candidates, *new.checks, *new.rulesets)}
+        kept = Bundle(
+            tuple(d for d in old.detections if d.id not in ids),
+            tuple(c for c in old.candidates if c.id not in ids),
+            tuple(c for c in old.checks if c.id not in ids),
+            tuple(r for r in old.rulesets if r.id not in ids),
+            old.issues,
+        )
+        self.lib = DetectionLibrary(kept + new, self.lib.ref_lists if self.lib else None)
+        for kind, items in (("detection", new.detections), ("candidate", new.candidates),
+                            ("check", new.checks), ("ruleset", new.rulesets)):
+            for i in items:
+                console.print(f"[ok]{CHECK}[/ok] defined {kind} [key]{i.id}[/key]")
+        return new
 
     def events_load(self, file: str) -> None:
         raw = json.loads(Path(file).read_text(encoding="utf-8"))

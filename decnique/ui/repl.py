@@ -36,6 +36,8 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "event": ("<file.json>", "single event: which detections observe it"),
     "trace": ("[all]", "run every detection over the loaded trace (three-valued)"),
     "footprint": ("[id]", "match candidate footprint(s) against the loaded trace"),
+    "checks": ("", "list loaded check blocks and the question each asks"),
+    "check": ("[id… | file.decn…]", "run check blocks (all loaded, by id, or from files)  (SMT)"),
     "blindspots": ("[perm…]", "reachable+logged events no rule observes  (SMT · M2)"),
     "stealth": ("[id]", "can a technique evade every rule?  (SMT · M3)"),
     "chains": ("[goal]", "stealthy privilege-escalation paths  (graph+SMT · M4)"),
@@ -45,15 +47,61 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "quit": ("", "leave the shell"),
 }
 
-_PATH_CMDS = {"load", "account", "events", "event"}
-_MATH_CMDS = {"blindspots", "stealth", "chains"}
+_PATH_CMDS = {"load", "account", "events", "event", "check"}
+_MATH_CMDS = {"blindspots", "stealth", "chains", "check"}
+
+# a line starting with one of these opens a DSL block, read until its braces close
+DSL_KEYWORDS = ("detection", "candidate", "check", "ruleset")
+
+
+def is_dsl(line: str) -> bool:
+    """True when the line begins a DSL item — `check foo {` — rather than the `check` verb."""
+    words = line.split()
+    return len(words) >= 2 and words[0] in DSL_KEYWORDS and "{" in line
+
+
+def block_open(text: str) -> bool:
+    """True while a DSL block still has an unclosed `{` (strings and // comments skipped)."""
+    depth, i, n = 0, 0, len(text)
+    while i < n:
+        ch = text[i]
+        if ch == '"':
+            i += 1
+            while i < n and text[i] != '"':
+                i += 2 if text[i] == "\\" else 1
+        elif text.startswith("//", i):
+            while i < n and text[i] != "\n":
+                i += 1
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+        i += 1
+    return depth > 0
+
+
+def read_block(first: str, more) -> str:
+    """Keep reading lines through `more()` until the block's braces balance (interpreter style)."""
+    text = first
+    while block_open(text):
+        line = more()
+        if line is None:
+            break
+        text += "\n" + line
+    return text
 
 
 # --- dispatch -----------------------------------------------------------------------------
 
 
 def dispatch(s: Session, line: str) -> bool:
-    """Run one command line. Returns False to exit the REPL."""
+    """Run one command line (or a whole DSL block). Returns False to exit the REPL."""
+    if is_dsl(line):
+        try:
+            s.define(line)
+        except DslError as e:
+            console.print(f"[err]dsl error:[/err] {e}")
+        return True
     try:
         parts = shlex.split(line)
     except ValueError as e:
@@ -93,6 +141,10 @@ def dispatch(s: Session, line: str) -> bool:
             render.trace(s, show_all=bool(args) and args[0] == "all")
         elif cmd == "footprint":
             render.footprint(s, args[0] if args else None)
+        elif cmd == "checks":
+            render.checks(s)
+        elif cmd == "check":
+            render.check(s, args)
         elif cmd == "blindspots":
             render.blindspots(s, args)
         elif cmd == "stealth":
@@ -154,7 +206,7 @@ def print_help() -> None:
         ("load state", ["load", "account", "events"]),
         ("inspect", ["rules", "candidates", "show", "admits", "summary"]),
         ("run over a trace", ["event", "trace", "footprint"]),
-        ("coverage — the math", ["blindspots", "stealth", "chains"]),
+        ("coverage — the math", ["blindspots", "stealth", "chains", "check", "checks"]),
         ("shell", ["config", "clear", "help", "quit"]),
     ]
     for heading, verbs in groups:
@@ -276,6 +328,13 @@ def _repl_ptk(s: Session) -> int:
         erase_when_done=True,  # the box lives only around the active input; scrollback stays clean
         style=style,
     )
+    def more() -> str | None:
+        try:
+            return session.prompt(HTML("<frame>│</frame> <prompt>…</prompt> "), rprompt=rprompt,
+                                  bottom_toolbar=None, completer=None, placeholder="")
+        except (EOFError, KeyboardInterrupt):
+            return None
+
     while True:
         try:
             line = session.prompt()
@@ -283,8 +342,10 @@ def _repl_ptk(s: Session) -> int:
             break
         except KeyboardInterrupt:
             continue
+        if is_dsl(line):  # a DSL block: keep reading until the braces close
+            line = read_block(line, more)
         if line.strip():  # echo the submitted command cleanly above its output (Claude-Code style)
-            console.print(f"[brand]›[/brand] {line.strip()}")
+            console.print("[brand]›[/brand] " + line.strip().replace("\n", "\n  "))
         if not dispatch(s, line):
             break
     console.print("[muted]bye[/muted]")
@@ -301,9 +362,18 @@ def _repl_plain(s: Session) -> int:
         except KeyboardInterrupt:
             print()
             continue
+        if is_dsl(line):
+            line = read_block(line, lambda: _plain_more())
         if not dispatch(s, line):
             break
     return 0
+
+
+def _plain_more() -> str | None:
+    try:
+        return input("      ... ")
+    except (EOFError, KeyboardInterrupt):
+        return None
 
 
 def repl(s: Session) -> int:

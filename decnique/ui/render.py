@@ -124,7 +124,11 @@ def show(s: Session, ident: str | None) -> None:
         if c.id == ident:
             _print_source("candidate", c.id, fmt.candidate(c))
             return
-    console.print(f"[warn]no detection or candidate named {ident!r}[/warn]")
+    for c in s.lib.bundle.checks:
+        if c.id == ident:
+            _print_source("check", c.id, fmt.check(c))
+            return
+    console.print(f"[warn]no detection, candidate, or check named {ident!r}[/warn]")
 
 
 def _print_source(kind: str, ident: str, text: str, *, approximate: bool = False) -> None:
@@ -687,4 +691,127 @@ def chains(s: Session, goal: str | None) -> None:
                [("#", "right"), ("TECHNIQUE",), ("GAINS (new permissions)",), ("EVENTS", "right")])
     for i, h in enumerate(rep["hops"]):
         _add(t, str(i + 1), h["technique"], ", ".join(h["gains"]) or "—", str(h["events"]))
+    console.print(t)
+
+
+# --- checks: the DSL's own questions ------------------------------------------------------------
+
+_CHECK_QUESTION = {
+    "coverage": "is every reachable+logged event for the permission(s) observed by some rule?",
+    "candidate": "is the technique caught however it is scheduled?",
+    "compare": "do the two rules observe the same events?",
+    "dead_rules": "can every rule fire on some reachable+logged event?",
+    "redundant_rules": "does every rule observe an event no other rule observes?",
+}
+
+
+def _check_params(c) -> str:  # type: ignore[no-untyped-def]
+    from decnique.dsl.format import pred
+
+    parts = []
+    for k, v in c.params.items():
+        if k in {"event", "allowed"}:
+            parts.append(f"{k} {pred(v)}")
+        elif isinstance(v, tuple):
+            parts.append(f"{k} [{', '.join(v)}]")
+        else:
+            parts.append(f"{k} {v}")
+    return "  ".join(parts) or "—"
+
+
+def checks(s: Session) -> None:
+    if not s.need_lib():
+        return
+    from decnique.checks import IMPLEMENTED
+
+    items = s.lib.bundle.checks
+    if not items:
+        console.print("[muted]no checks loaded — type one at the prompt, e.g. "
+                      "[key]check c { type coverage permission iam.serviceAccountKeys.create }[/key][/muted]")
+        return
+    t = _table("checks", [("ID",), ("TYPE",), ("OPTIONS",), ("QUESTION",)],
+               caption="run with: check [id…]  ·  every answer is pass / fail / unknown")
+    for c in items:
+        q = _CHECK_QUESTION.get(c.type, "no engine yet — answers unknown")
+        _add(t, c.id, (c.type, "key" if c.type in IMPLEMENTED else "muted"), _check_params(c), q)
+    console.print(t)
+
+
+def check(s: Session, args: list[str]) -> None:
+    """Run check blocks: all loaded ones, the named ones, or those in the given .decn files."""
+    from pathlib import Path
+
+    from decnique.checks import CheckError, run_checks
+
+    if not s.need_lib() and not any(Path(a).is_file() for a in args):
+        return
+    wanted: list = []
+    for a in args:
+        if Path(a).is_file():  # a file: define its items, then run the checks it holds
+            wanted.extend(s.define(Path(a).read_text(encoding="utf-8"), a).checks)
+        else:
+            hit = [c for c in (s.lib.bundle.checks if s.lib else ()) if c.id == a]
+            if not hit:
+                console.print(f"[warn]no check named {a!r}[/warn] — see [key]checks[/key]")
+                return
+            wanted.extend(hit)
+    if not args:
+        wanted = list(s.lib.bundle.checks) if s.lib else []
+    if not wanted:
+        console.print("[muted]no checks to run — type one at the prompt or pass a .decn file[/muted]")
+        return
+
+    lib, account = s.lib, s.account
+    r = Reasoner()
+    r.header(
+        "check",
+        formula="each block asks one question; a witness is replayed before it is believed",
+        subtitle=f"{len(wanted)} check(s) · {len(lib.detections)} rule(s) · "
+                 f"account {account.name if account else '— (none: only `compare` can run)'}",
+    )
+    rows = []
+    for c in wanted:
+        r.section(c.id, f"{c.type}: {_CHECK_QUESTION.get(c.type, 'no engine yet')}")
+        r.note(_check_params(c))
+        try:
+            with r.thinking("solving…"):
+                res = run_checks([c], lib, account)[0]
+        except CheckError as e:
+            r.verdict_muted(f"cannot run: {e}")
+            rows.append((c.id, c.type, ("error", "muted"), str(e)))
+            r.blank()
+            continue
+        for row in res.rows:
+            line = f"{row.label}: {row.note}"
+            if row.verdict == "pass":
+                r.ok(line)
+            elif row.verdict == "fail":
+                r.no(line)
+                w = row.witness
+                if isinstance(w, dict):
+                    r.note(f"witness: {event_sentence(w)}")
+                    fired = sum(fires(d.spec, [w], ref_lists=lib.ref_lists) is True for d in lib.detections)
+                    r.replay(f"replay: {fired}/{len(lib.detections)} rules fire → {'sound' if not fired else 'REJECTED'}",
+                             sound=not fired)
+                elif isinstance(w, tuple):
+                    r.note(f"witness: {len(w)} event(s), first {event_brief(w[0])}")
+            else:
+                r.note(line)
+        tag = " (~approx)" if res.approximate else ""
+        if res.verdict == "pass":
+            r.verdict_safe(f"PASS{tag} — {res.detail}")
+        elif res.verdict == "fail":
+            r.verdict_gap(f"FAIL{tag} — {res.detail}")
+        else:
+            r.verdict_muted(f"UNKNOWN{tag} — {res.detail}")
+        rows.append((c.id, c.type, (res.verdict, {"pass": "safe", "fail": "gap"}.get(res.verdict, "muted")),
+                     res.detail))
+        r.blank()
+    n_fail = sum(1 for _, _, v, _ in rows if v[0] == "fail")
+    n_pass = sum(1 for _, _, v, _ in rows if v[0] == "pass")
+    console.print(f"[title]result[/title]  [safe]{n_pass} pass[/safe] · [gap]{n_fail} fail[/gap] · "
+                  f"{len(rows) - n_pass - n_fail} unknown")
+    t = _table("check verdicts", [("CHECK",), ("TYPE",), ("VERDICT",), ("DETAIL",)])
+    for row in rows:
+        _add(t, *row)
     console.print(t)

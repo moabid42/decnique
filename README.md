@@ -13,6 +13,8 @@ The coverage engine (`decnique/smt/`) answers `Reach ∧ Log ∧ ¬⋁Observes` 
 **atom abstraction** of string fields — no z3 string theory; see
 `docs/COVERAGE_ABSTRACTION.md` for the idea, the measurements, and what was changed.
 
+![image](./imgs/interface_sc.png)
+
 ## Layout
 
 ```

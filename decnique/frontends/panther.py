@@ -191,11 +191,11 @@ def _python_pred(py_text: str | None, unsupported: list[str]) -> Pred:
     methods: list[Pred] = []
     for m in _ENDSWITH.finditer(body):
         s = _first(m)
-        if _METHOD_CTX.search(body[max(0, m.start() - 80) : m.start()]):
+        if _METHOD_CTX.search(_same_statement(body, m.start())):
             methods.append(StrFn(field=(None, "method"), fn="endswith", value=s))
     for m in _STARTSWITH.finditer(body):
         s = _first(m)
-        if _METHOD_CTX.search(body[max(0, m.start() - 80) : m.start()]):
+        if _METHOD_CTX.search(_same_statement(body, m.start())):
             methods.append(StrFn(field=(None, "method"), fn="startswith", value=s))
     for m in _STR_IN.finditer(body):  # substring test on the method name
         s = _first(m)
@@ -203,11 +203,11 @@ def _python_pred(py_text: str | None, unsupported: list[str]) -> Pred:
             methods.append(StrFn(field=(None, "method"), fn="contains", value=s))
     for m in _EQ.finditer(body):
         s = _first(m)
-        ctx = body[max(0, m.start() - 80) : m.start()]
+        ctx = _same_statement(body, m.start())
         if _METHOD_CTX.search(ctx) and _METHOD_LIKE.match(s):
             methods.append(Cmp(field=(None, "method"), op="=", value=s))
     for m in _IN_SET.finditer(body):
-        ctx = body[max(0, m.start() - 80) : m.start()]
+        ctx = _same_statement(body, m.start())
         if not _METHOD_CTX.search(ctx):
             continue
         inner = m.group(1).strip()
@@ -235,6 +235,21 @@ def _python_pred(py_text: str | None, unsupported: list[str]) -> Pred:
         )
     )
     return all_of(parts)
+
+
+_RECEIVER_CUTS = ("\n", " and ", " or ", " if ", "not ", " in ", "[", "elif ", "return ")
+
+
+def _same_statement(body: str, pos: int, limit: int = 160) -> str:
+    """The *receiver* of a test — the operand text just before ``.startswith(`` / ``==`` /
+    ``in`` — back to the previous operator or line.  Only if that mentions the method name is
+    the test a method test; a ``methodName`` check elsewhere in the same expression must not
+    claim a test on ``logName`` or ``serviceName``."""
+    chunk = body[max(0, pos - limit) : pos]
+    cut = max(chunk.rfind(t) + len(t) for t in _RECEIVER_CUTS if chunk.rfind(t) >= 0) if any(
+        t in chunk for t in _RECEIVER_CUTS
+    ) else 0
+    return chunk[cut:]
 
 
 def _rule_function(py_text: str) -> str:

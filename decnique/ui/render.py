@@ -24,7 +24,7 @@ from decnique.eval import fires, matches_footprint
 from .format import cond_str, event_brief, footprint_str, window_str
 from .reason import Reasoner
 from .session import Session
-from .theme import approx_word, console, tri_word
+from .theme import CHECK, approx_word, console, tri_word
 
 # --- table helper -------------------------------------------------------------------------
 
@@ -302,72 +302,84 @@ def footprint(s: Session, ident: str | None) -> None:
 # --- math verbs (narrated) ----------------------------------------------------------------
 
 
-_DELTA = "udm:target.resource.attribute.labels[ser_binding_deltas_{}]"
-_ROLE_WORDS = {
-    "roles/owner": "the Owner role",
-    "roles/*Admin": "an …Admin role",
-    "roles/owner.*|roles/editor.*": "Owner or Editor",
-    "roles/storage.*": "a Storage role",
-}
-_MEMBER_WORDS = {
-    "^serviceAccount": "to a service account",
-    ".*@gmail\\.com|.*@googlemail\\.com|.*@googlegroups\\.com": "to a gmail / googlegroups account",
-    "allUsers|allAuthenticatedUsers": "to everyone (public)",
-}
+def _short(path: str) -> str:
+    """Generic shortening of a field path for the screen (no vocabulary involved)."""
+    return path.removeprefix("udm:").removeprefix("target.resource.attribute.")
 
 
-def _words(atom) -> str | None:  # type: ignore[no-untyped-def]
-    """Plain words for the IAM binding-delta atoms; ``None`` for anything else."""
-    f, lit = atom.field, atom.text
-    if f == _DELTA.format("action"):
-        return {"ADD": "grants", "REMOVE": "revokes"}.get(lit)
-    if f == _DELTA.format("role"):
-        return _ROLE_WORDS.get(lit) or (f"the role {lit}" if atom.kind == "eq" else f"a role matching {lit}")
-    if f == _DELTA.format("member"):
-        if lit.startswith("user:"):
-            return f"to {lit}"
-        return _MEMBER_WORDS.get(lit) or f"to a member matching {lit}"
-    return None
-
-
-def change_sentence(v) -> str:  # type: ignore[no-untyped-def]
-    """One kind of change in plain words, falling back to the rule's own syntax."""
+def change_text(v) -> str:  # type: ignore[no-untyped-def]
+    """A kind of change in the rules' own syntax, with shortened field paths."""
     from decnique.smt.coverage import describe_atom
 
-    parts = [_words(a) for a in v.atoms]
-    if all(parts):
-        verb = next((p for p in parts if p in ("grants", "revokes")), "grants or revokes")
-        role = next((p for p in parts if p.startswith(("the ", "an ", "a ", "Owner"))), "any role")
-        member = next((p for p in parts if p.startswith("to ")), "to anyone")
-        return f"someone {verb} {role} {member}"
-    return "an event where " + "  and  ".join(describe_atom(a) for a in v.atoms)
+    return "  ∧  ".join(_short(describe_atom(a)) for a in v.atoms)
 
 
 def _redundant_single(v, all_verdicts) -> bool:  # type: ignore[no-untyped-def]
-    """A single delta atom (e.g. just `role = owner`) says little on its own when the pairs
-    (`grants` + `owner`) are shown; hide it."""
+    """A single atom on a field that also appears in combinations says little alone; hide it."""
     if len(v.atoms) != 1:
         return False
     f = v.atoms[0].field
-    return any(len(w.atoms) == 2 and f in {a.field for a in w.atoms} for w in all_verdicts)
+    return any(len(w.atoms) > 1 and f in {a.field for a in w.atoms} for w in all_verdicts)
 
 
 def event_sentence(ev: dict) -> str:
-    """A witness event as one plain sentence (IAM policy changes get a real description)."""
+    """The witness as one line: who, which method, and the informative fields — generic."""
     who, method = ev.get("principal", "someone"), ev.get("method", "?")
-    udm = ev.get("udm") or {}
-    d = {k: udm.get(_DELTA.format(k)[4:]) for k in ("action", "role", "member")}
-    if d["action"]:
-        verb = {"ADD": "grants", "REMOVE": "revokes"}.get(d["action"], d["action"])
-        return f"{who} calls {method} and {verb} {d['role'] or 'a role'} to/from {d['member'] or 'someone'}"
-    return f"{who} calls {method}"
+    skip = {"principal", "method", "permission", "granted", "service", "product_name", "time"}
+    parts = []
+    for k, v in ev.items():
+        if k in skip or v in (None, "", 0, "0.0.0.0"):
+            continue
+        if isinstance(v, dict):
+            parts += [f"{_short(kk)}={vv}" for kk, vv in v.items() if vv not in (None, "")]
+        else:
+            parts.append(f"{k}={v}")
+    return f"{who} calls {method}" + (" with " + ", ".join(parts) if parts else "")
+
+
+def _title(lib, rid: str) -> str:  # type: ignore[no-untyped-def]
+    d = lib.get(rid)
+    t = str(d.meta.get("title") or d.meta.get("rule_name") or "").strip()
+    return f"{t} [{rid}]" if t and t != rid else rid
+
+
+def config(s: Session, args: list[str]) -> None:
+    """``config`` — list settings; ``config <key> <value>`` — set; ``config <key> reset``."""
+    st = s.settings
+    if not args:
+        t = _table("settings", [("KEY",), ("VALUE",), ("ALLOWED",), ("WHAT IT DOES",)])
+        for key, val, allowed, help_ in st.rows():
+            _add(t, key, val, allowed, help_)
+        console.print(t)
+        console.print(f"[muted]stored in {st.path}[/muted]")
+        return
+    key = args[0]
+    if len(args) == 1:
+        try:
+            console.print(f"{key} = [title]{st.get(key)}[/title]")
+        except KeyError:
+            console.print(f"[err]unknown setting[/err] {key}")
+        return
+    try:
+        if args[1] == "reset":
+            st.reset(key)
+        else:
+            st.set(key, args[1])
+        console.print(f"[ok]{CHECK}[/ok] {key} = [title]{st.get(key)}[/title]")
+    except (KeyError, ValueError) as e:
+        console.print(f"[err]{e}[/err]")
 
 
 def blindspots(s: Session, perms: list[str]) -> None:
     if not s.need_lib() or not s.need_account():
         return
-    from decnique.smt.coverage import CoverageContext, Gap, find_gap, probe_atoms
+    from decnique.smt.coverage import (
+        CoverageContext, Gap, blind_region, dodged_conditions, find_gap, probe_atoms, rules_naming,
+    )
     from decnique.smt.stealth import Evasive, stealth_feasible
+
+    explain = s.settings.get("blindspots.explain")
+    show_raw = s.settings.get("blindspots.raw") == "on"
 
     lib, account = s.lib, s.account
     single = [d for d in lib.detections if d.spec.is_single_event]
@@ -432,26 +444,48 @@ def blindspots(s: Session, perms: list[str]) -> None:
         n_fire = sum(v is True for v in verdicts.values())
         n_unk = sum(v is None for v in verdicts.values())
         r.note(f"example nobody catches: {event_sentence(res.event)}")
-        r.note(f"raw: {event_brief(res.event)}")
+        if show_raw:
+            r.note(f"raw: {event_brief(res.event)}")
         r.replay(f"replay: {n_fire}/{len(lib.detections)} rules fire, {n_unk} unknown → "
                  f"{'sound' if n_fire == 0 else 'REJECTED'}", sound=(n_fire == 0))
         for c in res.caveats:
             r.note(f"caveat: {c}")
         tag = "approximate" if res.approximate else "exact"
-        # The witness is only the *simplest* unobserved event.  Say which changes are watched
-        # and which are not: one verdict per atomic test the rules make on this event's fields.
-        with r.thinking("mapping the blind region: which changes of this permission are watched…"):
-            verdicts = probe_atoms(p, lib, account, ctx=ctx)
-        if verdicts:
-            r.math("which kinds of change are watched?  for each change t:  ∃ e : t(e) ∧ Reach ∧ Log ∧ ¬(⋁ Observes)")
-            shown = [v for v in verdicts if not _redundant_single(v, verdicts)]
-            for v in sorted(shown, key=lambda v: (not v.covered, change_sentence(v))):
-                if v.covered:
-                    r.ok(f"watched:    {change_sentence(v)}")
-                elif isinstance(v.result, Gap):
-                    r.no(f"UNWATCHED:  {change_sentence(v)}")
-                else:
-                    r.note(f"unclear:    {change_sentence(v)}  ({v.result.reason})")
+        # The witness is only the *simplest* unobserved event.  Explain the whole hole, the
+        # way the user configured (`config blindspots.explain rules|formula|both`).
+        logged = [m for m in account.catalog.methods_for(p) if account.logged(m)]
+        naming = rules_naming(lib, logged)
+        if explain in ("rules", "both"):
+            with r.thinking("which kinds of change are watched, and by which rules…"):
+                verdicts = probe_atoms(p, lib, account, ctx=ctx)
+            if verdicts:
+                r.math("per kind of change t (the rules' own tests):  ∃ e : t(e) ∧ Reach ∧ Log ∧ ¬(⋁ Observes)")
+                shown = [v for v in verdicts if not _redundant_single(v, verdicts)]
+                for v in sorted(shown, key=lambda v: (not v.covered, change_text(v))):
+                    if v.covered:
+                        by = ", ".join(_title(lib, rid) for rid in v.result.covered_by) or "(core empty)"
+                        r.ok(f"watched:    {change_text(v)}\n        caught by: {by}")
+                    elif isinstance(v.result, Gap):
+                        dodged = dodged_conditions(lib, v.result.event, naming)
+                        # the rules that came closest: fewest unmet conditions, at most three
+                        near = sorted((c for c in dodged.items() if c[1]), key=lambda kv: len(kv[1]))[:3]
+                        lines = [f"        nearest rule: {_title(lib, rid)} — still needs {' & '.join(_short(x) for x in c)}"
+                                 for rid, c in near]
+                        r.no("\n".join([f"UNWATCHED:  {change_text(v)}", *lines]))
+                    else:
+                        r.note(f"unclear:    {change_text(v)}  ({v.result.reason})")
+        if explain in ("formula", "both"):
+            with r.thinking("computing the blind region as a formula (prime implicants)…"):
+                cubes = blind_region(p, lib, account, ctx=ctx)
+            if cubes:
+                r.math("blind region  =  Domain ∧ ¬(⋁ Observes)  as a DNF over the rules' tests:")
+                for i, c in enumerate(cubes):
+                    lead = "unobserved iff " if i == 0 else "            or  "
+                    r.no(lead + _short(c.describe()) + ("" if c.proven else "   (not minimised)"))
+                n_approx = len(ctx.single_rules) - len(ctx.exact_rules)
+                r.note(f"every cube is proven against the {len(ctx.exact_rules)} exactly-translated rules; "
+                       f"{n_approx} approximate rule(s) are left out and might observe more")
+        verdicts = verdicts if explain in ("rules", "both") else ()
         # And the techniques that need this permission — the attacker's actual payloads.
         techs = [c for c in lib.bundle.candidates if any(q.permission == p for q in c.required)]
         detected_techs = []

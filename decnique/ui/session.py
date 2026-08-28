@@ -12,6 +12,7 @@ from pathlib import Path
 from decnique.detections import DetectionLibrary, event_from_audit_log
 from decnique.dsl.loader import LoadOptions
 
+from .config import Settings
 from .theme import CHECK, console
 
 
@@ -27,6 +28,7 @@ class Session:
         self.events: list[dict] = []
         self.events_src: str = ""
         self.options = LoadOptions()
+        self.settings = Settings()
         self.account = None
         self.account_doc: dict = {}
 

@@ -55,6 +55,7 @@ class NoGap:
 
     permission: str
     reason: str  # unreachable | no_logged_method | all_covered | exhausted
+    covered_by: tuple[str, ...] = ()  # rule ids in the UNSAT core: together they cover it
 
     @property
     def found(self) -> bool:
@@ -113,7 +114,20 @@ class CoverageContext:
         self.realizer = Realizer(self.table)
         self.paths = _probe_paths(lib)
         self.single_rules = [d for d in lib.detections if _fires_on_one_event(d.spec)]
-        obs = [self._observes(d.spec) for d in self.single_rules]
+        obs = []
+        self.exact_rules: set[str] = set()  # rules whose encoding used no approximate atom
+        for d in self.single_rules:
+            n = len(self.enc.approx)
+            obs.append(self._observes(d.spec))
+            if len(self.enc.approx) == n:
+                self.exact_rules.add(d.id)
+        # each rule's ¬Observes is asserted under its own assumption literal, so an UNSAT core
+        # names the rules that jointly cover a permission ("caught by …")
+        self.tracks = {d.id: z3.Bool(f"rule.{d.id}") for d in self.single_rules}
+        self.any_obs = z3.Or(*obs) if obs else z3.BoolVal(False)
+        exact = [o for d, o in zip(self.single_rules, obs) if d.id in self.exact_rules]
+        self.any_obs_exact = z3.Or(*exact) if exact else z3.BoolVal(False)
+        self.consistency: list[z3.BoolRef] = []
         if minimize is None:
             minimize = len(self.table.vars) <= self.MINIMIZE_UP_TO
         self.minimize = minimize
@@ -123,12 +137,13 @@ class CoverageContext:
         # ("an event whose user_agent does not contain X") and realizable.
         self.solver = z3.Optimize()
         self.solver.set("random_seed", 0)  # reproducible witnesses
-        if obs:
-            self.solver.add(z3.Not(z3.Or(*obs)))
+        for d, o in zip(self.single_rules, obs):
+            self.solver.add(z3.Implies(self.tracks[d.id], z3.Not(o)))
         for path in list(self.table.by_field):
             if path not in ENUMERATED:
                 for c in self.table.eq_exclusion(path):
                     self.solver.add(c)
+                    self.consistency.append(c)
         for b in self.enc.ev._present.values():
             self.solver.add_soft(z3.Not(b), weight=2)
         if minimize:
@@ -320,8 +335,9 @@ def find_gap(
                 s.add_soft(z3.Not(ctx.table.eq("method", m)), weight=100)
         for _ in range(max_refine):
             ctx.stats["checks"] += 1
-            if s.check() != z3.sat:
-                return NoGap(permission, "exhausted" if unproven else "all_covered")
+            if s.check(*ctx.tracks.values()) != z3.sat:
+                core = tuple(sorted(str(b)[5:] for b in s.unsat_core()))  # strip "rule."
+                return NoGap(permission, "exhausted" if unproven else "all_covered", core)
             model = s.model()
             event, learned = ctx.realize_event(model, permission, logged, principals, account)
             if learned:
@@ -531,3 +547,148 @@ def probe_atoms(
         r = find_gap(permission, lib, account, ctx=ctx, extra=tuple(ctx.table.var(a) for a in atoms))
         out.append(AtomVerdict(atoms, r))
     return tuple(out)
+
+
+# --- explaining a change: which rules catch it, which conditions it dodges -------------------
+
+
+def dodged_conditions(lib: DetectionLibrary, event: dict, rule_ids: tuple[str, ...], *, limit: int = 3) -> dict[str, list[str]]:
+    """For each rule, the leaves of its predicate that are *false* on ``event`` — the conditions
+    the event dodges.  Rule ids come from the caller (e.g. the rules naming the method)."""
+    from decnique.dsl.format import pred as fmt
+    from decnique.dsl.interpret import evaluate
+    from decnique.model.predicates import LEAF_TYPES, All, Any, Not
+
+    def leaves(p):  # type: ignore[no-untyped-def]
+        if isinstance(p, (All, Any)):
+            return [x for c in p.children for x in leaves(c)]
+        if isinstance(p, Not):
+            return [p]
+        return [p] if isinstance(p, LEAF_TYPES) else []
+
+    out: dict[str, list[str]] = {}
+    for rid in rule_ids:
+        d = lib.get(rid)
+        failed = []
+        for var in d.spec.events:
+            for leaf in leaves(var.pred):
+                if evaluate(leaf, event, ref_lists=lib.ref_lists) is False:
+                    failed.append(fmt(leaf))
+        out[rid] = failed[:limit] + (["…"] if len(failed) > limit else [])
+    return out
+
+
+def rules_naming(lib: DetectionLibrary, methods: list[str]) -> tuple[str, ...]:
+    """Rules whose literal method tests include one of ``methods``."""
+    from decnique.dsl.interpret import spec_methods_literal
+
+    out = []
+    for d in lib.detections:
+        lits = spec_methods_literal(d.spec)
+        if lits and not lits.isdisjoint(methods):
+            out.append(d.id)
+    return tuple(out)
+
+
+@dataclass(frozen=True, slots=True)
+class Cube:
+    """One implicant of the blind region: every event satisfying these literals (within the
+    permission's domain) is observed by no exactly-encoded rule."""
+
+    literals: tuple[tuple[str, bool], ...]  # (description, polarity)
+    proven: bool  # False: minimisation hit the bound; the cube may include observed events
+
+    def describe(self) -> str:
+        return "  ∧  ".join(d if pos else f"¬({d})" for d, pos in self.literals) or "true"
+
+
+def blind_region(
+    permission: str,
+    lib: DetectionLibrary,
+    account: Account,
+    *,
+    ctx: CoverageContext | None = None,
+    max_cubes: int = 12,
+) -> tuple[Cube, ...]:
+    """The blind region of a permission as a formula (a DNF of prime implicants over the
+    rules' own atomic tests and presence bits): ``Domain ∧ ¬⋁Observes`` projected onto the
+    atoms of the fields the relevant rules read.  Each cube is *proven* against the exactly
+    encoded rules: no event in it is observed by any of them.  Rules that needed an approximate
+    atom (``unknown(...)``, reference lists, …) are left out — they *might* observe more, which
+    is what the ``approximate`` flag on the permission already says.  This is the
+    firewall-analysis representation — the whole hole, not one witness."""
+    ctx = ctx or CoverageContext(lib)
+    cat = account.catalog
+    logged = sorted(m for m in cat.methods_for(permission) if account.logged(m))
+    verified = [m for m in logged if cat.verified(m)]
+    logged = verified or logged
+    principals = sorted(account.principals_with(permission))
+    if not logged or not principals:
+        return ()
+    # project onto every field an exactly-encoded rule that can fire on these methods reads
+    # (rules naming one of them, and method-agnostic rules) plus the required fields
+    from decnique.dsl.interpret import spec_methods_literal
+
+    fields: set[str] = set()
+    for m in logged:
+        fields.update(cat.required_fields(m))
+    for d in ctx.single_rules:
+        if d.id not in ctx.exact_rules:
+            continue
+        lits = spec_methods_literal(d.spec)
+        if lits and lits.isdisjoint(logged):
+            continue
+        for e in d.spec.events:
+            for _, pth in referenced_fields(e.pred):
+                fields.add(pth)
+    skip = set(ENUMERATED) | {"service", "product_name", "event_type", "granted"}
+    ev = ctx.enc.ev
+    variables: list[tuple[z3.BoolRef, str, str]] = []  # (var, description, field)
+    for f in sorted(fields - skip):
+        pres = ev.present(f)
+        if not z3.is_true(pres):
+            variables.append((pres, f"{f} present", f))
+        for a in ctx.table.by_field.get(f, ()):
+            variables.append((ctx.table.var(a), describe_atom(a), f))
+    domain = ctx.domain(permission, logged, principals, account)
+
+    # a plain solver that asks the *opposite* question — is some event in the cube observed?
+    obs = z3.Solver()
+    obs.add(*domain, *ctx.consistency, *ctx.learned, ctx.any_obs_exact)
+
+    def implicant(lits: list[tuple[z3.BoolRef, bool]]) -> bool:
+        obs.push()
+        obs.add(*[v if pos else z3.Not(v) for v, pos in lits])
+        r = obs.check()
+        obs.pop()
+        return r == z3.unsat
+
+    s = ctx.solver
+    s.push()
+    cubes: list[Cube] = []
+    try:
+        for c in domain:
+            s.add(c)
+        for _ in range(max_cubes):
+            if s.check(*ctx.tracks.values()) != z3.sat:
+                break
+            model = s.model()
+            lits = [(v, ctx._true(model, v)) for v, _, _ in variables]
+            field_of = {v.get_id(): f for v, _, f in variables}
+            proven = implicant(lits)
+            if proven:
+                # drop whole fields first (cheap, most are irrelevant), then single literals
+                for f in sorted({f for _, _, f in variables}):
+                    trial = [(v, pos) for v, pos in lits if field_of[v.get_id()] != f]
+                    if trial != lits and implicant(trial):
+                        lits = trial
+                for i in range(len(lits) - 1, -1, -1):
+                    trial = lits[:i] + lits[i + 1 :]
+                    if implicant(trial):
+                        lits = trial
+            names = {v.get_id(): d for v, d, _ in variables}
+            cubes.append(Cube(tuple((names[v.get_id()], pos) for v, pos in lits), proven))
+            s.add(z3.Not(z3.And(*[v if pos else z3.Not(v) for v, pos in lits])))
+    finally:
+        s.pop()
+    return tuple(cubes)

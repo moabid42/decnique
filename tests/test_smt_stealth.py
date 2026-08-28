@@ -151,3 +151,50 @@ def test_stealth_with_unknown_rule_is_approximate():
     assert isinstance(r, Evasive)
     assert r.approximate is True
     assert "approx" in r.unknown_rules
+
+
+# --- payload: a footprint step's `where` is what the attacker actually does ----------------
+
+_DELTA = 'udm("target.resource.attribute.labels[ser_binding_deltas_%s]")'
+_OWNER_TO_SA = f"""
+    detection owner_to_sa {{
+      event method = "SetIamPolicy"
+        and {_DELTA % "action"} = "ADD"
+        and {_DELTA % "role"} = "roles/owner"
+        and {_DELTA % "member"} startswith "serviceAccount:"
+    }}
+"""
+
+
+def _escalate(member_clause: str) -> str:
+    return f"""
+    candidate esc {{
+      required {{ resourcemanager.projects.setIamPolicy }}
+      footprint {{
+        act: "SetIamPolicy"
+          where {_DELTA % "action"} = "ADD" and {_DELTA % "role"} = "roles/owner"
+            and {member_clause}
+        span 1h
+      }}
+    }}
+    """
+
+
+def test_payload_human_owner_is_evasive_and_schedule_carries_payload():
+    lib = _lib(_OWNER_TO_SA + _escalate(f'{_DELTA % "member"} startswith "user:"'))
+    c = lib.bundle.candidates[0]
+    r = stealth_feasible(c, lib, _account("resourcemanager.projects.setIamPolicy"))
+    assert isinstance(r, Evasive) and not r.approximate
+    ev = r.schedule[0]
+    labels = ev["udm"]
+    assert labels["target.resource.attribute.labels[ser_binding_deltas_action]"] == "ADD"
+    assert labels["target.resource.attribute.labels[ser_binding_deltas_role]"] == "roles/owner"
+    assert labels["target.resource.attribute.labels[ser_binding_deltas_member]"].startswith("user:")
+    assert ev["event_type"] == "USER_RESOURCE_UPDATE_PERMISSIONS"
+
+
+def test_payload_service_account_owner_is_always_detected():
+    lib = _lib(_OWNER_TO_SA + _escalate(f'{_DELTA % "member"} startswith "serviceAccount:"'))
+    c = lib.bundle.candidates[0]
+    r = stealth_feasible(c, lib, _account("resourcemanager.projects.setIamPolicy"))
+    assert isinstance(r, AlwaysDetected)

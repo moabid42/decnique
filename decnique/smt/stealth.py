@@ -92,6 +92,16 @@ def _relevant_paths(candidate: Candidate, lib: DetectionLibrary) -> tuple[str, .
     return tuple(sorted(paths))
 
 
+def _put(event: dict, path: str, value) -> None:  # type: ignore[no-untyped-def]
+    """Store a value where the concrete oracle reads it (``udm:``/``tags.`` are nested)."""
+    if ef.is_udm(path):
+        event.setdefault("udm", {})[ef.udm_path(path)] = value
+    elif path.startswith(ef.TAG_PREFIX):
+        event.setdefault("tags", {})[path[len(ef.TAG_PREFIX):]] = value
+    else:
+        event[path] = value
+
+
 def _decode_event(occ: Occurrence, model: z3.ModelRef, paths: tuple[str, ...]) -> dict:
     ev = occ.ev
     out: dict = {"method": occ.method}
@@ -105,15 +115,15 @@ def _decode_event(occ: Occurrence, model: z3.ModelRef, paths: tuple[str, ...]) -
         sort = ev.sort_of(path)
         v = model.eval(ev.term(path), model_completion=True)
         if sort in ("string", "strings"):
-            out[path] = v.as_string()
+            _put(out, path, v.as_string())
         elif sort in ("int", "time"):
-            out[path] = v.as_long()
+            _put(out, path, v.as_long())
         elif sort == "bool":
-            out[path] = z3.is_true(v)
+            _put(out, path, z3.is_true(v))
         elif sort == "ip":
-            out[path] = str(ipaddress.IPv4Address(v.as_long() & 0xFFFFFFFF))
+            _put(out, path, str(ipaddress.IPv4Address(v.as_long() & 0xFFFFFFFF)))
         else:
-            out[path] = v.as_string()
+            _put(out, path, v.as_string())
     return out
 
 
@@ -169,6 +179,8 @@ def stealth_feasible(
             approx_rules.append(d.id)
 
     paths = _relevant_paths(candidate, lib)
+    required = {p for st in fp.steps for p in account.catalog.required_fields(st.method)}
+    paths = tuple(sorted(set(paths) | required))  # a real event carries these even if unread
 
     for _ in range(max_refine):
         if s.check() != z3.sat:

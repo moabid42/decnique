@@ -85,6 +85,12 @@ def footprint_constraints(trace: SymTrace, fp, catalog=None) -> list[z3.BoolRef]
             for a in range(len(group)):
                 for b in range(a + 1, len(group)):
                     cons.append(_abs_le(group[a].time - group[b].time, step.within_seconds))
+        if step.where is not None:  # the step's payload: what the attacker actually does
+            for occ in group:
+                enc = Encoder(ev=occ.ev)
+                cons.append(enc.pred(step.where))
+                for _, path in referenced_fields(step.where):
+                    cons.append(occ.ev.present(path))
         for qf in step.distinct:
             path = qf[1]
             for occ in group:

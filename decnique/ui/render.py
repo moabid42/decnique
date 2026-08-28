@@ -302,10 +302,72 @@ def footprint(s: Session, ident: str | None) -> None:
 # --- math verbs (narrated) ----------------------------------------------------------------
 
 
+_DELTA = "udm:target.resource.attribute.labels[ser_binding_deltas_{}]"
+_ROLE_WORDS = {
+    "roles/owner": "the Owner role",
+    "roles/*Admin": "an …Admin role",
+    "roles/owner.*|roles/editor.*": "Owner or Editor",
+    "roles/storage.*": "a Storage role",
+}
+_MEMBER_WORDS = {
+    "^serviceAccount": "to a service account",
+    ".*@gmail\\.com|.*@googlemail\\.com|.*@googlegroups\\.com": "to a gmail / googlegroups account",
+    "allUsers|allAuthenticatedUsers": "to everyone (public)",
+}
+
+
+def _words(atom) -> str | None:  # type: ignore[no-untyped-def]
+    """Plain words for the IAM binding-delta atoms; ``None`` for anything else."""
+    f, lit = atom.field, atom.text
+    if f == _DELTA.format("action"):
+        return {"ADD": "grants", "REMOVE": "revokes"}.get(lit)
+    if f == _DELTA.format("role"):
+        return _ROLE_WORDS.get(lit) or (f"the role {lit}" if atom.kind == "eq" else f"a role matching {lit}")
+    if f == _DELTA.format("member"):
+        if lit.startswith("user:"):
+            return f"to {lit}"
+        return _MEMBER_WORDS.get(lit) or f"to a member matching {lit}"
+    return None
+
+
+def change_sentence(v) -> str:  # type: ignore[no-untyped-def]
+    """One kind of change in plain words, falling back to the rule's own syntax."""
+    from decnique.smt.coverage import describe_atom
+
+    parts = [_words(a) for a in v.atoms]
+    if all(parts):
+        verb = next((p for p in parts if p in ("grants", "revokes")), "grants or revokes")
+        role = next((p for p in parts if p.startswith(("the ", "an ", "a ", "Owner"))), "any role")
+        member = next((p for p in parts if p.startswith("to ")), "to anyone")
+        return f"someone {verb} {role} {member}"
+    return "an event where " + "  and  ".join(describe_atom(a) for a in v.atoms)
+
+
+def _redundant_single(v, all_verdicts) -> bool:  # type: ignore[no-untyped-def]
+    """A single delta atom (e.g. just `role = owner`) says little on its own when the pairs
+    (`grants` + `owner`) are shown; hide it."""
+    if len(v.atoms) != 1:
+        return False
+    f = v.atoms[0].field
+    return any(len(w.atoms) == 2 and f in {a.field for a in w.atoms} for w in all_verdicts)
+
+
+def event_sentence(ev: dict) -> str:
+    """A witness event as one plain sentence (IAM policy changes get a real description)."""
+    who, method = ev.get("principal", "someone"), ev.get("method", "?")
+    udm = ev.get("udm") or {}
+    d = {k: udm.get(_DELTA.format(k)[4:]) for k in ("action", "role", "member")}
+    if d["action"]:
+        verb = {"ADD": "grants", "REMOVE": "revokes"}.get(d["action"], d["action"])
+        return f"{who} calls {method} and {verb} {d['role'] or 'a role'} to/from {d['member'] or 'someone'}"
+    return f"{who} calls {method}"
+
+
 def blindspots(s: Session, perms: list[str]) -> None:
     if not s.need_lib() or not s.need_account():
         return
-    from decnique.smt.coverage import CoverageContext, Gap, find_gap
+    from decnique.smt.coverage import CoverageContext, Gap, find_gap, probe_atoms
+    from decnique.smt.stealth import Evasive, stealth_feasible
 
     lib, account = s.lib, s.account
     single = [d for d in lib.detections if d.spec.is_single_event]
@@ -319,8 +381,13 @@ def blindspots(s: Session, perms: list[str]) -> None:
     r.header(
         "blindspots",
         formula="find e :  Reach(e) ∧ Log(e) ∧ ¬( ⋁ Observes(R, e) )",
-        subtitle=f"probing {len(permissions)} permission(s) against {len(single)} single-event "
-                 f"detection(s); every witness is replayed through the concrete oracle",
+        subtitle=(
+            "QUESTION: for each permission — is there ANY logged action using it that no rule "
+            "catches?  (Not \"is the attack caught\" — that is `stealth`; its verdict is shown "
+            "per permission below.)\n"
+            f"{len(permissions)} permission(s) · {len(single)} single-event rule(s) · every "
+            "example is replayed through the concrete oracle before it is believed"
+        ),
     )
 
     gaps: list[dict] = []
@@ -364,19 +431,45 @@ def blindspots(s: Session, perms: list[str]) -> None:
             verdicts = {d.id: fires(d.spec, [res.event], ref_lists=lib.ref_lists) for d in lib.detections}
         n_fire = sum(v is True for v in verdicts.values())
         n_unk = sum(v is None for v in verdicts.values())
-        r.note(f"witness: {event_brief(res.event)}")
+        r.note(f"example nobody catches: {event_sentence(res.event)}")
+        r.note(f"raw: {event_brief(res.event)}")
         r.replay(f"replay: {n_fire}/{len(lib.detections)} rules fire, {n_unk} unknown → "
                  f"{'sound' if n_fire == 0 else 'REJECTED'}", sound=(n_fire == 0))
         for c in res.caveats:
             r.note(f"caveat: {c}")
-        r.note("this is the *simplest* event no rule observes — not the attacker's specific change; "
-               "blindspots ignores candidate payloads")
-        techs = [c.id for c in lib.bundle.candidates if any(q.permission == p for q in c.required)]
-        if techs:
-            r.note("to test what an attacker actually does with it, run:  "
-                   + "   ".join(f"stealth {t}" for t in techs))
         tag = "approximate" if res.approximate else "exact"
-        r.verdict_gap(f"BLIND SPOT ({tag}) — {res.event.get('method', '—')} unobserved")
+        # The witness is only the *simplest* unobserved event.  Say which changes are watched
+        # and which are not: one verdict per atomic test the rules make on this event's fields.
+        with r.thinking("mapping the blind region: which changes of this permission are watched…"):
+            verdicts = probe_atoms(p, lib, account, ctx=ctx)
+        if verdicts:
+            r.math("which kinds of change are watched?  for each change t:  ∃ e : t(e) ∧ Reach ∧ Log ∧ ¬(⋁ Observes)")
+            shown = [v for v in verdicts if not _redundant_single(v, verdicts)]
+            for v in sorted(shown, key=lambda v: (not v.covered, change_sentence(v))):
+                if v.covered:
+                    r.ok(f"watched:    {change_sentence(v)}")
+                elif isinstance(v.result, Gap):
+                    r.no(f"UNWATCHED:  {change_sentence(v)}")
+                else:
+                    r.note(f"unclear:    {change_sentence(v)}  ({v.result.reason})")
+        # And the techniques that need this permission — the attacker's actual payloads.
+        techs = [c for c in lib.bundle.candidates if any(q.permission == p for q in c.required)]
+        detected_techs = []
+        for c in techs:
+            sv = stealth_feasible(c, lib, account)
+            if isinstance(sv, Evasive):
+                r.no(f"the attack `{c.id}` you defined: NOT caught ({approx_word(sv.approximate)}) — see `stealth {c.id}`")
+            elif sv.verdict == "always_detected":
+                detected_techs.append(c.id)
+                r.ok(f"the attack `{c.id}` you defined: caught by a rule (proof) — see `stealth {c.id}`")
+            else:
+                r.note(f"the attack `{c.id}` you defined: {sv.verdict}")
+        n_unwatched = sum(1 for v in verdicts if isinstance(v.result, Gap) and not _redundant_single(v, verdicts))
+        why = (f"{n_unwatched} kind(s) of change with this permission go unseen" if verdicts
+               else "at least one action with this permission goes unseen")
+        if detected_techs:
+            why += f"; the attack(s) {', '.join(detected_techs)} are caught, other uses are not"
+        r.verdict_gap(f"BLIND SPOT ({tag}) — {why}")
         gaps.append({"permission": p, "event": res.event, "approximate": res.approximate})
         r.blank()
 

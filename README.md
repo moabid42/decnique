@@ -9,6 +9,10 @@ three-valued interpreter, the event/predicate/trace model, and the four SIEM
 front-ends that translate real rules into the DSL. The permission-bitset / SMT
 coverage-matrix layer of the original prototype is intentionally excluded.
 
+The coverage engine (`decnique/smt/`) answers `Reach ∧ Log ∧ ¬⋁Observes` over a finite
+**atom abstraction** of string fields — no z3 string theory; see
+`docs/COVERAGE_ABSTRACTION.md` for the idea, the measurements, and what was changed.
+
 ## Layout
 
 ```

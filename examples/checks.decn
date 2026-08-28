@@ -1,0 +1,21 @@
+// Check blocks: each one asks the rule set a question and is answered pass / fail / unknown.
+// Run in the shell:  load <rules/> examples/candidates.decn  →  account examples/account.json
+//                    →  check examples/checks.decn        (or type a block at the prompt)
+
+// is every reachable + logged way of using this permission observed by some rule?
+check key_creation_watched { type coverage permission iam.serviceAccountKeys.create }
+
+// same question, but only for events that add an Owner binding (the payload that matters)
+check owner_grant_watched {
+  type coverage
+  permission resourcemanager.projects.setIamPolicy
+  event udm("target.resource.attribute.labels[ser_binding_deltas_action]") = "ADD"
+    and udm("target.resource.attribute.labels[ser_binding_deltas_role]") = "roles/owner"
+}
+
+// is this technique caught however the attacker schedules it?
+check escalation_caught { type candidate for escalate_project_iam }
+
+// housekeeping over the whole rule set: rules that can never fire here / that add nothing
+check no_dead_rules { type dead_rules }
+check no_redundant_rules { type redundant_rules }

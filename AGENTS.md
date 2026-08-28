@@ -17,6 +17,9 @@ the audit log. This tool answers, for one concrete account and one rule corpus:
   carried out so that no rule fires?* Answers with a proof ("always detected") or a concrete
   evading schedule.
 - **chains** — stealthy privilege-escalation paths built from stealthy techniques.
+- **check** — the DSL's own `check` blocks: named questions (`coverage`, `candidate`, `compare`,
+  `dead_rules`, `redundant_rules`) answered pass / fail / unknown, from a file or typed at the
+  prompt.
 
 The core idea: translate every rule into one shared language (the DSL), abstract each string
 field to the finite set of tests the rules make on it (**atoms**), and ask a propositional
@@ -35,6 +38,7 @@ Formal question (single event): `∃ e : Reach_p(e) ∧ Log(e) ∧ ¬(⋁_R Obse
 | **unknown(...)** | an atom a front-end could not translate; anything touching it is **approximate** |
 | **approximate vs exact** | a verdict is exact only if no `unknown` and no unverified assumption was involved |
 | **atom** | one atomic test on a string field, `(field, kind, literal, nocase)`; rules become Boolean formulas over atoms |
+| **check** | a DSL block `check NAME { type T … }` — one question about the loaded rules, answered pass / fail / unknown (`decnique/checks.py`) |
 | **witness** | a concrete event the solver proposed and the oracle confirmed unobserved |
 | **realize** | turn a solver model (atom assignment) back into a concrete string/event |
 | **catalog** | facts about audit-log methods: permissions, service, product_name, event_type, required fields, whether the name is verified |
@@ -52,6 +56,7 @@ decnique/
   smt/          atoms (abstraction + realizer), coverage (blindspots engine), encode_*/stealth (M3),
                 bucket (optional grouping), legacy_coverage (old engine, differential test only)
   graph/        chains: search over stealthy techniques
+  checks.py     runs `check` blocks (one engine per check type, three-valued, replayed)
   ui/           repl (command table), render (verbs), session, config (settings), words (opt-in wording)
   catalogs/     UDM field map
 examples/       account.json, candidates.decn
@@ -68,7 +73,14 @@ python3 run.py                                           # shell
 python3 run.py blindspots resourcemanager.projects.setIamPolicy
 ```
 In the shell: `load [--all] [--deprecated] <rule dirs…> <candidates.decn>`, `account <json>`,
-`blindspots [perm…]`, `stealth [id]`, `chains`, `config`, `clear`, `help`.
+`blindspots [perm…]`, `stealth [id]`, `chains`, `check [id… | file.decn…]`, `checks`, `config`,
+`clear`, `help`.
+
+The prompt also accepts DSL directly, like a Python interpreter: a line starting with
+`detection`, `candidate`, `check`, or `ruleset` and containing `{` opens a block that is read
+until its braces close, then parsed and merged into the loaded library (same id = replaced).
+So `detection d { … }` → `candidate c { … }` → `check q { type candidate for c }` → `check q`
+is a complete session without any file.  `examples/checks.decn` shows every implemented type.
 
 Rule corpora are **not** in the repo. Point `load` at directories of native rules (YARA-L
 `.yaral`, Elastic `.toml`, Sigma `.yml`, Panther `.yml`+`.py`). The loader keeps GCP-relevant
@@ -97,6 +109,10 @@ rules by default; `--all` loads every platform (only useful for scale tests).
   `POLICY_DELTA_FIELDS`, `EXAMPLE_VALUES`, `verified=`). Data, not code.
 - **New setting** → one `Setting(...)` in `decnique/ui/config.py` `REGISTRY`; read it via
   `session.settings.get(key)`.
+- **New check type** → one `_<type>` function in `decnique/checks.py`, dispatched from
+  `run_check`, added to `IMPLEMENTED`, and a question line in `ui/render.py` `_CHECK_QUESTION`.
+  Types not in `IMPLEMENTED` (`public_access`, `boundary`, `require_coverage`,
+  `attempt_coverage`) answer `unknown` — never guess.
 - **New shell verb** → add to `COMMANDS` in `ui/repl.py` (single source for help/completion),
   implement in `ui/render.py`.
 - **Engine change in `smt/`** → keep `tests/test_coverage_differential.py` green (old vs new

@@ -305,10 +305,11 @@ def footprint(s: Session, ident: str | None) -> None:
 def blindspots(s: Session, perms: list[str]) -> None:
     if not s.need_lib() or not s.need_account():
         return
-    from decnique.smt.coverage import Gap, find_gap
+    from decnique.smt.coverage import CoverageContext, Gap, find_gap
 
     lib, account = s.lib, s.account
     single = [d for d in lib.detections if d.spec.is_single_event]
+    ctx = CoverageContext(lib)  # rules are encoded once (atom abstraction) and shared
     if perms:
         permissions = list(perms)
     else:
@@ -343,8 +344,9 @@ def blindspots(s: Session, perms: list[str]) -> None:
             continue
         r.ok(f"Log: {len(logged)} of {len(all_methods)} method(s) audit-logged")
         r.math(f"solving  Reach ∧ Log ∧ ¬(⋁ Observes)  over {len(single)} single-event rule(s)")
-        with r.thinking("SMT: searching for an event no rule observes (≤64 refinements)…"):
-            res = find_gap(p, lib, account)
+        with r.thinking(f"searching for an event no rule observes over {len(ctx.table.vars)} "
+                        "atoms (≤64 refinements)…"):
+            res = find_gap(p, lib, account, ctx=ctx)
         if not isinstance(res, Gap):
             if res.reason == "all_covered":
                 r.verdict_safe("covered — every reachable+logged event trips a rule (UNSAT after refinement)")

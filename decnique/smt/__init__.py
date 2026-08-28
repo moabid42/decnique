@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from decnique.smt.bucket import BucketStats, bucketed_gaps, coverage_signature
 from decnique.smt.coverage import (
+    CoverageContext,
     CoverageReport,
     Gap,
     GapResult,
@@ -31,6 +32,7 @@ from decnique.smt.stealth import (
 __all__ = [
     "AlwaysDetected",
     "BucketStats",
+    "CoverageContext",
     "CoverageReport",
     "bucketed_gaps",
     "coverage_signature",

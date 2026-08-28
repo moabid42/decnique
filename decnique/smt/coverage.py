@@ -1,14 +1,20 @@
-"""Symbolic single-event coverage — ``Reach ∧ Log ∧ ¬⋁Observes`` (plan §M2).
+"""Single-event coverage — ``Reach ∧ Log ∧ ¬⋁Observes`` over the atom abstraction.
 
-:func:`find_gap` searches for one event that uses a permission, is reachable and logged in the
-account, and that **no** detection fires on.  The symbolic layer only *proposes* events; every
-proposal is decoded and replayed through the concrete M0 oracle (:func:`decnique.eval.fires`)
-and the M1 account (``reach`` / ``logged``).  A proposal a rule actually fires on is blocked and
-the search continues, so the result is sound by construction (Invariant #3): a returned ``Gap``
-is a concrete event that is provably reachable, logged, and unobserved.
+See ``docs/COVERAGE_ABSTRACTION.md``.  Every string field is abstracted to the finite set of
+atomic tests the rules make on it (:mod:`decnique.smt.atoms`), so the query is propositional
+(plus exact bit-vector / integer theories for ``ip`` / ``int``); z3's string theory is not used.
 
-Honesty (Invariant #1): if any detection returns *don't know* on the witness (e.g. its only
-handle on the permission was an ``Unknown`` atom), the gap is reported ``approximate``.
+* :class:`CoverageContext` encodes every single-event rule **once per library**; a permission
+  only adds its small domain (logged methods, allowed principals, the permission itself, the
+  method→field invariants) under ``push``/``pop``.
+* Every model is *realized* to a concrete event and replayed through the concrete oracle
+  (:func:`decnique.eval.fires`) and the account (``reach`` / ``logged``).  A proposal a rule
+  fires on is blocked and the search refines, so a returned :class:`Gap` is sound by
+  construction (Invariant #3).  Atom consistency the solver did not know about is learned as
+  proven clauses (CEGAR); an UNSAT reached only through proven clauses is a proof
+  (``all_covered``), otherwise the result is the honest ``exhausted``.
+* Honesty (Invariant #1): a detection that answers *don't know* on the witness makes the gap
+  ``approximate``.
 """
 
 from __future__ import annotations
@@ -23,8 +29,9 @@ from decnique.env.model import Account
 from decnique.eval import fires
 from decnique.model import event_fields as ef
 from decnique.model.predicates import referenced_fields
-from decnique.smt.encode_event import SymEvent, pin_fields
-from decnique.smt.encode_pred import Encoder
+from decnique.smt.atoms import Atom, AtomEncoder, AtomTable, Realizer, is_string_sort
+
+ENUMERATED = ("method", "principal", "permission")  # fixed by the permission's domain
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,83 +63,12 @@ class NoGap:
 GapResult = Gap | NoGap
 
 
-@dataclass
-class _Probe:
-    """Reusable per-permission symbolic problem."""
-
-    ev: SymEvent
-    enc: Encoder
-    paths: tuple[str, ...]
-    solver: z3.Solver = field(default_factory=z3.Solver)
-
-
-def _observes_formula(enc: Encoder, spec) -> z3.BoolRef:  # type: ignore[no-untyped-def]
-    """Single-event ``Observes``: the (only) event variable's predicate under the zero-value
-    guard (every referenced field present, unless ``allow_zero_values``)."""
-    var = spec.events[0]
-    body = enc.pred(var.pred)
-    if spec.options.allow_zero_values:
-        return body
-    guard = [enc.ev.present(path) for _, path in referenced_fields(var.pred)]
-    return z3.And(body, *guard) if guard else body
-
-
-def _decode(ev: SymEvent, model: z3.ModelRef, paths: tuple[str, ...]) -> dict:
-    out: dict = {}
-    for path in paths:
-        if not _present(ev, model, path):
-            continue
-        val = _decode_term(ev, model, path)
-        if val is not None:
-            out[path] = val
-    return out
-
-
-def _present(ev: SymEvent, model: z3.ModelRef, path: str) -> bool:
-    pres = ev.present(path)
-    if z3.is_true(pres):
-        return True
-    v = model.eval(pres, model_completion=True)
-    return z3.is_true(v)
-
-
-def _decode_term(ev: SymEvent, model: z3.ModelRef, path: str):  # -> value | None
-    sort = ev.sort_of(path)
-    term = ev.term(path)
-    v = model.eval(term, model_completion=True)
-    if sort in ("string", "strings"):
-        return v.as_string()
-    if sort in ("int", "time"):
-        return v.as_long()
-    if sort == "bool":
-        return z3.is_true(v)
-    if sort == "ip":
-        return str(ipaddress.IPv4Address(v.as_long() & 0xFFFFFFFF))
-    return v.as_string()
-
-
-def _block(ev: SymEvent, model: z3.ModelRef, paths: tuple[str, ...]) -> z3.BoolRef:
-    """A clause excluding exactly this assignment over the referenced fields."""
-    diffs: list[z3.BoolRef] = []
-    for path in paths:
-        pres = ev.present(path)
-        present_now = _present(ev, model, path)
-        if not z3.is_true(pres):
-            diffs.append(pres if not present_now else z3.Not(pres))
-        if present_now:
-            term = ev.term(path)
-            diffs.append(term != model.eval(term, model_completion=True))
-    return z3.Or(*diffs) if diffs else z3.BoolVal(False)
-
-
 def _fires_on_one_event(spec) -> bool:  # type: ignore[no-untyped-def]
     """True when a *single* matching event makes the rule fire — one event variable and a count
-    condition met by one occurrence (``#v >= 1`` and the like).  Such correlation rules (very
-    common: ``#gcp >= 1``) constrain single-event coverage exactly, so folding them into the
-    ``Observes`` formula lets the search *prove* a permission covered instead of merely exhausting
-    its refinement bound.  Value-aggregate or ``>= N (N>1)`` conditions need several events, so
-    they are excluded (a single-event witness can never realise them) and left to concrete replay.
-    """
+    condition met by one occurrence (``#v >= 1`` and the like).  Such rules constrain
+    single-event coverage exactly, so folding them into ``Observes`` lets the search *prove* a
+    permission covered.  ``>= N (N>1)`` or value-aggregate conditions need several events and
+    are left to concrete replay."""
     from decnique.model.trace import Count, CTrue
 
     if len(spec.events) != 1:
@@ -153,16 +89,189 @@ def _count_true(op: str, x: int, n: int) -> bool:
 
 
 def _probe_paths(lib: DetectionLibrary) -> tuple[str, ...]:
-    """Fields to decode into the witness event.  This must cover *every* field any rule (single-
-    or multi-event) reads, plus the invariant fields, so the concrete replay that decides
-    soundness sees a faithful event — not one silently missing ``granted`` or ``product_name``,
-    which would make a rule spuriously not-fire and turn a covered permission into a false gap."""
-    paths = set(ef.FIELD_NAMES)  # every closed-vocabulary field, so the witness is a complete event
+    """Every field the witness must carry: the closed vocabulary plus any ``udm:``/``tags.``
+    leaf a rule reads, so concrete replay sees a faithful, complete event."""
+    paths = set(ef.FIELD_NAMES)
     for d in lib.detections:
         for e in d.spec.events:
             for _, p in referenced_fields(e.pred):
-                paths.add(p)  # plus any udm:/tags. leaves a rule reads
+                paths.add(p)
     return tuple(sorted(paths))
+
+
+class CoverageContext:
+    """The library-wide part of the coverage problem, built once and shared by all permissions."""
+
+    #: above this many atoms the MaxSAT witness minimization is skipped (plain SAT models)
+    MINIMIZE_UP_TO = 5000
+
+    def __init__(self, lib: DetectionLibrary, *, minimize: bool | None = None) -> None:
+        self.lib = lib
+        self.table = AtomTable()
+        self.enc = AtomEncoder(self.table)
+        self.realizer = Realizer(self.table)
+        self.paths = _probe_paths(lib)
+        self.single_rules = [d for d in lib.detections if _fires_on_one_event(d.spec)]
+        obs = [self._observes(d.spec) for d in self.single_rules]
+        if minimize is None:
+            minimize = len(self.table.vars) <= self.MINIMIZE_UP_TO
+        self.minimize = minimize
+        # MaxSAT: prefer every presence bit false (always — an optional field the rules do not
+        # force should stay absent), and every atom false when the table is small enough.
+        # Witnesses then satisfy only what the rules force, which keeps them small, readable
+        # ("an event whose user_agent does not contain X") and realizable.
+        self.solver = z3.Optimize()
+        self.solver.set("random_seed", 0)  # reproducible witnesses
+        if obs:
+            self.solver.add(z3.Not(z3.Or(*obs)))
+        for path in list(self.table.by_field):
+            if path not in ENUMERATED:
+                for c in self.table.eq_exclusion(path):
+                    self.solver.add(c)
+        for b in self.enc.ev._present.values():
+            self.solver.add_soft(z3.Not(b), weight=2)
+        if minimize:
+            for v in self.table.vars.values():
+                self.solver.add_soft(z3.Not(v))
+        # A rule that already fires on the *empty* trace (e.g. ``#e < 5`` holds at zero events)
+        # fires regardless of the event, so it observes nothing; replaying it would "cover"
+        # every permission.  Such rules are excluded from replay and listed here.
+        self.vacuous = tuple(
+            d.id for d in lib.detections if fires(d.spec, [], ref_lists=lib.ref_lists) is True
+        )
+        self.replay_rules = [d for d in lib.detections if d.id not in set(self.vacuous)]
+        self.learned: list[z3.BoolRef] = []
+        self.stats = {"checks": 0, "learned": 0, "blocked": 0, "unproven": 0}
+
+    def _observes(self, spec) -> z3.BoolRef:  # type: ignore[no-untyped-def]
+        """Single-event ``Observes`` under the zero-value guard."""
+        var = spec.events[0]
+        body = self.enc.pred(var.pred)
+        if spec.options.allow_zero_values:
+            return body
+        guard = [self.enc.ev.present(path) for _, path in referenced_fields(var.pred)]
+        return z3.And(body, *guard) if guard else body
+
+    # -- domain ------------------------------------------------------------------------------
+
+    def _determine(self, path: str, value: str) -> list[z3.BoolRef]:
+        """Every atom on ``path`` takes the truth value it has on the constant ``value``."""
+        out = []
+        for a in self.table.by_field.get(path, ()):
+            h = a.holds(value)
+            if h is not None:
+                out.append(self.table.var(a) if h else z3.Not(self.table.var(a)))
+        return out
+
+    def domain(
+        self, permission: str, methods: list[str], principals: list[str], account: Account
+    ) -> list[z3.BoolRef]:
+        ev, t = self.enc.ev, self.table
+        out: list[z3.BoolRef] = []
+        for path, values in (("method", methods), ("principal", principals)):
+            sel = [t.eq(path, v) for v in values]
+            out.append(z3.Or(*sel))
+            if len(sel) > 1:
+                out.append(z3.AtMost(*sel, 1))
+            for v in values:  # the chosen value decides every other atom on the field
+                out.append(z3.Implies(t.eq(path, v), z3.And(*self._determine(path, v))))
+        out.append(ev.present("principal"))
+        out.append(t.eq("permission", permission))
+        out.extend(self._determine("permission", permission))
+        for m in methods:  # realism invariants: a real event fixes some fields by its method
+            for path, value in account.catalog.field_invariants(m).items():
+                if is_string_sort(path):
+                    out.append(z3.Implies(t.eq("method", m), z3.And(*self._determine(path, value))))
+        out.append(ev.term("granted") == z3.BoolVal(True))
+        return out
+
+    # -- decoding ------------------------------------------------------------------------------
+
+    def _true(self, model: z3.ModelRef, b: z3.BoolRef) -> bool:
+        return z3.is_true(model.eval(b, model_completion=True))
+
+    def _present(self, model: z3.ModelRef, path: str) -> bool:
+        return self._true(model, self.enc.ev.present(path))
+
+    def _chosen(self, model: z3.ModelRef, path: str, values: list[str]) -> str:
+        for v in values:
+            if self._true(model, self.table.eq(path, v)):
+                return v
+        return values[0]
+
+    def realize_event(
+        self, model: z3.ModelRef, permission: str, methods: list[str], principals: list[str],
+        account: Account,
+    ) -> tuple[dict | None, list[z3.BoolRef]]:
+        """Decode a model into a concrete event, or ``(None, learned)`` when some field cannot be
+        realized — ``learned`` then holds the proven clauses explaining it (possibly none)."""
+        m = self._chosen(model, "method", methods)
+        event: dict = {
+            "method": m,
+            "principal": self._chosen(model, "principal", principals),
+            "permission": permission,
+            "granted": True,
+        }
+        event.update(account.catalog.field_invariants(m))
+        for path in self.paths:
+            if path in event or path in ENUMERATED:
+                continue
+            if not self._present(model, path):
+                continue
+            if is_string_sort(path):
+                atoms = self.table.by_field.get(path, [])
+                true = [a for a in atoms if self._true(model, self.table.var(a))]
+                tset = set(true)
+                false = [a for a in atoms if a not in tset]
+                r = self.realizer.realize(true, false)
+                if not r.ok:
+                    return None, list(r.learned)
+                _put(event, path, r.value)
+            else:
+                _put(event, path, self._decode_term(model, path))
+        return event, []
+
+    def _decode_term(self, model: z3.ModelRef, path: str):  # -> value
+        ev = self.enc.ev
+        v = model.eval(ev.term(path), model_completion=True)
+        sort = ev.sort_of(path)
+        if sort in ("int", "time"):
+            return v.as_long()
+        if sort == "bool":
+            return z3.is_true(v)
+        if sort == "ip":
+            return str(ipaddress.IPv4Address(v.as_long() & 0xFFFFFFFF))
+        return v.as_string()
+
+    def block(self, model: z3.ModelRef) -> z3.BoolRef:
+        """Exclude exactly the assignments that realize this model's event: presence bits, the
+        atoms of every present field, and the non-string terms.  Approximate atoms are
+        irrelevant to the event, so they are left out."""
+        ev = self.enc.ev
+        diffs: list[z3.BoolRef] = []
+        for path, pres in ev._present.items():
+            diffs.append(z3.Not(pres) if self._true(model, pres) else pres)
+        for path, atoms in self.table.by_field.items():
+            if not self._present(model, path):
+                continue
+            for a in atoms:
+                b = self.table.var(a)
+                diffs.append(z3.Not(b) if self._true(model, b) else b)
+        for path, term in ev._terms.items():
+            if is_string_sort(path) or not self._present(model, path):
+                continue
+            diffs.append(term != model.eval(term, model_completion=True))
+        return z3.Or(*diffs) if diffs else z3.BoolVal(False)
+
+
+def _put(event: dict, path: str, value) -> None:  # type: ignore[no-untyped-def]
+    """Store a witness value where the concrete oracle reads it."""
+    if ef.is_udm(path):
+        event.setdefault("udm", {})[ef.udm_path(path)] = value
+    elif path.startswith(ef.TAG_PREFIX):
+        event.setdefault("tags", {})[path[len(ef.TAG_PREFIX):]] = value
+    else:
+        event[path] = value
 
 
 def find_gap(
@@ -171,6 +280,7 @@ def find_gap(
     account: Account,
     *,
     max_refine: int = 64,
+    ctx: CoverageContext | None = None,
 ) -> GapResult:
     """Solve ``Reach ∧ Log ∧ ¬⋁Observes`` for one permission; return a verified witness."""
     cat = account.catalog
@@ -183,59 +293,60 @@ def find_gap(
     if not principals:
         return NoGap(permission, "unreachable")
 
-    ev = SymEvent(prefix="e")
-    enc = Encoder(ev=ev)
-    paths = _probe_paths(lib)
-    s = z3.Solver()
-    s.set("random_seed", 0)  # reproducible witnesses (plan §4: reproducible numbers)
-
-    # domain: a logged, permission-relevant method attributable to an allowed principal
-    s.add(z3.Or(*[ev.term("method") == z3.StringVal(m) for m in logged]))
-    s.add(ev.present("principal"))
-    s.add(z3.Or(*[ev.term("principal") == z3.StringVal(p) for p in principals]))
-
-    # realism invariants (plan §M2): a real audit event fixes some fields by its method
-    # (service, product_name), and — since we only probe permissions the principal can *reach* —
-    # the action is authorized, so ``granted`` is true.  Without these the solver would fabricate
-    # an event with, e.g., an empty product_name that dodges the very rule watching for it.
-    for m in logged:
-        cons = pin_fields(ev, cat.field_invariants(m))
-        if cons:
-            s.add(z3.Implies(ev.term("method") == z3.StringVal(m), z3.And(*cons)))
-    s.add(ev.term("granted") == z3.BoolVal(True))
-
-    single_rules = [d for d in lib.detections if _fires_on_one_event(d.spec)]
-    obs = [_observes_formula(enc, d.spec) for d in single_rules]
-    if obs:
-        s.add(z3.Not(z3.Or(*obs)))
-
-    for _ in range(max_refine):
-        if s.check() != z3.sat:
-            return NoGap(permission, "all_covered")
-        model = s.model()
-        event = _decode(ev, model, paths)
-        event.setdefault("method", None)
-        # Reach on the *decoded* principal + resource (globs may not cover it) and Log.
-        principal = event.get("principal")
-        resource = event.get("resource", "*")
-        if not account.logged(event.get("method")) or not account.reach(
-            principal, permission, resource
-        ):
-            s.add(_block(ev, model, paths))
-            continue
-        # Concrete oracle is authoritative: does ANY rule fire / is any uncertain?
-        verdicts = {d.id: fires(d.spec, [event], ref_lists=lib.ref_lists) for d in lib.detections}
-        if any(v is True for v in verdicts.values()):
-            s.add(_block(ev, model, paths))  # a rule really fires → not a gap; refine
-            continue
-        unknown_rules = tuple(rid for rid, v in verdicts.items() if v is None)
-        return Gap(
-            permission=permission,
-            event=event,
-            approximate=bool(unknown_rules),
-            unknown_rules=unknown_rules,
-        )
-    return NoGap(permission, "exhausted")
+    ctx = ctx or CoverageContext(lib)
+    s = ctx.solver
+    learned_here: list[z3.BoolRef] = []
+    unproven = False
+    s.push()
+    try:
+        for c in ctx.domain(permission, logged, principals, account):
+            s.add(c)
+        for _ in range(max_refine):
+            ctx.stats["checks"] += 1
+            if s.check() != z3.sat:
+                return NoGap(permission, "exhausted" if unproven else "all_covered")
+            model = s.model()
+            event, learned = ctx.realize_event(model, permission, logged, principals, account)
+            if learned:
+                ctx.stats["learned"] += len(learned)
+                learned_here.extend(learned)
+                for c in learned:
+                    s.add(c)
+            if event is None:
+                if not learned:  # nothing provable → block this assignment, lose the proof
+                    unproven = True
+                    ctx.stats["unproven"] += 1
+                    s.add(ctx.block(model))
+                continue
+            principal = event["principal"]
+            resource = event.get("resource", "*")
+            if not account.logged(event["method"]) or not account.reach(
+                principal, permission, resource
+            ):
+                ctx.stats["blocked"] += 1
+                s.add(ctx.block(model))
+                continue
+            # The concrete oracle is authoritative: does ANY rule fire / is any uncertain?
+            verdicts = {
+                d.id: fires(d.spec, [event], ref_lists=lib.ref_lists) for d in ctx.replay_rules
+            }
+            if any(v is True for v in verdicts.values()):
+                ctx.stats["blocked"] += 1
+                s.add(ctx.block(model))
+                continue
+            unknown_rules = tuple(rid for rid, v in verdicts.items() if v is None)
+            return Gap(
+                permission=permission,
+                event=event,
+                approximate=bool(unknown_rules),
+                unknown_rules=unknown_rules,
+            )
+        return NoGap(permission, "exhausted")
+    finally:
+        s.pop()
+        for c in learned_here:  # proven clauses survive the pop: they are library facts
+            s.add(c)
+        ctx.learned.extend(learned_here)
 
 
 @dataclass(frozen=True, slots=True)
@@ -245,6 +356,7 @@ class CoverageReport:
     unreachable: tuple[str, ...]
     unlogged: tuple[str, ...]
     approximate: tuple[str, ...]
+    exhausted: tuple[str, ...] = ()
 
     def summary(self) -> dict:
         return {
@@ -255,6 +367,7 @@ class CoverageReport:
             "gaps": len(self.gaps),
             "approximate": len(self.approximate),
             "covered": len(self.covered),
+            "exhausted": len(self.exhausted),
             "unreachable": len(self.unreachable),
             "unlogged": len(self.unlogged),
         }
@@ -264,19 +377,24 @@ def probe_permissions(
     lib: DetectionLibrary,
     account: Account,
     permissions: tuple[str, ...] | None = None,
+    *,
+    ctx: CoverageContext | None = None,
 ) -> CoverageReport:
-    """Probe a set of permissions (default: every catalog permission the account can reach)."""
+    """Probe a set of permissions (default: every catalog permission the account can reach),
+    sharing one :class:`CoverageContext` so the rules are encoded once."""
     if permissions is None:
         permissions = tuple(
             sorted(p for p in account.catalog.all_permissions() if account.reachable(p))
         )
+    ctx = ctx or CoverageContext(lib)
     gaps: list[Gap] = []
     covered: list[str] = []
     unreachable: list[str] = []
     unlogged: list[str] = []
     approximate: list[str] = []
+    exhausted: list[str] = []
     for p in permissions:
-        r = find_gap(p, lib, account)
+        r = find_gap(p, lib, account, ctx=ctx)
         if isinstance(r, Gap):
             gaps.append(r)
             if r.approximate:
@@ -286,11 +404,14 @@ def probe_permissions(
         elif r.reason == "no_logged_method":
             unlogged.append(p)
         else:
-            covered.append(p)
+            covered.append(p)  # all_covered, or exhausted (inconclusive; listed separately too)
+            if r.reason == "exhausted":
+                exhausted.append(p)
     return CoverageReport(
         gaps=tuple(gaps),
         covered=tuple(covered),
         unreachable=tuple(unreachable),
         unlogged=tuple(unlogged),
         approximate=tuple(approximate),
+        exhausted=tuple(exhausted),
     )

@@ -56,3 +56,26 @@ def test_nested_to_lower_becomes_case_insensitive_strfn():
 def test_nested_to_lower_becomes_case_insensitive_regex():
     regexes = [leaf for leaf in _leaves(_pred()) if isinstance(leaf, Regex)]
     assert regexes and all(r.nocase for r in regexes)
+
+
+# --- Panther standard rules over the GCP data model ---------------------------------------
+
+
+def test_panther_datamodel_admin_role_assigned_is_exact():
+    from decnique.frontends.panther import _datamodel_pred
+    from decnique.dsl.interpret import evaluate
+    from decnique.model.predicates import Unknown
+
+    py = 'def rule(event):\n    return event.udm("event_type") == event_type.ADMIN_ROLE_ASSIGNED\n'
+    p = _datamodel_pred(py)
+    assert p is not None and not any(isinstance(x, Unknown) for x in [p])
+    L = "target.resource.attribute.labels[ser_binding_deltas_%s]"
+    owner_to_user = {"method": "SetIamPolicy", "udm": {L % "action": "ADD", L % "role": "roles/owner"}}
+    admin_role = {"method": "SetIamPolicy", "udm": {L % "action": "ADD", L % "role": "roles/iam.securityAdmin"}}
+    viewer = {"method": "SetIamPolicy", "udm": {L % "action": "ADD", L % "role": "roles/viewer"}}
+    assert evaluate(p, owner_to_user) is True
+    assert evaluate(p, admin_role) is True
+    assert evaluate(p, viewer) is False
+    # any other data-model event type is never produced for GCP audit logs → exact false
+    q = _datamodel_pred('def rule(event):\n    return event.udm("event_type") == event_type.FAILED_LOGIN\n')
+    assert evaluate(q, owner_to_user) is False

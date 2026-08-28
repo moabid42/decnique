@@ -18,7 +18,7 @@ from typing import Any as AnyT
 import yaml
 
 from decnique.dsl.ast import Bundle, Detection, LoadIssue, Provenance
-from decnique.model.predicates import Cmp, In, Pred, StrFn, Unknown, all_of, any_of
+from decnique.model.predicates import Cmp, Const, In, Like, Pred, StrFn, Unknown, all_of, any_of
 from decnique.model.trace import Count, EventVar, RuleOptions, TraceSpec, Window, single_event
 
 _METHOD_CTX = re.compile(r"(?:methodName|method_name|METHOD|method)\b", re.I)
@@ -113,7 +113,7 @@ def lower_panther(
         meta["correlates"] = ",".join(sub)
         spec = single_event("e", Unknown(label="panther:correlation_rule", raw=",".join(sub)))
     else:
-        pred = _python_pred(py_text, unsupported)
+        pred = _datamodel_pred(py_text) or _python_pred(py_text, unsupported)
         threshold = int(doc.get("Threshold") or 1)
         if threshold > 1:
             window = Window(int(doc.get("DedupPeriodMinutes") or 60) * 60)
@@ -140,6 +140,46 @@ def lower_panther(
         ),
         unsupported,
     )
+
+
+# Panther "standard" rules test the unified data model: ``event.udm("event_type") == event_type.X``.
+# For GCP.AuditLog the data model (``data_models/gcp_data_model.py``) derives exactly one event
+# type — ADMIN_ROLE_ASSIGNED when a SetIamPolicy binding delta ADDs a role matching
+# ``roles/owner`` or ``roles/*Admin`` — and ``None`` for everything else.  So such a rule is
+# translated *exactly*: that predicate for ADMIN_ROLE_ASSIGNED, ``false`` for any other type.
+_UDM_EVENT_TYPE = re.compile(r'event\.udm\(\s*"event_type"\s*\)\s*(==|in)\s*([^\n:]+)')
+_DELTA_LABEL = "udm:target.resource.attribute.labels[ser_binding_deltas_{}]"
+
+
+def _gcp_admin_role_assigned() -> Pred:
+    role = (None, _DELTA_LABEL.format("role"))
+    return all_of(
+        [
+            Cmp(field=(None, "method"), op="=", value="SetIamPolicy"),
+            Cmp(field=(None, _DELTA_LABEL.format("action")), op="=", value="ADD"),
+            any_of(
+                [
+                    Cmp(field=role, op="=", value="roles/owner"),
+                    Like(field=role, pattern="roles/*Admin"),
+                ]
+            ),
+        ]
+    )
+
+
+def _datamodel_pred(py_text: str | None) -> Pred | None:
+    if not py_text:
+        return None
+    body = _rule_function(py_text)
+    m = _UDM_EVENT_TYPE.search(body)
+    if not m or body.count("event.udm(") > 1 or "return event.udm(" not in body.replace(" ", "").replace("returnevent", "return event"):
+        return None  # only the plain ``return event.udm("event_type") == ...`` shape
+    names = set(re.findall(r"event_type\.([A-Z_]+)", m.group(2)))
+    if not names:
+        return None
+    if "ADMIN_ROLE_ASSIGNED" in names:
+        return _gcp_admin_role_assigned()
+    return Const(value=False)  # the GCP data model never yields this event type
 
 
 def _python_pred(py_text: str | None, unsupported: list[str]) -> Pred:

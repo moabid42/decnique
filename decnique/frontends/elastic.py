@@ -308,8 +308,10 @@ def _unescape(t: str) -> str:
 
 def _leaf(field: str, op: str, value: str, unsupported: list[str]) -> Pred:
     low = field.lower()
-    if low in _DATASET_FIELDS:
+    if low in _DATASET_FIELDS and re.search(r"\bgcp\b|google[._-]?cloud", value, re.I):
         return Const(value=True)  # the GCP audit dataset is implied by the loader's scope
+    # any other dataset/module value is an ordinary equality on the raw field — it must NOT
+    # collapse to `true`, or the rule would "cover" every event (docs/COVERAGE_ABSTRACTION.md §1)
     path = FIELD_MAP.get(low, ef.udm_field(field))
     qf = (None, path)
     if op != ":":

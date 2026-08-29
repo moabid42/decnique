@@ -180,7 +180,8 @@ class CoverageContext:
         return out
 
     def domain(
-        self, permission: str, methods: list[str], principals: list[str], account: Account
+        self, permission: str, methods: list[str], principals: list[str], account: Account,
+        *, granted: bool = True,
     ) -> list[z3.BoolRef]:
         ev, t = self.enc.ev, self.table
         out: list[z3.BoolRef] = []
@@ -200,7 +201,7 @@ class CoverageContext:
                     out.append(z3.Implies(t.eq("method", m), z3.And(*self._determine(path, value))))
             for path in account.catalog.required_fields(m):  # ... and always carries others
                 out.append(z3.Implies(t.eq("method", m), ev.present(path)))
-        out.append(ev.term("granted") == z3.BoolVal(True))
+        out.append(ev.term("granted") == z3.BoolVal(granted))  # False = a denied attempt
         return out
 
     # -- decoding ------------------------------------------------------------------------------
@@ -219,7 +220,7 @@ class CoverageContext:
 
     def realize_event(
         self, model: z3.ModelRef, permission: str, methods: list[str], principals: list[str],
-        account: Account,
+        account: Account, *, granted: bool = True,
     ) -> tuple[dict | None, list[z3.BoolRef]]:
         """Decode a model into a concrete event, or ``(None, learned)`` when some field cannot be
         realized — ``learned`` then holds the proven clauses explaining it (possibly none)."""
@@ -228,7 +229,7 @@ class CoverageContext:
             "method": m,
             "principal": self._chosen(model, "principal", principals),
             "permission": permission,
-            "granted": True,
+            "granted": granted,
         }
         event.update(account.catalog.field_invariants(m))
         required = account.catalog.required_fields(m)  # carried even if no rule reads them
@@ -302,11 +303,17 @@ def find_gap(
     max_refine: int = 64,
     ctx: CoverageContext | None = None,
     extra: tuple[z3.BoolRef, ...] = (),
+    principals: tuple[str, ...] | None = None,
+    granted: bool = True,
+    resource: str = "*",
 ) -> GapResult:
     """Solve ``Reach ∧ Log ∧ ¬⋁Observes`` for one permission; return a verified witness.
-    ``extra`` adds constraints to the domain (used to ask "is there a gap *with* this atom?")."""
+    ``extra`` adds constraints to the domain (used to ask "is there a gap *with* this atom?");
+    ``principals`` restricts the actor (e.g. to ``allUsers``); ``granted=False`` asks about
+    *denied* attempts instead of successful calls; ``resource`` is the resource ``Reach`` is
+    asked about (a grant scoped to a project reaches it, not ``*``)."""
     cat = account.catalog
-    if not account.reachable(permission):
+    if not account.reachable(permission, resource):
         return NoGap(permission, "unreachable")
     logged = sorted(m for m in cat.methods_for(permission) if account.logged(m))
     if not logged:
@@ -316,7 +323,8 @@ def find_gap(
     # over confirmed names when there are any; fall back to unverified ones (with a caveat).
     verified = [m for m in logged if cat.verified(m)]
     logged = verified or logged
-    principals = sorted(account.principals_with(permission))
+    holders = account.principals_with(permission, resource)
+    principals = sorted(p for p in holders if principals is None or p in principals)
     if not principals:
         return NoGap(permission, "unreachable")
 
@@ -326,7 +334,7 @@ def find_gap(
     unproven = False
     s.push()
     try:
-        for c in ctx.domain(permission, logged, principals, account):
+        for c in ctx.domain(permission, logged, principals, account, granted=granted):
             s.add(c)
         for c in extra:
             s.add(c)
@@ -339,7 +347,8 @@ def find_gap(
                 core = tuple(sorted(str(b)[5:] for b in s.unsat_core()))  # strip "rule."
                 return NoGap(permission, "exhausted" if unproven else "all_covered", core)
             model = s.model()
-            event, learned = ctx.realize_event(model, permission, logged, principals, account)
+            event, learned = ctx.realize_event(model, permission, logged, principals, account,
+                                               granted=granted)
             if learned:
                 ctx.stats["learned"] += len(learned)
                 learned_here.extend(learned)
@@ -352,9 +361,8 @@ def find_gap(
                     s.add(ctx.block(model))
                 continue
             principal = event["principal"]
-            resource = event.get("resource", "*")
             if not account.logged(event["method"]) or not account.reach(
-                principal, permission, resource
+                principal, permission, event.get("resource", resource)
             ):
                 ctx.stats["blocked"] += 1
                 s.add(ctx.block(model))

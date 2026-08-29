@@ -415,7 +415,7 @@ def _blindspots(s, lib, account, single, ctx, permissions, explain, show_raw, re
     )
 
     gaps: list[dict] = []
-    covered = unreachable = unlogged = 0
+    covered = inconclusive = unreachable = unlogged = 0
 
     for p in permissions:
         r.section(p)
@@ -445,11 +445,11 @@ def _blindspots(s, lib, account, single, ctx, permissions, explain, show_raw, re
                 r.verdict_safe("covered — every reachable+logged event trips a rule (UNSAT after refinement)")
                 covered += 1
             elif res.reason == "exhausted":
-                r.verdict_muted("inconclusive — refinement bound exhausted")
-                covered += 1
+                r.verdict_muted("inconclusive — refinement bound exhausted (not a proof of coverage)")
+                inconclusive += 1
             else:
                 r.verdict_muted(res.reason)
-                covered += 1
+                inconclusive += 1
             rep.add(p, res.reason, "covered by " + ", ".join(res.covered_by) if res.covered_by else "", covered_by=list(res.covered_by))
             r.blank()
             continue
@@ -546,11 +546,13 @@ def _blindspots(s, lib, account, single, ctx, permissions, explain, show_raw, re
                 watched=[change_text(v) for v in verdicts if v.covered])
         r.blank()
 
-    rep.summary = {"gaps": len(gaps), "covered": covered, "unreachable": unreachable, "unlogged": unlogged,
+    rep.summary = {"gaps": len(gaps), "covered": covered, "inconclusive": inconclusive,
+                   "unreachable": unreachable, "unlogged": unlogged,
                    "permissions": len(permissions), "single_event_rules": len(single)}
     console.print(
         f"[title]result[/title]  [gap]{len(gaps)} gaps[/gap] · "
-        f"[safe]{covered} covered[/safe] · {unreachable} unreachable · {unlogged} unlogged"
+        f"[safe]{covered} covered[/safe] · {inconclusive} inconclusive · "
+        f"{unreachable} unreachable · {unlogged} unlogged"
     )
     if gaps:
         t = _table("blind spots", [("PERMISSION",), ("METHOD",), ("PRINCIPAL",), ("STATUS",)])

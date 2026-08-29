@@ -112,6 +112,7 @@ def chains_report(
                     "events": len(h.schedule),
                     "schedule": list(h.schedule),
                     "unknown_rules": list(h.unknown_rules),
+                    "delay": h.delay,
                 }
                 for h in result.hops
             ],

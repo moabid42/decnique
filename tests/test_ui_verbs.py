@@ -69,3 +69,18 @@ def test_stealth_reports_unlogged_step_and_always_detected(tmp_path):
     assert by["rd"]["verdict"] == "evasive" and by["rd"]["unlogged"] == ["storage.objects.get"]
     assert "logging gap" in doc["transcript"]
     assert doc["summary"] == {"evasive": 1, "techniques": 2}
+
+
+def test_chains_replays_the_whole_path(tmp_path):
+    s = _session(tmp_path)
+    dispatch(s, "load examples/candidates.decn")
+    dispatch(s, "account examples/account.json")
+    dispatch(s, 'detection key_then_token { events { k: method = "google.iam.admin.v1.CreateServiceAccountKey"'
+                '  t: method = "iam.serviceAccounts.getAccessToken" } join { k.principal = t.principal }'
+                ' window 1h condition #k >= 1 and #t >= 1 }')
+    assert dispatch(s, "chains") is True
+    doc = _last(tmp_path)
+    assert doc["summary"]["found"] is True
+    delays = [it["delay"] for it in doc["items"]]
+    assert 3601 in delays  # the search waited out the 1 h correlation window
+    assert "replay of the whole path" in doc["transcript"] and "REJECTED" not in doc["transcript"]

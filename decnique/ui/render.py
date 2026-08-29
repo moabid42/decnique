@@ -713,25 +713,32 @@ def _chains(lib, account, attack, report) -> None:  # type: ignore[no-untyped-de
                           "reason": rep["reason"], "principal": attack["principal"]}
         return
 
-    # Found: narrate and replay-verify each hop.
+    # Found: narrate each hop, then replay the whole path as one trace (hops laid end to end
+    # with the delays the search chose) — that is what a correlation rule would see.
     r.blank()
+    whole: list[dict] = []
     for i, h in enumerate(rep["hops"]):
         r.section(f"hop {i + 1}: {h['technique']}")
         r.note(f"gains: {', '.join(h['gains']) or '—'}")
         sched = h.get("schedule", [])
-        with r.thinking(f"replay: firing all {len(lib.detections)} rules on {len(sched)} event(s)…"):
-            verdicts = {d.id: fires(d.spec, sched, ref_lists=lib.ref_lists) for d in lib.detections}
-        n_fire = sum(v is True for v in verdicts.values())
-        n_unk = sum(v is None for v in verdicts.values())
-        r.replay(f"replay: {n_fire}/{len(lib.detections)} fire, {n_unk} unknown → "
-                 f"{'sound' if n_fire == 0 else 'REJECTED'}", sound=(n_fire == 0))
+        if h.get("delay"):
+            r.note(f"waits {h['delay']} s after the previous hop (longer than every rule window)")
+        start = max((int(e.get("time", 0)) for e in whole), default=0) + int(h.get("delay", 0))
+        whole += [{**e, "time": int(e.get("time", 0)) + start} for e in sched]
+    seen = [e for e in whole if account.logged(str(e.get("method", "")))]
+    with r.thinking(f"replay: firing all {len(lib.detections)} rules on the whole path ({len(seen)} logged event(s))…"):
+        verdicts = {d.id: fires(d.spec, seen, ref_lists=lib.ref_lists) for d in lib.detections}
+    n_fire = sum(v is True for v in verdicts.values())
+    n_unk = sum(v is None for v in verdicts.values())
+    r.replay(f"replay of the whole path: {n_fire}/{len(lib.detections)} fire, {n_unk} unknown → "
+             f"{'sound' if n_fire == 0 else 'REJECTED'}", sound=(n_fire == 0))
 
     tag = "approximate" if rep["tag"] == "approximate" else "stealthy"
     report.summary = {"found": True, "goal": rep["goal"], "hops": len(rep["hops"]), "tag": rep["tag"],
                       "principal": attack["principal"]}
     for i, h in enumerate(rep["hops"]):
         report.add(f"hop {i + 1}: {h['technique']}", "stealthy", "gains " + (", ".join(h["gains"]) or "—"),
-                   gains=list(h["gains"]), schedule=list(h.get("schedule", [])))
+                   gains=list(h["gains"]), schedule=list(h.get("schedule", [])), delay=h.get("delay", 0))
     r.blank()
     r.verdict_gap(f"{tag.upper()} PATH to {rep['goal']} — {len(rep['hops'])} hop(s)")
     t = _table(f"stealthy escalation to {rep['goal']}",

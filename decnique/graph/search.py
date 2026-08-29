@@ -3,9 +3,12 @@
 From an initial :class:`~decnique.graph.state.State` to a goal permission, find a path where
 **every hop is stealth-feasible** — its technique realizes a schedule that no rule fires on, in
 the account as it stands at that point in the chain (Reach grows hop by hop).  Each hop's stealth
-witness is produced (and replay-verified) by M3, so a returned :class:`StealthyPath` is valid
-hop-by-hop.  When no stealthy path exists the search proves it by exhausting the finite reachable
-state space (the permission universe is finite), not by giving up at a bound.
+witness is produced (and replay-verified) by M3, and the **whole path** is then replayed as one
+trace (hop schedules laid end to end, with a delay between hops chosen so that no rule fires;
+see :func:`_path_replay`) — a correlation rule such as "key created *then* token minted within
+an hour" is invisible to a hop-by-hop check, so a returned :class:`StealthyPath` is only
+believed after this replay.  When no stealthy path exists the search reports it by exhausting
+the finite reachable state space (with the hop schedules M3 chose — not every schedule).
 
 "Detection-priced": :func:`price_transitions` annotates each technique at a state with whether it
 is stealthy or forced to trip a rule, for the thesis's detection-priced graphs.
@@ -19,6 +22,7 @@ from dataclasses import dataclass
 
 from decnique.detections import DetectionLibrary
 from decnique.env.model import Account
+from decnique.eval import fires
 from decnique.graph.state import State, Technique, account_for
 from decnique.smt.stealth import Evasive, StealthResult, stealth_feasible
 
@@ -32,6 +36,7 @@ class Hop:
     schedule: tuple[dict, ...]
     approximate: bool
     unknown_rules: tuple[str, ...] = ()
+    delay: int = 0  # seconds waited after the previous hop before this one starts
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +71,37 @@ def _goal_pred(goal: str | Callable[[State], bool]) -> Callable[[State], bool]:
     if callable(goal):
         return goal
     return lambda s: goal in s
+
+
+def _shift(schedule: tuple[dict, ...], offset: int) -> tuple[dict, ...]:
+    return tuple({**e, "time": int(e.get("time", 0)) + offset} for e in schedule)
+
+
+def _span(events: tuple[dict, ...]) -> int:
+    return max((int(e.get("time", 0)) for e in events), default=0)
+
+
+def _path_replay(
+    lib: DetectionLibrary, account: Account, path: tuple[Hop, ...], schedule: tuple[dict, ...]
+) -> tuple[int, tuple[str, ...]] | None:
+    """Replay the path so far plus ``schedule`` as one trace.  Tries the hop back to back, then
+    after a delay longer than every rule window (a patient attacker).  Returns the delay that
+    works and the rules that answered *don't-know*, or ``None`` when some rule fires on every
+    tried delay."""
+    prior: tuple[dict, ...] = ()
+    for h in path:
+        prior += _shift(h.schedule, _span(prior) + h.delay)
+    windows = [d.spec.window.seconds for d in lib.detections if d.spec.window is not None]
+    delays = [0] + ([max(windows) + 1] if windows else [])
+    for delay in delays:
+        whole = prior + _shift(schedule, (_span(prior) + delay) if prior else 0)
+        seen = [e for e in whole if account.logged(str(e.get("method", "")))]
+        verdicts = {d.id: fires(d.spec, seen, ref_lists=lib.ref_lists) for d in lib.detections
+                    if fires(d.spec, [], ref_lists=lib.ref_lists) is not True}
+        if any(v is True for v in verdicts.values()):
+            continue
+        return delay, tuple(r for r, v in verdicts.items() if v is None)
+    return None
 
 
 def search_stealth_path(
@@ -109,14 +145,19 @@ def search_stealth_path(
             result: StealthResult = stealth_feasible(tech.candidate, lib, account)
             if not isinstance(result, Evasive):
                 continue  # this hop is not stealthy in this state
+            whole = _path_replay(lib, account, path, result.schedule)
+            if whole is None:
+                continue  # stealthy alone, but a rule correlates it with an earlier hop
+            delay, unknown = whole
             hop = Hop(
                 technique=tech.id,
                 principal=principal,
                 from_state=state,
                 to_state=nxt,
                 schedule=result.schedule,
-                approximate=result.approximate,
-                unknown_rules=result.unknown_rules,
+                approximate=result.approximate or bool(unknown),
+                unknown_rules=tuple(dict.fromkeys(result.unknown_rules + unknown)),
+                delay=delay,
             )
             new_path = path + (hop,)
             if goal_reached(nxt):

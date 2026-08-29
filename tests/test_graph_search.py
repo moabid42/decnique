@@ -140,3 +140,52 @@ def test_account_for_grants_state_permissions():
     assert acct.reach("attacker@x.com", "a.b.c")
     assert acct.reach("attacker@x.com", "d.e.f")
     assert not acct.reach("attacker@x.com", "x.y.z")
+
+
+# --- the whole path is replayed, not only each hop ------------------------------------------
+
+
+def _join_lib(extra: str = "") -> DetectionLibrary:
+    # "a key is created, then a token minted by the same principal within an hour"
+    return DetectionLibrary(parse_text(f'''
+detection key_then_token {{
+  events {{
+    k: method = "{_KEY}"
+    t: method = "{_TOKEN}"
+  }}
+  join {{ k.principal = t.principal }}
+  window 1h
+  condition #k >= 1 and #t >= 1
+}}
+{extra}
+''', "j.decn"))
+
+
+def _account() -> Account:
+    return Account(name="t", bindings={"a@x.com": (Grant(permission="iam.serviceAccountKeys.create"),)},
+                   logging=LogConfig(data_access_services=frozenset({"iamcredentials.googleapis.com"})))
+
+
+def test_path_waits_out_a_correlation_window():
+    res = search_stealth_path(_techniques(), _join_lib(), _account(), "a@x.com",
+                              frozenset({"iam.serviceAccountKeys.create"}), "resourcemanager.projects.setIamPolicy")
+    assert isinstance(res, StealthyPath) and [h.technique for h in res.hops] == ["create_key", "mint_token"]
+    assert res.hops[0].delay == 0 and res.hops[1].delay == 3601  # a patient attacker waits out the window
+    # the whole path, laid end to end with that delay, fires nothing
+    whole = list(res.hops[0].schedule) + [{**e, "time": e["time"] + 3601 + max(x["time"] for x in res.hops[0].schedule)}
+                                          for e in res.hops[1].schedule]
+    assert fires(_join_lib().detections[0].spec, whole) is False
+    assert not res.approximate
+
+
+def test_path_is_refused_when_no_delay_evades_the_correlation():
+    # the same join rule without a window: the two hops correlate however long the attacker waits
+    lib = DetectionLibrary(parse_text(f'''
+detection key_then_token_ever {{
+  events {{ k: method = "{_KEY}"  t: method = "{_TOKEN}" }}
+  join {{ k.principal = t.principal }}
+  condition #k >= 1 and #t >= 1
+}}''', "j.decn"))
+    res = search_stealth_path(_techniques(), lib, _account(), "a@x.com",
+                              frozenset({"iam.serviceAccountKeys.create"}), "resourcemanager.projects.setIamPolicy")
+    assert isinstance(res, NoStealthyPath)

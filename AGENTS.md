@@ -18,8 +18,8 @@ the audit log. This tool answers, for one concrete account and one rule corpus:
   evading schedule.
 - **chains** — stealthy privilege-escalation paths built from stealthy techniques.
 - **check** — the DSL's own `check` blocks: named questions (`coverage`, `candidate`, `compare`,
-  `dead_rules`, `redundant_rules`) answered pass / fail / unknown, from a file or typed at the
-  prompt.
+  `dead_rules`, `redundant_rules`, `boundary`, `require_coverage`, `attempt_coverage`,
+  `public_access`) answered pass / fail / unknown, from a file or typed at the prompt.
 
 The core idea: translate every rule into one shared language (the DSL), abstract each string
 field to the finite set of tests the rules make on it (**atoms**), and ask a propositional
@@ -111,8 +111,8 @@ rules by default; `--all` loads every platform (only useful for scale tests).
   `session.settings.get(key)`.
 - **New check type** → one `_<type>` function in `decnique/checks.py`, dispatched from
   `run_check`, added to `IMPLEMENTED`, and a question line in `ui/render.py` `_CHECK_QUESTION`.
-  Types not in `IMPLEMENTED` (`public_access`, `boundary`, `require_coverage`,
-  `attempt_coverage`) answer `unknown` — never guess.
+  Every type is implemented; the one option without an engine, `mode fires_bg` (against a
+  background trace), answers `unknown` — never guess.
 - **New shell verb** → add to `COMMANDS` in `ui/repl.py` (single source for help/completion),
   implement in `ui/render.py`.
 - **Engine change in `smt/`** → keep `tests/test_coverage_differential.py` green (old vs new
@@ -130,6 +130,10 @@ rules by default; `--all` loads every platform (only useful for scale tests).
 - Real audit-log method for project IAM changes is `SetIamPolicy` (v1). The binding deltas
   (`action`/`role`/`member`) can be stripped in exported logs — a delta-less event is a real,
   rare blind spot, not a modelling error.
+- A check that narrows `rules [...]` can get an odd-looking witness (a binding-delta label on
+  a key-creation event): nothing ties free fields to a method, so scope the check with
+  `permission` too. `allowed` needs its fields present — add `or <field> missing` when a
+  field-less event should also be allowed.
 - Plain-English wording (`config blindspots.explain words`) is a **hard-coded** IAM-only table
   (`ui/words.py`); the default modes derive their vocabulary from the rules themselves.
 

@@ -41,14 +41,73 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "blindspots": ("[perm…]", "reachable+logged events no rule observes  (SMT · M2)"),
     "stealth": ("[id]", "can a technique evade every rule?  (SMT · M3)"),
     "chains": ("[goal]", "stealthy privilege-escalation paths  (graph+SMT · M4)"),
-    "config": ("[key [value|reset]]", "show or change settings (e.g. blindspots.explain rules|formula|both)"),
+    "config": ("[verb | key [value|reset]]", "show or change settings; `config <verb>` explains a verb and its settings"),
+    "reports": ("", "list saved report files (config report.save on)"),
+    "report": ("<file>", "reopen a saved run: its summary and findings"),
     "clear": ("", "clear the screen (session state is kept)"),
-    "help": ("", "show this command list"),
+    "help": ("[verb]", "show this command list, or everything about one verb"),
     "quit": ("", "leave the shell"),
 }
 
-_PATH_CMDS = {"load", "account", "events", "event", "check"}
+_PATH_CMDS = {"load", "account", "events", "event", "check", "report"}
 _MATH_CMDS = {"blindspots", "stealth", "chains", "check"}
+
+# plain-language detail for `help <verb>` / `config <verb>`: arguments, sub-words, what to expect
+DETAILS: dict[str, str] = {
+    "load": "load [--all] [--deprecated] <path…>\n"
+            "  paths: directories or files of native rules (.yaral, .toml, .yml) or DSL (.decn)\n"
+            "  --all         keep every platform (default keeps only GCP-relevant rules)\n"
+            "  --deprecated  also load rules under _deprecated/\n"
+            "  What you get: detections, candidates (techniques) and checks, merged into the session.",
+    "account": "account <file.json>\n"
+               "  The GCP account model: who holds which permission on which resource (Reach), and\n"
+               "  which audit logs are on (Log). Optional `attack` block for `chains`.",
+    "events": "events <file.json>\n  An ordered trace of audit-log events (raw protoPayload or the flat event form).",
+    "rules": "rules [substr]\n  List loaded detections; `~` marks a rule that has an untranslatable part (approximate).",
+    "candidates": "candidates\n  List the loaded techniques: required permissions and the footprint they leave.",
+    "show": "show <id>\n  Print a detection, candidate, or check in canonical DSL, plus what could not be translated.",
+    "admits": "admits <method>\n  Which detections could involve an event with this method (a syntactic pre-filter).",
+    "summary": "summary\n  Corpus statistics: rules per platform, approximate rules, checks.",
+    "event": "event <file.json>\n  One concrete event: which detections observe it (yes / no / don't-know).",
+    "trace": "trace [all]\n  Run every detection over the loaded trace; `all` also lists the ones that do not fire.",
+    "footprint": "footprint [id]\n  Does the loaded trace realize a technique's footprint?",
+    "checks": "checks\n  List loaded `check` blocks and the question each asks.",
+    "check": "check [id… | file.decn…]\n"
+             "  Run check blocks: all loaded ones, the named ones, or those in the given files.\n"
+             "  Types: coverage, candidate, compare, dead_rules, redundant_rules, boundary,\n"
+             "         require_coverage, attempt_coverage, public_access.\n"
+             "  Every answer is pass / fail / unknown; a fail shows a witness replayed through the oracle.\n"
+             "  You can also type a block at the prompt:  check q { type candidate for <technique> }",
+    "blindspots": "blindspots [perm…]\n"
+                  "  QUESTION: for each permission, is there ANY logged action using it that no rule catches?\n"
+                  "  Per permission you see:\n"
+                  "    Reach        who can exercise it          Log   which methods are audit-logged\n"
+                  "    example      the simplest event nobody catches (replayed through the oracle)\n"
+                  "    watched:     a kind of change some rule catches — and by which rule\n"
+                  "    UNWATCHED:   a kind of change no rule catches — and the nearest rule's missing condition\n"
+                  "    the attack…  the verdict of `stealth` for techniques needing this permission\n"
+                  "  Verdicts: BLIND SPOT / covered (proof) / inconclusive (refinement bound).\n"
+                  "  exact vs ~approx: approx means an untranslatable rule part was involved.\n"
+                  "  Settings: blindspots.explain (rules | formula | both | words), blindspots.raw (off | on).",
+    "stealth": "stealth [id]\n"
+               "  QUESTION: can THIS technique be run so that no rule fires?\n"
+               "  Verdicts: evasive (a concrete schedule, replayed) / always_detected (proof) /\n"
+               "            not_feasible (no principal holds the permissions) / exhausted.",
+    "chains": "chains [goal]\n"
+              "  Stealthy privilege-escalation paths: every hop is a technique that evades every rule.\n"
+              "  Needs an `attack` block in the account file (principal, initial_state, goal, effects).",
+    "config": "config                      list every setting\n"
+              "config <verb>               this help page for a verb, with its settings\n"
+              "config <key>                show one value\n"
+              "config <key> <value>        set (persisted)      config <key> reset   back to default",
+    "reports": "reports\n  List the files in report.dir with the verb, time, and summary of each run.",
+    "report": "report <file>\n"
+              "  Reopen a saved run (md / json / yaml): what was loaded, the summary, every finding.\n"
+              "  Settings: report.save (off | on), report.format (md | json | yaml), report.dir.",
+    "clear": "clear\n  Clear the screen; nothing loaded is lost.",
+    "help": "help [verb]\n  The command list, or everything about one verb (same as `config <verb>`).",
+    "quit": "quit\n  Leave the shell.",
+}
 
 # a line starting with one of these opens a DSL block, read until its braces close
 DSL_KEYWORDS = ("detection", "candidate", "check", "ruleset")
@@ -114,9 +173,12 @@ def dispatch(s: Session, line: str) -> bool:
         if cmd in ("quit", "exit", "q"):
             return False
         elif cmd in ("help", "?"):
-            print_help()
+            print_verb_help(s, args[0]) if args else print_help()
         elif cmd == "config":
-            render.config(s, args)
+            if args and args[0] in COMMANDS:
+                print_verb_help(s, args[0])
+            else:
+                render.config(s, args)
         elif cmd in ("clear", "cls"):
             console.clear()
         elif cmd == "load":
@@ -143,6 +205,10 @@ def dispatch(s: Session, line: str) -> bool:
             render.footprint(s, args[0] if args else None)
         elif cmd == "checks":
             render.checks(s)
+        elif cmd == "reports":
+            render.reports(s)
+        elif cmd == "report":
+            render.report(s, args[0] if args else None)
         elif cmd == "check":
             render.check(s, args)
         elif cmd == "blindspots":
@@ -207,6 +273,7 @@ def print_help() -> None:
         ("inspect", ["rules", "candidates", "show", "admits", "summary"]),
         ("run over a trace", ["event", "trace", "footprint"]),
         ("coverage — the math", ["blindspots", "stealth", "chains", "check", "checks"]),
+        ("saved runs", ["reports", "report"]),
         ("shell", ["config", "clear", "help", "quit"]),
     ]
     for heading, verbs in groups:
@@ -219,6 +286,31 @@ def print_help() -> None:
             t.add_row(v, hint, desc)
         console.print(Text(f"{BULLET} {heading}", style="title"))
         console.print(t)
+
+
+def print_verb_help(s: Session, verb: str) -> None:
+    """Everything about one verb: usage, what each word on screen means, and its settings."""
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.text import Text
+
+    if verb not in COMMANDS:
+        console.print(f"[warn]unknown verb {verb!r}[/warn] — type [key]help[/key]")
+        return
+    hint, desc = COMMANDS[verb]
+    body = Text(desc + "\n\n", style="muted")
+    body.append(DETAILS.get(verb, f"{verb} {hint}"))
+    console.print(Panel(body, title=Text(verb, style="brand"), title_align="left", border_style="rule", padding=(0, 1)))
+    prefix = "report." if verb in ("reports", "report") else f"{verb}."
+    rows = [r for r in s.settings.rows() if r[0].startswith(prefix)]
+    if rows:
+        t = Table(box=None, padding=(0, 2, 0, 0), show_header=True, pad_edge=False, header_style="muted")
+        for col in ("SETTING", "VALUE", "ALLOWED", "WHAT IT DOES"):
+            t.add_column(col, style="key" if col == "SETTING" else "")
+        for key, val, allowed, help_ in rows:
+            t.add_row(key, val, allowed, help_)
+        console.print(t)
+        console.print(f"[muted]change one with: config <key> <value>[/muted]")
 
 
 # --- prompt_toolkit front (with a plain fallback) -----------------------------------------

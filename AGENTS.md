@@ -57,7 +57,8 @@ decnique/
                 bucket (optional grouping), legacy_coverage (old engine, differential test only)
   graph/        chains: search over stealthy techniques
   checks.py     runs `check` blocks (one engine per check type, three-valued, replayed)
-  ui/           repl (command table), render (verbs), session, config (settings), words (opt-in wording)
+  ui/           repl (command table + per-verb help), render (verbs), session, config (settings),
+                report (saved runs: md/json/yaml), words (opt-in wording)
   catalogs/     UDM field map
 examples/       account.json, candidates.decn
 tests/          pytest; synthetic suites + corpus tests (skipped when the corpus is absent)
@@ -74,7 +75,13 @@ python3 run.py blindspots resourcemanager.projects.setIamPolicy
 ```
 In the shell: `load [--all] [--deprecated] <rule dirs…> <candidates.decn>`, `account <json>`,
 `blindspots [perm…]`, `stealth [id]`, `chains`, `check [id… | file.decn…]`, `checks`, `config`,
-`clear`, `help`.
+`reports`, `report <file>`, `clear`, `help [verb]`.
+
+`help <verb>` (or `config <verb>`) explains one verb: its arguments, what every word on screen
+means, and its settings.  With `config report.save on`, every `blindspots` / `stealth` / `chains`
+/ `check` run is written to `report.dir` as Markdown (default; the data is embedded as JSON at
+the end), JSON, or YAML (`report.format`); `reports` lists them and `report <file>` reopens one
+— for output too long to read on screen, or to come back to a run later.
 
 The prompt also accepts DSL directly, like a Python interpreter: a line starting with
 `detection`, `candidate`, `check`, or `ruleset` and containing `{` opens a block that is read
@@ -113,8 +120,10 @@ rules by default; `--all` loads every platform (only useful for scale tests).
   `run_check`, added to `IMPLEMENTED`, and a question line in `ui/render.py` `_CHECK_QUESTION`.
   Every type is implemented; the one option without an engine, `mode fires_bg` (against a
   background trace), answers `unknown` — never guess.
-- **New shell verb** → add to `COMMANDS` in `ui/repl.py` (single source for help/completion),
-  implement in `ui/render.py`.
+- **New shell verb** → add to `COMMANDS` *and* `DETAILS` in `ui/repl.py` (single source for
+  help/completion; a test checks both stay in sync), implement in `ui/render.py`.  A verb that
+  computes something wraps its body in `with s.report(verb, args) as rep:` and calls
+  `rep.add(label, verdict, detail, …)` per finding, so it can be saved and reopened.
 - **Engine change in `smt/`** → keep `tests/test_coverage_differential.py` green (old vs new
   engine agree) and the soundness tests in `tests/test_smt_coverage.py`.
 

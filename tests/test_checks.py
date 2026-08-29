@@ -125,9 +125,79 @@ def test_dead_and_redundant_rules():
 def test_unimplemented_type_is_unknown_and_batch_runs():
     lib, acct = _lib(), _account(_SET)
     checks = parse_text(
-        f"check a {{ type boundary }}\ncheck b {{ type coverage permission {_SET} }}", "c.decn"
+        f'check a {{ type boundary event granted = true mode fires_bg }}\ncheck b {{ type coverage permission {_SET} }}', "c.decn"
     ).checks
     res = run_checks(checks, lib, acct)
     assert [r.verdict for r in res] == ["unknown", "pass"]
     with pytest.raises(CheckError):
         run_check(checks[1], lib, None)  # coverage needs Reach / Log
+
+
+# --- boundary / require_coverage / attempt_coverage / public_access ----------------------------
+
+_DENY = f'''
+detection denied_calls {{ event method = "SetIamPolicy" and granted = false }}
+detection owner_granted {{ event method = "SetIamPolicy" and {_D % "role"} = "roles/owner" and granted = true }}
+detection corr_only {{
+  events {{ e: method = "google.iam.admin.v1.CreateServiceAccountKey" }}
+  window 1h
+  condition #e >= 3
+}}
+'''
+
+
+def test_boundary_allowed_and_modes():
+    lib, acct = _lib(_DENY), _account(_SET, _KEY)
+    # every owner grant must be seen: holds (owner_added fires on all of them)
+    src = f'check b {{ type boundary event {_D % "action"} = "ADD" and {_D % "role"} = "roles/owner" }}'
+    assert run_check(_check(src), lib, acct).verdict == "pass"
+    # with only the owner rules, "every ADD must be seen" fails (adding roles/viewer slips) …
+    add = f'check b {{ type boundary permission {_SET} event {_D % "action"} = "ADD" rules [owner_added, owner_added_twin] %s }}'
+    r = run_check(_check(add % ""), lib, acct)
+    assert r.verdict == "fail" and r.rows[0].witness["udm"]["target.resource.attribute.labels[ser_binding_deltas_action]"] == "ADD"
+    # … unless non-owner roles (and deltas that carry no role at all) are explicitly allowed to slip
+    assert run_check(_check(add % f'allowed {_D % "role"} != "roles/owner" or {_D % "role"} missing'), lib, acct).verdict == "pass"
+    # key creation is only watched by a correlation rule: `fires_single` slips, `observed` holds
+    keys = 'check k { type boundary permission %s rules [corr_only] event method = "google.iam.admin.v1.CreateServiceAccountKey" %s }'
+    assert run_check(_check(keys % (_KEY, "")), lib, acct).verdict == "fail"
+    assert run_check(_check(keys % (_KEY, "mode observed")), lib, acct).verdict == "pass"
+    assert run_check(_check(keys % (_KEY, "mode fires_bg")), lib, acct).verdict == "unknown"
+    with pytest.raises(CheckError):
+        run_check(_check("check b { type boundary }"), lib, acct)
+
+
+def test_require_and_attempt_coverage():
+    lib, acct = _lib(_DENY), _account(_SET, _KEY)
+    src = _SRC + _DENY + f'''
+candidate own {{
+  required {{ {_SET} }}
+  footprint {{ grant: "SetIamPolicy" where {_D % "action"} = "ADD" and {_D % "role"} = "roles/owner" }}
+}}'''
+    lib = DetectionLibrary(parse_text(src, "t.decn"))
+    assert run_check(_check("check r { type require_coverage for own step grant }"), lib, acct).verdict == "pass"
+    # the successful grant is watched, and so is a denied attempt (by denied_calls) …
+    assert run_check(_check("check a { type attempt_coverage for own }"), lib, acct).verdict == "pass"
+    # … but a rule that insists on granted = true misses the denied attempt while catching the success
+    r = run_check(_check("check a { type attempt_coverage for own rules [owner_granted] }"), lib, acct)
+    assert r.verdict == "fail" and r.rows[0].witness["granted"] is False
+    assert run_check(_check("check r { type require_coverage for own rules [owner_granted] }"), lib, acct).verdict == "pass"
+    with pytest.raises(CheckError):
+        run_check(_check("check r { type require_coverage for own step nope }"), lib, acct)
+
+
+def test_public_access():
+    lib = _lib()
+    private = run_check(_check("check p { type public_access }"), lib, _account(_KEY))
+    assert private.verdict == "pass" and "vacuous" in private.detail
+    acct = Account(
+        name="t",
+        bindings={"allUsers": (Grant(permission=_SET, resource="projects/demo"),),
+                  "a@x.com": (Grant(permission=_KEY),)},
+        logging=LogConfig(admin_activity=True, data_access_services=frozenset()),
+    )
+    r = run_check(_check("check p { type public_access rules [owner_added] }"), lib, acct)
+    assert [x.label for x in r.rows] == [f"{_SET} as allUsers on projects/demo"]  # only anonymous grants are asked
+    assert r.verdict == "fail" and r.rows[0].witness["principal"] == "allUsers"
+    assert r.rows[0].witness["resource"] == "projects/demo"
+    assert run_check(_check('check p { type public_access resource like "projects/demo*" rules [any_policy_change] }'), lib, acct).verdict == "pass"
+    assert run_check(_check('check p { type public_access resource like "projects/other*" }'), lib, acct).verdict == "pass"

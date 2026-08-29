@@ -16,13 +16,22 @@ type                    question                                                
                         single-event rules) fire on some reachable+logged event?
 ``redundant_rules``     is every rule in ``rules [...]`` needed, i.e. does it        none redundant
                         observe an event no other rule observes?
+``boundary``            can any event matching ``event`` — except those matching     none slips
+                        ``allowed`` — happen unseen?  ``mode fires_single``
+                        (default) = a rule fires on it; ``mode observed`` = any
+                        rule's event pattern (correlation rules too) accepts it
+``require_coverage``    is step ``step S`` of technique ``for X`` (its method and    step watched
+                        ``where`` payload) observed however it is realized?
+``attempt_coverage``    same, for a *denied* attempt (``granted = false``)          attempt watched
+``public_access``       can an anonymous principal (``allUsers`` /                  none unseen
+                        ``allAuthenticatedUsers``) use ``permission`` on a
+                        resource matching ``resource like`` unseen?
 ======================  ==========================================================  ==============
 
 Verdicts are three-valued (``pass`` / ``fail`` / ``unknown``) and every witness is replayed
 through the concrete oracle before it is believed; a proof that leaned on an approximate rule
-is flagged ``approximate``.  ``rules [...]`` restricts *coverage* and *candidate* checks to a
-sub-library.  Types without an engine yet (``public_access``, ``boundary``, ``require_coverage``,
-``attempt_coverage``) answer ``unknown`` rather than guess (Invariant #1).
+is flagged ``approximate``.  ``rules [...]`` restricts the library the check sees.  What has no
+engine (``mode fires_bg``) answers ``unknown`` rather than guess (Invariant #1).
 """
 
 from __future__ import annotations
@@ -37,13 +46,17 @@ from decnique.detections import DetectionLibrary
 from decnique.dsl.ast import Bundle, Check, Detection
 from decnique.env.model import Account
 from decnique.eval import fires
-from decnique.model.predicates import referenced_fields
-from decnique.smt.coverage import CoverageContext, Gap, find_gap
+from decnique.model.predicates import Cmp, Like, referenced_fields
+from decnique.smt.coverage import CoverageContext, Gap, NoGap, find_gap
 from decnique.smt.stealth import AlwaysDetected, Evasive, NotFeasible, stealth_feasible
 
 Verdict = Literal["pass", "fail", "unknown"]
 
-IMPLEMENTED: tuple[str, ...] = ("coverage", "candidate", "compare", "dead_rules", "redundant_rules")
+IMPLEMENTED: tuple[str, ...] = (
+    "coverage", "candidate", "compare", "dead_rules", "redundant_rules",
+    "boundary", "require_coverage", "attempt_coverage", "public_access",
+)
+ANONYMOUS: tuple[str, ...] = ("allUsers", "allAuthenticatedUsers")
 
 
 @dataclass(frozen=True, slots=True)
@@ -304,6 +317,148 @@ def _redundant_rules(check: Check, lib: DetectionLibrary, account: Account, ctx:
     return CheckResult(check, v, det, approximate=approx, rows=tuple(rows))
 
 
+def _gap_row(label: str, res, *, note_pass: str = "covered") -> Row:  # type: ignore[no-untyped-def]
+    if isinstance(res, Gap):
+        return Row(label, "fail", "unobserved event exists" + (" (approximate)" if res.approximate else ""), res.event)
+    if res.reason == "all_covered":
+        return Row(label, "pass", f"{note_pass} by " + (", ".join(res.covered_by) or "(no rule needed)"))
+    if res.reason == "exhausted":
+        return Row(label, "unknown", "refinement bound exhausted")
+    return Row(label, "pass", f"vacuous: {res.reason.replace('_', ' ')}")
+
+
+def _boundary(check: Check, lib: DetectionLibrary, account: Account, ctx: CoverageContext | None) -> CheckResult:
+    p = check.params
+    if "event" not in p:
+        raise CheckError("boundary check needs `event <expr>` (the class of events that must be seen)")
+    mode = str(p.get("mode", "fires_single"))
+    if mode == "fires_bg":
+        return CheckResult(check, "unknown", "mode fires_bg (against a background trace) has no engine yet")
+    lib = _sub_lib(lib, p.get("rules"))  # type: ignore[arg-type]
+    ctx = ctx if ctx is not None and ctx.lib is lib else CoverageContext(lib)
+    extra = list(_event_constraint(ctx, p["event"]))
+    if "allowed" in p:
+        extra.append(z3.Not(_event_constraint(ctx, p["allowed"])[0]))
+    # `observed`: an event is seen when ANY rule's event pattern accepts it — correlation rules
+    # included — so their patterns join the solver's Observes, and replay uses `observes`.
+    pushed = mode == "observed"
+    if pushed:
+        ctx.solver.push()
+        for d in lib.detections:
+            if d.id in ctx.tracks:
+                continue
+            for ev in d.spec.events:
+                body = ctx.enc.pred(ev.pred)
+                guard = [ctx.enc.ev.present(path) for _, path in referenced_fields(ev.pred)]
+                ctx.solver.add(z3.Not(z3.And(body, *guard) if guard else body))
+    rows: list[Row] = []
+    approx = False
+    try:
+        for perm in _permissions(check, account):
+            res = find_gap(perm, lib, account, ctx=ctx, extra=tuple(extra))
+            if isinstance(res, Gap) and pushed:
+                obs = lib.observing(res.event)
+                if obs.observed:  # the solver's view was approximate; do not believe it
+                    rows.append(Row(perm, "unknown", "witness rejected by replay (approximate rule)"))
+                    continue
+                res = Gap(res.permission, res.event, res.approximate or obs.approximate,
+                          res.unknown_rules + obs.unknown, res.caveats)
+            if isinstance(res, Gap):
+                approx |= res.approximate
+                rows.append(_gap_row(perm, res))
+                break  # one slip is enough to fail the boundary
+            if res.reason == "all_covered":
+                rows.append(Row(perm, "pass", "held by " + (", ".join(res.covered_by) or "(no rule needed)")))
+            elif res.reason == "exhausted":
+                rows.append(Row(perm, "unknown", "refinement bound exhausted"))
+    finally:
+        if pushed:
+            ctx.solver.pop()
+    if not rows:
+        return CheckResult(check, "pass", "vacuous: no reachable+logged permission in scope", rows=())
+    v, d = _combine(rows, approximate=False, fail_word="permission(s) let a matching event slip", pass_word=f"no matching event slips ({mode})")
+    return CheckResult(check, v, d, approximate=approx, rows=tuple(rows))
+
+
+def _step_coverage(check: Check, lib: DetectionLibrary, account: Account, ctx: CoverageContext | None, *, granted: bool) -> CheckResult:
+    cid = check.params.get("for")
+    if not cid:
+        raise CheckError(f"{check.type} check needs `for <technique-id>` (and optionally `step <name>`)")
+    cands = {c.id: c for c in lib.bundle.candidates}
+    if cid not in cands:
+        raise CheckError(f"no candidate named {cid}")
+    cand = cands[cid]  # type: ignore[index]
+    steps = [st for st in cand.footprint.steps if "step" not in check.params or st.id == check.params["step"]]
+    if not steps:
+        raise CheckError(f"{cid} has no step named {check.params.get('step')}")
+    lib = _sub_lib(lib, check.params.get("rules"))  # type: ignore[arg-type]
+    ctx = ctx if ctx is not None and ctx.lib is lib else CoverageContext(lib)
+    cat = account.catalog
+    rows: list[Row] = []
+    approx = False
+    for st in steps:
+        label = f"{cid}.{st.id}"
+        perms = [rq.permission for rq in cand.required if st.method in cat.methods_for(rq.permission)]
+        if not perms:
+            rows.append(Row(label, "unknown", f"catalog does not tie {st.method} to any required permission"))
+            continue
+        if not account.logged(st.method):
+            rows.append(Row(label, "pass", f"vacuous: {st.method} is not audit-logged here"))
+            continue
+        extra = [ctx.table.eq("method", st.method)]
+        if st.where is not None:
+            extra.extend(_event_constraint(ctx, st.where))
+        # the step is watched only if it is watched under EVERY permission it may run under
+        row = Row(label, "pass", "vacuous: no principal holds the permission")
+        for perm in perms:
+            row = _gap_row(label, find_gap(perm, lib, account, ctx=ctx, extra=tuple(extra), granted=granted), note_pass="watched")
+            if row.verdict != "pass":
+                break
+        approx |= isinstance(row.witness, dict) and "(approximate)" in row.note
+        rows.append(row)
+    what = "denied attempt" if not granted else "step"
+    v, d = _combine(rows, approximate=False, fail_word=f"{what}(s) can happen unseen", pass_word=f"every {what} is watched")
+    return CheckResult(check, v, d, approximate=approx, rows=tuple(rows))
+
+
+def _public_access(check: Check, lib: DetectionLibrary, account: Account, ctx: CoverageContext | None) -> CheckResult:
+    lib = _sub_lib(lib, check.params.get("rules"))  # type: ignore[arg-type]
+    ctx = ctx if ctx is not None and ctx.lib is lib else CoverageContext(lib)
+    anon = [a for a in ANONYMOUS if a in account.bindings]
+    if not anon:
+        return CheckResult(check, "pass", "vacuous: the account grants nothing to allUsers / allAuthenticatedUsers")
+    want = str(check.params["resource"]) if "resource" in check.params else None
+    rows: list[Row] = []
+    approx = False
+    if any(k in check.params for k in ("permission", "permissions", "scope")):
+        perms = _permissions(check, account)
+    else:  # default: whatever the anonymous grants hold, on their own resources
+        perms = sorted(p for p in account.catalog.all_permissions()
+                       if any(account.reach(a, p, g.resource) for a in anon for g in account.bindings[a]))
+    for perm in perms:
+        for a in anon:
+            # ask per anonymous grant, on that grant's own resource (a project-scoped grant does
+            # not reach `*`); the witness must carry a resource inside the grant AND the glob
+            for g in account.bindings[a]:
+                if not account.reach(a, perm, g.resource):
+                    continue
+                if want and not (fnmatchcase(g.resource, want) or "*" in g.resource):
+                    continue  # the grant's resource cannot match the asked glob
+                res_pred = (Like(field=(None, "resource"), pattern=g.resource) if "*" in g.resource
+                            else Cmp(field=(None, "resource"), op="=", value=g.resource))
+                extra = _event_constraint(ctx, res_pred)
+                if want:
+                    extra += _event_constraint(ctx, Like(field=(None, "resource"), pattern=want))
+                r = find_gap(perm, lib, account, ctx=ctx, extra=extra, principals=(a,), resource=g.resource)
+                row = _gap_row(f"{perm} as {a} on {g.resource}", r)
+                approx |= isinstance(r, Gap) and r.approximate
+                rows.append(row)
+    if not rows:
+        return CheckResult(check, "pass", "vacuous: no permission in scope is granted to anonymous principals on a matching resource")
+    v, d = _combine(rows, approximate=False, fail_word="anonymous use(s) go unseen", pass_word="every anonymous use is observed")
+    return CheckResult(check, v, d, approximate=approx, rows=tuple(rows))
+
+
 # --- entry points -----------------------------------------------------------------------------
 
 
@@ -328,7 +483,13 @@ def run_check(
         return _candidate(check, lib, account)
     if check.type == "dead_rules":
         return _dead_rules(check, lib, account, ctx)
-    return _redundant_rules(check, lib, account, ctx)
+    if check.type == "redundant_rules":
+        return _redundant_rules(check, lib, account, ctx)
+    if check.type == "boundary":
+        return _boundary(check, lib, account, ctx)
+    if check.type == "public_access":
+        return _public_access(check, lib, account, ctx)
+    return _step_coverage(check, lib, account, ctx, granted=(check.type == "require_coverage"))
 
 
 def run_checks(

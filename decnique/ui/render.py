@@ -702,6 +702,10 @@ _CHECK_QUESTION = {
     "compare": "do the two rules observe the same events?",
     "dead_rules": "can every rule fire on some reachable+logged event?",
     "redundant_rules": "does every rule observe an event no other rule observes?",
+    "boundary": "can an event matching `event` (not `allowed`) happen unseen?",
+    "require_coverage": "is the technique's step (method + payload) watched however it is done?",
+    "attempt_coverage": "is a DENIED attempt at the technique's step watched?",
+    "public_access": "can allUsers / allAuthenticatedUsers use the permission unseen?",
 }
 
 

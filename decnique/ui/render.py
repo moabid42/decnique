@@ -393,6 +393,14 @@ def blindspots(s: Session, perms: list[str]) -> None:
     else:
         permissions = sorted(p for p in account.catalog.all_permissions() if account.reachable(p))
 
+    with s.report("blindspots", perms) as rep:
+        _blindspots(s, lib, account, single, ctx, permissions, explain, show_raw, rep)
+
+
+def _blindspots(s, lib, account, single, ctx, permissions, explain, show_raw, rep) -> None:  # type: ignore[no-untyped-def]
+    from decnique.smt.coverage import Gap, blind_region, dodged_conditions, find_gap, probe_atoms, rules_naming
+    from decnique.smt.stealth import Evasive, stealth_feasible
+
     r = Reasoner()
     r.header(
         "blindspots",
@@ -414,6 +422,7 @@ def blindspots(s: Session, perms: list[str]) -> None:
         if not account.reachable(p):
             r.no("unreachable — no principal in this account can exercise it")
             unreachable += 1
+            rep.add(p, "unreachable", "no principal in this account can exercise it")
             r.blank()
             continue
         principals = account.principals_with(p)
@@ -423,6 +432,7 @@ def blindspots(s: Session, perms: list[str]) -> None:
         if not logged:
             r.no(f"Log: none of {len(all_methods)} method(s) is audit-logged → invisible regardless of rules")
             unlogged += 1
+            rep.add(p, "unlogged", f"none of {len(all_methods)} method(s) is audit-logged")
             r.blank()
             continue
         r.ok(f"Log: {len(logged)} of {len(all_methods)} method(s) audit-logged")
@@ -440,6 +450,7 @@ def blindspots(s: Session, perms: list[str]) -> None:
             else:
                 r.verdict_muted(res.reason)
                 covered += 1
+            rep.add(p, res.reason, "covered by " + ", ".join(res.covered_by) if res.covered_by else "", covered_by=list(res.covered_by))
             r.blank()
             continue
         # Gap: replay the witness through the concrete oracle, in view.
@@ -530,8 +541,13 @@ def blindspots(s: Session, perms: list[str]) -> None:
             why += f"; the attack(s) {', '.join(detected_techs)} are caught, other uses are not"
         r.verdict_gap(f"BLIND SPOT ({tag}) — {why}")
         gaps.append({"permission": p, "event": res.event, "approximate": res.approximate})
+        rep.add(p, "gap", why, approximate=res.approximate, event=res.event, caveats=list(res.caveats),
+                unwatched=[change_text(v) for v in verdicts if isinstance(v.result, Gap)],
+                watched=[change_text(v) for v in verdicts if v.covered])
         r.blank()
 
+    rep.summary = {"gaps": len(gaps), "covered": covered, "unreachable": unreachable, "unlogged": unlogged,
+                   "permissions": len(permissions), "single_event_rules": len(single)}
     console.print(
         f"[title]result[/title]  [gap]{len(gaps)} gaps[/gap] · "
         f"[safe]{covered} covered[/safe] · {unreachable} unreachable · {unlogged} unlogged"
@@ -557,6 +573,13 @@ def stealth(s: Session, ident: str | None) -> None:
         console.print("[muted]no candidates to evaluate" + (f" for {ident!r}" if ident else "") + "[/muted]")
         return
 
+    with s.report("stealth", [ident] if ident else []) as rep:
+        _stealth(lib, account, cands, rep)
+
+
+def _stealth(lib, account, cands, rep) -> None:  # type: ignore[no-untyped-def]
+    from decnique.smt.stealth import Evasive, feasible, stealth_feasible
+
     r = Reasoner()
     r.header(
         "stealth",
@@ -576,6 +599,7 @@ def stealth(s: Session, ident: str | None) -> None:
             missing = [rq.permission for rq in c.required if not account.reachable(rq.permission)]
             r.no(f"not feasible — actor cannot obtain: {', '.join(missing) or '(no single principal holds all)'}")
             rows.append((c.id, ("not_feasible", "muted"), ", ".join(missing) or "—", ("—", "muted")))
+            rep.add(c.id, "not_feasible", "actor cannot obtain: " + (", ".join(missing) or "no single principal holds all"))
             r.blank()
             continue
         r.ok(f"feasible as {principals[0]}")
@@ -597,15 +621,20 @@ def stealth(s: Session, ident: str | None) -> None:
             r.verdict_gap(f"EVASIVE ({tag}) — {len(res.schedule)} event(s) as {res.principal} evade every rule")
             rows.append((c.id, ("evasive", "gap"), f"{len(res.schedule)} events as {res.principal}",
                          approx_word(res.approximate)))
+            rep.add(c.id, "evasive", f"{len(res.schedule)} event(s) as {res.principal} evade every rule",
+                    approximate=res.approximate, principal=res.principal, schedule=list(res.schedule))
             evasive += 1
         elif res.verdict == "always_detected":
             r.verdict_safe("always detected — UNSAT: every schedule trips a rate rule (proof over the encoded class)")
             rows.append((c.id, ("always_detected", "safe"), "—", ("—", "muted")))
+            rep.add(c.id, "always_detected", "every schedule trips a rule (UNSAT proof)")
         else:
             r.verdict_muted("exhausted — refinement bound reached without a schedule")
             rows.append((c.id, ("exhausted", "muted"), "—", ("—", "muted")))
+            rep.add(c.id, "exhausted", "refinement bound reached without a schedule")
         r.blank()
 
+    rep.summary = {"evasive": evasive, "techniques": len(cands)}
     console.print(f"[title]result[/title]  [gap]{evasive}[/gap] of {len(cands)} technique(s) evade every rule")
     t = _table("stealth verdicts", [("TECHNIQUE",), ("VERDICT",), ("DETAIL",), ("STATUS",)],
                caption="evasive = a defender blind spot · always_detected = proven caught · "
@@ -618,10 +647,6 @@ def stealth(s: Session, ident: str | None) -> None:
 def chains(s: Session, goal: str | None) -> None:
     if not s.need_lib() or not s.need_account():
         return
-    from decnique.graph.search import price_transitions
-    from decnique.graph.state import Technique
-    from decnique.report import chains_report
-
     lib, account = s.lib, s.account
     attack = dict(s.account_doc.get("attack", {}))
     if goal:
@@ -632,6 +657,15 @@ def chains(s: Session, goal: str | None) -> None:
             "(principal, initial_state, goal, effects) — or pass a goal permission."
         )
         return
+
+    with s.report("chains", [goal] if goal else []) as rep:
+        _chains(lib, account, attack, rep)
+
+
+def _chains(lib, account, attack, report) -> None:  # type: ignore[no-untyped-def]
+    from decnique.graph.search import price_transitions
+    from decnique.graph.state import Technique
+    from decnique.report import chains_report
 
     r = Reasoner()
     r.header(
@@ -669,6 +703,8 @@ def chains(s: Session, goal: str | None) -> None:
         r.verdict_safe(f"no stealthy path to {rep['goal']}")
         r.note(f"proven by exhausting {rep['states_explored']} reachable state(s) ({rep['reason']})")
         console.print(f"[safe]result[/safe]  no stealthy escalation to {rep['goal']}")
+        report.summary = {"found": False, "goal": rep["goal"], "states_explored": rep["states_explored"],
+                          "reason": rep["reason"], "principal": attack["principal"]}
         return
 
     # Found: narrate and replay-verify each hop.
@@ -685,6 +721,11 @@ def chains(s: Session, goal: str | None) -> None:
                  f"{'sound' if n_fire == 0 else 'REJECTED'}", sound=(n_fire == 0))
 
     tag = "approximate" if rep["tag"] == "approximate" else "stealthy"
+    report.summary = {"found": True, "goal": rep["goal"], "hops": len(rep["hops"]), "tag": rep["tag"],
+                      "principal": attack["principal"]}
+    for i, h in enumerate(rep["hops"]):
+        report.add(f"hop {i + 1}: {h['technique']}", "stealthy", "gains " + (", ".join(h["gains"]) or "—"),
+                   gains=list(h["gains"]), schedule=list(h.get("schedule", [])))
     r.blank()
     r.verdict_gap(f"{tag.upper()} PATH to {rep['goal']} — {len(rep['hops'])} hop(s)")
     t = _table(f"stealthy escalation to {rep['goal']}",
@@ -766,6 +807,13 @@ def check(s: Session, args: list[str]) -> None:
         return
 
     lib, account = s.lib, s.account
+    with s.report("check", args) as rep:
+        _check(lib, account, wanted, rep)
+
+
+def _check(lib, account, wanted, rep) -> None:  # type: ignore[no-untyped-def]
+    from decnique.checks import CheckError, run_checks
+
     r = Reasoner()
     r.header(
         "check",
@@ -783,6 +831,7 @@ def check(s: Session, args: list[str]) -> None:
         except CheckError as e:
             r.verdict_muted(f"cannot run: {e}")
             rows.append((c.id, c.type, ("error", "muted"), str(e)))
+            rep.add(c.id, "error", str(e), type=c.type)
             r.blank()
             continue
         for row in res.rows:
@@ -810,12 +859,79 @@ def check(s: Session, args: list[str]) -> None:
             r.verdict_muted(f"UNKNOWN{tag} — {res.detail}")
         rows.append((c.id, c.type, (res.verdict, {"pass": "safe", "fail": "gap"}.get(res.verdict, "muted")),
                      res.detail))
+        rep.add(c.id, res.verdict, res.detail, type=c.type, approximate=res.approximate,
+                rows=[{"label": x.label, "verdict": x.verdict, "note": x.note, "witness": x.witness} for x in res.rows])
         r.blank()
     n_fail = sum(1 for _, _, v, _ in rows if v[0] == "fail")
     n_pass = sum(1 for _, _, v, _ in rows if v[0] == "pass")
+    rep.summary = {"pass": n_pass, "fail": n_fail, "unknown": len(rows) - n_pass - n_fail, "checks": len(rows)}
     console.print(f"[title]result[/title]  [safe]{n_pass} pass[/safe] · [gap]{n_fail} fail[/gap] · "
                   f"{len(rows) - n_pass - n_fail} unknown")
     t = _table("check verdicts", [("CHECK",), ("TYPE",), ("VERDICT",), ("DETAIL",)])
     for row in rows:
         _add(t, *row)
     console.print(t)
+
+
+# --- saved reports ----------------------------------------------------------------------------
+
+
+def reports(s: Session) -> None:
+    from .report import list_reports, load
+
+    d = s.settings.get("report.dir")
+    files = list_reports(d)
+    if not files:
+        console.print(f"[muted]no reports in {d}/ — turn saving on with [key]config report.save on[/key][/muted]")
+        return
+    t = _table(f"reports in {d}/", [("FILE",), ("VERB",), ("WHEN",), ("SUMMARY",)],
+               caption="reopen one with: report <file>")
+    for p in files:
+        try:
+            doc = load(p)
+            summ = ", ".join(f"{k} {v}" for k, v in doc.get("summary", {}).items())
+            _add(t, p.name, doc.get("verb", "?"), doc.get("started", "?"), summ or "—")
+        except (OSError, ValueError):
+            _add(t, p.name, ("unreadable", "muted"), "—", "—")
+    console.print(t)
+
+
+def report(s: Session, file: str | None) -> None:
+    """Re-render a saved run: what was loaded, the summary, and every finding."""
+    from pathlib import Path
+
+    from .report import list_reports, load
+
+    if not file:
+        console.print("[muted]usage:[/muted] report <file>   (see [key]reports[/key])")
+        return
+    path = Path(file)
+    if not path.is_file():  # allow a bare name from the reports folder
+        path = Path(s.settings.get("report.dir")) / file
+    doc = load(path)
+    verb, args = doc.get("verb", "?"), " ".join(doc.get("args", []))
+    console.print(Panel(Text(f"{verb} {args}".strip(), style="brand"), title=Text(f"report · {doc.get('started', '')}", style="brand"),
+                        title_align="left", border_style="rule", padding=(0, 1)))
+    lib = doc.get("library", {})
+    if lib:
+        console.print("[muted]loaded:[/muted] " + " · ".join(
+            f"{k} {', '.join(map(str, v)) if isinstance(v, list) else v}" for k, v in lib.items() if v))
+    if doc.get("summary"):
+        console.print("[title]summary[/title]  " + " · ".join(f"{k} {v}" for k, v in doc["summary"].items()))
+    items = doc.get("items", [])
+    if items:
+        t = _table("findings", [("#", "right"), ("LABEL",), ("VERDICT",), ("DETAIL",)])
+        style = {"gap": "gap", "evasive": "gap", "fail": "gap", "stealthy": "gap", "pass": "safe",
+                 "always_detected": "safe", "all_covered": "safe"}
+        for i, it in enumerate(items, 1):
+            v = str(it.get("verdict", ""))
+            _add(t, str(i), it.get("label", ""), (v, style.get(v, "muted")), it.get("detail", ""))
+        console.print(t)
+        for it in items:  # the concrete witnesses, one line each
+            ev = it.get("event")
+            if isinstance(ev, dict):
+                console.print(f"    [muted]{it.get('label')}:[/muted] {event_sentence(ev)}")
+            sched = it.get("schedule")
+            if isinstance(sched, list) and sched:
+                console.print(f"    [muted]{it.get('label')}:[/muted] {len(sched)} event(s), first {event_brief(sched[0])}")
+    console.print(f"[muted]transcript: {len(doc.get('transcript', '') or '')} chars — open the file to read it[/muted]")

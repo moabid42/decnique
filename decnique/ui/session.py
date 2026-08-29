@@ -7,6 +7,7 @@ one calm line, so the bottom toolbar and every later verb have a known footing.
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from pathlib import Path
 
 from decnique.detections import DetectionLibrary, event_from_audit_log
@@ -15,6 +16,7 @@ from decnique.dsl.loader import LoadOptions
 from decnique.dsl.parser import parse_text
 
 from .config import Settings
+from .report import Report, save
 from .theme import CHECK, console
 
 
@@ -98,6 +100,35 @@ class Session:
             f"[ok]{CHECK}[/ok] loaded account [key]{self.account.name}[/key]: "
             f"[title]{n}[/title] principals"
         )
+
+    # -- reports ---------------------------------------------------------------------------
+
+    @contextmanager
+    def report(self, verb: str, args: list[str]):
+        """Collect a verb's findings; when `report.save` is on, record the screen too and write
+        the file at the end (the path is printed, so long output is never lost)."""
+        rep = Report(verb, list(args))
+        rep.library = {
+            "rules": len(self.lib.detections) if self.lib is not None else 0,
+            "candidates": len(self.lib.bundle.candidates) if self.lib is not None else 0,
+            "paths": list(self.paths),
+            "account": self.account.name if self.account else None,
+        }
+        saving = self.settings.get("report.save") == "on"
+        if saving:
+            console.record = True
+            console.export_text(clear=True)  # drop anything recorded before this verb
+        try:
+            yield rep
+        finally:
+            if saving:
+                rep.transcript = console.export_text(clear=True)
+                console.record = False
+                try:
+                    path = save(rep, self.settings.get("report.dir"), self.settings.get("report.format"))
+                    console.print(f"[muted]saved report → [key]{path}[/key]  (reopen: report {path})[/muted]")
+                except OSError as e:
+                    console.print(f"[err]could not save report:[/err] {e}")
 
     # -- guards ----------------------------------------------------------------------------
 

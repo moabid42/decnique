@@ -41,6 +41,27 @@ REGISTRY: dict[str, Setting] = {
             "off",
             "also print the raw witness event (every field) under the sentence",
         ),
+        Setting(
+            "report.save",
+            ("off", "on"),
+            "off",
+            "save every blindspots / stealth / chains / check run to a report file you can "
+            "reopen later with `report <file>` (useful when the output is too long to read)",
+        ),
+        Setting(
+            "report.format",
+            ("md", "json", "yaml"),
+            "md",
+            "report file format: 'md' = readable Markdown for sharing (the data is embedded "
+            "at the end, so it reloads too); 'json' = machine-readable; 'yaml' = same, "
+            "human-editable",
+        ),
+        Setting(
+            "report.dir",
+            (),
+            "reports",
+            "folder the report files go to (relative to where you run decnique)",
+        ),
     )
 }
 

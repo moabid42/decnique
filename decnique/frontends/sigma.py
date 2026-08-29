@@ -31,7 +31,13 @@ from decnique.model.predicates import (
     all_of,
     any_of,
 )
-from decnique.model.trace import single_event
+from decnique.model.trace import RuleOptions, single_event
+
+# Sigma / KQL have no zero-value rule: a test on an absent field is simply false, and a negated
+# test (``field: null``, ``not f:*``) is true.  YARA-L's guard (every referenced field must be
+# present) would make those "missing" branches dead, so these rules never fire on the events
+# they were written for.
+_OPTIONS = RuleOptions(allow_zero_values=True)
 
 # Sigma GCP field names -> event-model fields (Sigma's gcp.audit taxonomy)
 FIELD_MAP: dict[str, str] = {
@@ -149,7 +155,7 @@ def lower_sigma(doc: dict[str, AnyT], file: str) -> tuple[Detection, list[str]]:
     return (
         Detection(
             id=sigma_id(doc, file),
-            spec=single_event("e", pred),
+            spec=single_event("e", pred, _OPTIONS),
             meta=meta,
             source=Provenance(
                 file=file,

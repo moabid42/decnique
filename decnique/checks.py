@@ -193,6 +193,8 @@ def _candidate(check: Check, lib: DetectionLibrary, account: Account) -> CheckRe
     res = stealth_feasible(cands[cid], lib, account)  # type: ignore[index]
     if isinstance(res, Evasive):
         note = f"{len(res.schedule)} event(s) as {res.principal} evade every rule"
+        if res.unlogged:
+            note += f"; not audit-logged: {', '.join(res.unlogged)} (a logging gap, not a rule gap)"
         return CheckResult(check, "fail", note, approximate=res.approximate,
                            rows=(Row(str(cid), "fail", note, res.schedule),))
     if isinstance(res, AlwaysDetected):

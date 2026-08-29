@@ -24,7 +24,9 @@ def _account(*perms: str) -> Account:
     return Account(
         name="t",
         bindings={"attacker@x.com": tuple(Grant(permission=p) for p in perms)},
-        logging=LogConfig(admin_activity=True, data_access_services=frozenset()),
+        # data-access logging on for the token service: these tests are about timing, and an
+        # unlogged step is (correctly) invisible to every rule
+        logging=LogConfig(admin_activity=True, data_access_services=frozenset({"iamcredentials.googleapis.com"})),
     )
 
 
@@ -198,3 +200,39 @@ def test_payload_service_account_owner_is_always_detected():
     c = lib.bundle.candidates[0]
     r = stealth_feasible(c, lib, _account("resourcemanager.projects.setIamPolicy"))
     assert isinstance(r, AlwaysDetected)
+
+
+# --- honesty: proofs only when the engine really proved something ----------------------------
+
+
+def test_vacuous_rule_does_not_make_everything_always_detected():
+    # `#e < 5` holds on the empty trace: the rule observes nothing and must not count.
+    lib = _lib('detection v { events { e: method = "x" } window 1h condition #e < 5 }')
+    c = _candidate(f'candidate t {{ required {{ {_TOKEN} }} footprint {{ use: "{_TOKEN}" }} }}')
+    acct = Account(name="t", bindings={"a@x.com": (Grant(permission=_TOKEN),)},
+                   logging=LogConfig(data_access_services=frozenset({"iamcredentials.googleapis.com"})))
+    r = stealth_feasible(c, lib, acct)
+    assert isinstance(r, Evasive) and not r.unlogged
+
+
+def test_unlogged_step_is_invisible_to_rules_and_reported():
+    lib = _lib(f'detection d {{ event method = "{_TOKEN}" }}')
+    c = _candidate(f'candidate t {{ required {{ {_TOKEN} }} footprint {{ use: "{_TOKEN}" }} }}')
+    logged = Account(name="t", bindings={"a@x.com": (Grant(permission=_TOKEN),)},
+                     logging=LogConfig(data_access_services=frozenset({"iamcredentials.googleapis.com"})))
+    assert isinstance(stealth_feasible(c, lib, logged), AlwaysDetected)
+    off = Account(name="t", bindings={"a@x.com": (Grant(permission=_TOKEN),)},
+                  logging=LogConfig(data_access_services=frozenset()))  # never written
+    r = stealth_feasible(c, lib, off)
+    assert isinstance(r, Evasive) and r.unlogged == (_TOKEN,)
+
+
+def test_unknown_footprint_payload_is_exhausted_not_proof():
+    from decnique.smt.stealth import Exhausted
+
+    lib = _lib('detection d { event method = "x" }')
+    c = _candidate(f'candidate t {{ required {{ {_TOKEN} }} footprint {{ use: "{_TOKEN}" where unknown("t") }} }}')
+    acct = Account(name="t", bindings={"a@x.com": (Grant(permission=_TOKEN),)},
+                   logging=LogConfig(data_access_services=frozenset({"iamcredentials.googleapis.com"})))
+    r = stealth_feasible(c, lib, acct)
+    assert isinstance(r, Exhausted)

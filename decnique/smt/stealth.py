@@ -10,6 +10,15 @@ schedule is returned only if it concretely realizes the footprint and no rule fi
 ``Evasive`` is sound.  ``AlwaysDetected`` (UNSAT) is a proof over the exactly-encoded rate rules;
 rules outside that class add no constraint and are caught by replay, and if one is only
 *don't-know* on the witness the verdict is flagged approximate (Invariant #1).
+
+Three honesty rules, mirroring the coverage engine:
+
+- a rule that fires on the *empty* trace (``#e < 5``) observes nothing and is left out — it
+  would otherwise make every technique "always detected";
+- a schedule blocked because the oracle answered *don't-know* (not *no*) on the footprint is an
+  unproven block: an UNSAT after one is ``Exhausted``, never a proof;
+- a footprint step whose method the account does not log (``Log``) is invisible to every rule;
+  such steps are listed in ``Evasive.unlogged`` so the reader sees a logging gap, not a rule gap.
 """
 
 from __future__ import annotations
@@ -43,6 +52,7 @@ class Evasive:
     principal: str
     approximate: bool
     unknown_rules: tuple[str, ...] = ()
+    unlogged: tuple[str, ...] = ()  # footprint methods the account never writes to the audit log
     verdict: str = "evasive"
 
 
@@ -162,16 +172,23 @@ def stealth_feasible(
     if "principal" in candidate.share and trace.occs:
         s.add(trace.occs[0].ev.term("principal") == z3.StringVal(principal))
 
+    # Log: an occurrence of an unlogged method never reaches a rule.
+    visible = tuple(account.logged(o.method) for o in trace.occs)
+    unlogged = tuple(sorted({o.method for o in trace.occs if not account.logged(o.method)}))
+    # rules that fire on the empty trace observe nothing (see the module docstring)
+    vacuous = {d.id for d in lib.detections if fires(d.spec, [], ref_lists=lib.ref_lists) is True}
+    rules = [d for d in lib.detections if d.id not in vacuous]
+
     rate_specs = []
     approx_rules: list[str] = []
-    for d in lib.detections:
+    for d in rules:
         # prune rules that literally cannot fire on the footprint's methods
         from decnique.dsl.interpret import spec_methods_literal
 
         lits = spec_methods_literal(d.spec)
         if lits and lits.isdisjoint(fp_methods):
             continue
-        constraint, exact = rule_evasion(trace, d.spec)
+        constraint, exact = rule_evasion(trace, d.spec, visible=visible)
         if constraint is not None and exact:
             s.add(constraint)
             rate_specs.append(d.spec)
@@ -182,15 +199,19 @@ def stealth_feasible(
     required = {p for st in fp.steps for p in account.catalog.required_fields(st.method)}
     paths = tuple(sorted(set(paths) | required))  # a real event carries these even if unread
 
+    unproven = False
     for _ in range(max_refine):
         if s.check() != z3.sat:
-            return AlwaysDetected(candidate.id)
+            return Exhausted(candidate.id) if unproven else AlwaysDetected(candidate.id)
         model = s.model()
         events = [_decode_event(o, model, paths) for o in trace.occs]
-        if matches_footprint(fp, events, ref_lists=lib.ref_lists) is not True:
+        realized = matches_footprint(fp, events, ref_lists=lib.ref_lists)
+        if realized is not True:
+            unproven = unproven or realized is None  # "don't know" is not a refutation
             s.add(_block(trace, model, paths))
             continue
-        verdicts = {d.id: fires(d.spec, events, ref_lists=lib.ref_lists) for d in lib.detections}
+        seen = [e for e, ok in zip(events, visible) if ok]  # what the audit log carries
+        verdicts = {d.id: fires(d.spec, seen, ref_lists=lib.ref_lists) for d in rules}
         if any(v is True for v in verdicts.values()):
             s.add(_block(trace, model, paths))
             continue
@@ -201,5 +222,6 @@ def stealth_feasible(
             principal=principal,
             approximate=bool(unknown),
             unknown_rules=unknown,
+            unlogged=unlogged,
         )
     return Exhausted(candidate.id)

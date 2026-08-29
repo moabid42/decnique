@@ -148,18 +148,24 @@ def _match_formula(occ: Occurrence, spec: TraceSpec) -> tuple[z3.BoolRef, bool]:
     return body, exact
 
 
-def rule_evasion(trace: SymTrace, spec: TraceSpec) -> tuple[z3.BoolRef | None, bool]:
+def rule_evasion(
+    trace: SymTrace, spec: TraceSpec, *, visible: tuple[bool, ...] | None = None
+) -> tuple[z3.BoolRef | None, bool]:
     """``¬Fires(R, τ)`` for a rate rule, encoded to match M0 exactly.
 
     Returns ``(constraint, exact)``.  ``exact=False`` means the rule (or its predicate) is outside
     the tractable class; the caller must not rely on the constraint and instead lets concrete
-    replay decide.  ``constraint is None`` means the rule can never fire on this trace (pruned)."""
+    replay decide.  ``constraint is None`` means the rule can never fire on this trace (pruned).
+    ``visible[i]`` false means occurrence ``i`` is never written to the audit log, so no rule
+    can match it (``Log`` of the account)."""
     if not is_rate_rule(spec):
         return None, False
     matched: list[z3.BoolRef] = []
     times: list[z3.ExprRef] = []
     exact = True
     for occ in trace.occs:
+        if visible is not None and not visible[occ.idx]:
+            continue
         m, ok = _match_formula(occ, spec)
         exact = exact and ok
         matched.append(m)

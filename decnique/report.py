@@ -65,6 +65,7 @@ def stealth_report(lib: DetectionLibrary, account: Account) -> dict[str, Any]:
             entry["events"] = len(r.schedule)
             entry["schedule"] = list(r.schedule)
             entry["unknown_rules"] = list(r.unknown_rules)
+            entry["unlogged"] = list(r.unlogged)
         techniques.append(entry)
     evasive = sum(1 for t in techniques if t["verdict"] == "evasive")
     return {

@@ -3,6 +3,8 @@ the numbers on screen must be the numbers the engine proved."""
 
 from __future__ import annotations
 
+import json
+
 from decnique.ui.config import Settings
 from decnique.ui.report import list_reports, load
 from decnique.ui.repl import dispatch
@@ -46,3 +48,24 @@ def test_blindspots_inconclusive_is_not_covered(tmp_path, monkeypatch):
     assert doc["summary"]["covered"] == 0 and doc["summary"]["inconclusive"] == 1
     assert doc["items"][0]["verdict"] == "exhausted"
     assert "not a proof" in doc["transcript"]
+
+
+def test_stealth_reports_unlogged_step_and_always_detected(tmp_path):
+    s = _session(tmp_path)
+    acct = tmp_path / "acct.json"
+    acct.write_text(json.dumps({"version": 1, "name": "t", "bindings": {"a@x.com": [
+        {"permission": "iam.serviceAccountKeys.create"}, {"permission": "storage.objects.get"}]},
+        "logging": {"admin_activity": True, "data_access_services": []}}))  # data-access logging off
+    dispatch(s, f"account {acct}")
+    dispatch(s, 'detection keys { event method = "google.iam.admin.v1.CreateServiceAccountKey" }')
+    dispatch(s, 'detection reads { event method = "storage.objects.get" }')
+    dispatch(s, 'candidate mk { required { iam.serviceAccountKeys.create } '
+                'footprint { a: "google.iam.admin.v1.CreateServiceAccountKey" } }')
+    dispatch(s, 'candidate rd { required { storage.objects.get } footprint { a: "storage.objects.get" } }')
+    assert dispatch(s, "stealth") is True
+    doc = _last(tmp_path)
+    by = {it["label"]: it for it in doc["items"]}
+    assert by["mk"]["verdict"] == "always_detected"
+    assert by["rd"]["verdict"] == "evasive" and by["rd"]["unlogged"] == ["storage.objects.get"]
+    assert "logging gap" in doc["transcript"]
+    assert doc["summary"] == {"evasive": 1, "techniques": 2}

@@ -620,11 +620,15 @@ def _stealth(lib, account, cands, rep) -> None:  # type: ignore[no-untyped-def]
                      f"{'sound' if realized and n_fire == 0 else 'REJECTED'}",
                      sound=(realized and n_fire == 0))
             tag = "approximate" if res.approximate else "exact"
+            if res.unlogged:
+                r.no(f"not audit-logged by this account: {', '.join(res.unlogged)} — "
+                       "no rule can see these steps (a logging gap, not a rule gap)")
             r.verdict_gap(f"EVASIVE ({tag}) — {len(res.schedule)} event(s) as {res.principal} evade every rule")
-            rows.append((c.id, ("evasive", "gap"), f"{len(res.schedule)} events as {res.principal}",
-                         approx_word(res.approximate)))
+            rows.append((c.id, ("evasive", "gap"), f"{len(res.schedule)} events as {res.principal}"
+                         + (" (unlogged step)" if res.unlogged else ""), approx_word(res.approximate)))
             rep.add(c.id, "evasive", f"{len(res.schedule)} event(s) as {res.principal} evade every rule",
-                    approximate=res.approximate, principal=res.principal, schedule=list(res.schedule))
+                    approximate=res.approximate, principal=res.principal, schedule=list(res.schedule),
+                    unlogged=list(res.unlogged))
             evasive += 1
         elif res.verdict == "always_detected":
             r.verdict_safe("always detected — UNSAT: every schedule trips a rate rule (proof over the encoded class)")

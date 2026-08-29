@@ -79,3 +79,28 @@ def test_panther_datamodel_admin_role_assigned_is_exact():
     # any other data-model event type is never produced for GCP audit logs → exact false
     q = _datamodel_pred('def rule(event):\n    return event.udm("event_type") == event_type.FAILED_LOGIN\n')
     assert evaluate(q, owner_to_user) is False
+
+
+# --- honesty: a rule with no recognised event variable is unknown, never true ----------------
+
+
+def test_inline_section_header_is_parsed():
+    from decnique.dsl.interpret import observes
+    from decnique.frontends.secops import load_yaral_text
+
+    r = 'rule r { meta: author = "x" events: $e.metadata.event_type = "USER_LOGIN" condition: $e }'
+    d = load_yaral_text(r, "r.yaral").detections[0]
+    assert not d.source.unsupported
+    assert observes(d, {"event_type": "USER_LOGIN"}) is True
+    assert observes(d, {"event_type": "OTHER"}) is False
+
+
+def test_no_event_variable_is_unknown_not_true():
+    from decnique.dsl.interpret import observes
+    from decnique.frontends.secops import load_yaral_text
+
+    r = "rule r { meta: author = \"x\" events: condition: $e }"
+    b = load_yaral_text(r, "r.yaral")
+    d = b.detections[0]
+    assert "events:no_event_variable" in d.source.unsupported
+    assert observes(d, {"method": "anything"}) is None

@@ -284,9 +284,17 @@ def tokenize(text: str) -> list[Tok]:
 # --- sections ------------------------------------------------------------------------------
 
 _RULE_RE = re.compile(r"\brule\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{", re.I)
+# A section header: at the start of a line or after whitespace, outside string literals.  What
+# follows the colon on the same line belongs to the section (``events: $e.x = "y"`` is legal).
 _SECTION_RE = re.compile(
-    r"^[ \t]*(meta|events|match|outcome|condition|options)\s*:[ \t]*$", re.M | re.I
+    r"(?:^|(?<=\s))(meta|events|match|outcome|condition|options)\s*:(?![=])", re.M | re.I
 )
+_STRING_RE = re.compile(r'"(?:\\.|[^"\\])*"|`[^`]*`')
+
+
+def _blank_strings(text: str) -> str:
+    """Same length as ``text`` with every string literal replaced by spaces (keeps offsets)."""
+    return _STRING_RE.sub(lambda m: " " * len(m.group(0)), text)
 
 
 def split_rules(text: str) -> list[tuple[str, str, int]]:
@@ -308,7 +316,7 @@ def split_rules(text: str) -> list[tuple[str, str, int]]:
 
 def split_sections(body: str) -> dict[str, str]:
     sections: dict[str, str] = {}
-    matches = list(_SECTION_RE.finditer(body))
+    matches = list(_SECTION_RE.finditer(_blank_strings(body)))
     for k, m in enumerate(matches):
         end = matches[k + 1].start() if k + 1 < len(matches) else len(body)
         sections[m.group(1).lower()] = body[m.end() : end]

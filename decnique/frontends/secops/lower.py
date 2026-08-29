@@ -89,7 +89,10 @@ def lower_rule(rule: y.YaralRule, file: str, udm: UdmMap | None = None) -> Detec
     for stmt in rule.events:
         _lower_stmt(stmt, st, udm)
     if not st.vars:
+        # No event variable was recognised: we do not know what the rule tests, so it must not
+        # become ``true`` (that would make it observe every event — honesty invariant #1).
         st.var("e")
+        st.preds["e"].append(Unknown(label="secops:no_event_variable"))
         st.unsupported.append("events:no_event_variable")
 
     # placeholders occurring in several variables are joins (lowering step 2)

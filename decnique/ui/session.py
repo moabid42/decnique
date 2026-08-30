@@ -20,6 +20,21 @@ from .report import Report, save
 from .theme import CHECK, console
 
 
+def _merge_bundles(old: Bundle, new: Bundle) -> Bundle:
+    """Merge ``new`` into ``old``; an item whose id is redefined in ``new`` replaces the old
+    one (so re-loading a rule set, or a same-id block typed at the prompt, updates in place).
+    Everything else from ``old`` is kept — loading is additive, not a reset."""
+    ids = {i.id for i in (*new.detections, *new.candidates, *new.checks, *new.rulesets)}
+    kept = Bundle(
+        tuple(d for d in old.detections if d.id not in ids),
+        tuple(c for c in old.candidates if c.id not in ids),
+        tuple(c for c in old.checks if c.id not in ids),
+        tuple(r for r in old.rulesets if r.id not in ids),
+        old.issues,
+    )
+    return kept + new
+
+
 def _events_from(raw: object) -> list[dict]:
     entries = raw if isinstance(raw, list) else [raw]
     return [event_from_audit_log(e) if "protoPayload" in e else e for e in entries]
@@ -53,11 +68,18 @@ class Session:
             gcp_only=not ({"--all", "--all-platforms"} & flags),
             include_deprecated="--deprecated" in flags,
         )
-        self.lib = DetectionLibrary.load(*paths, options=self.options)
-        self.paths = paths
+        new_lib = DetectionLibrary.load(*paths, options=self.options)
+        this = new_lib.bundle  # what THIS load brought in (for the count and error lines)
+        if self.lib is not None:
+            merged = _merge_bundles(self.lib.bundle, this)
+            self.lib = DetectionLibrary(merged, new_lib.ref_lists or self.lib.ref_lists)
+            self.paths = list(dict.fromkeys([*self.paths, *paths]))  # accumulate, de-duped
+        else:
+            self.lib = new_lib
+            self.paths = paths
         self._attest()
         b = self.lib.bundle
-        errs = [i for i in b.issues if i.severity == "error"]
+        errs = [i for i in this.issues if i.severity == "error"]
         console.print(
             f"[ok]{CHECK}[/ok] loaded [title]{len(b.detections)}[/title] detections, "
             f"[title]{len(b.candidates)}[/title] candidates"
@@ -70,16 +92,9 @@ class Session:
         """Parse DSL typed at the prompt (or read from a file) and merge it into the library.
         An item with an id already loaded replaces the old one, so a block can be re-typed."""
         new = parse_text(text, file)
-        old = self.lib.bundle if self.lib is not None else Bundle()  # lib is falsy with 0 detections
-        ids = {i.id for i in (*new.detections, *new.candidates, *new.checks, *new.rulesets)}
-        kept = Bundle(
-            tuple(d for d in old.detections if d.id not in ids),
-            tuple(c for c in old.candidates if c.id not in ids),
-            tuple(c for c in old.checks if c.id not in ids),
-            tuple(r for r in old.rulesets if r.id not in ids),
-            old.issues,
-        )
-        self.lib = DetectionLibrary(kept + new, self.lib.ref_lists if self.lib is not None else None)
+        old = self.lib.bundle if self.lib is not None else Bundle()
+        merged = _merge_bundles(old, new)
+        self.lib = DetectionLibrary(merged, self.lib.ref_lists if self.lib is not None else None)
         for kind, items in (("detection", new.detections), ("candidate", new.candidates),
                             ("check", new.checks), ("ruleset", new.rulesets)):
             for i in items:

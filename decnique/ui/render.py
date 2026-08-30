@@ -1044,13 +1044,13 @@ def check(s: Session, args: list[str]) -> None:
         if Path(a).is_file():  # a file: define its items, then run the checks it holds
             wanted.extend(s.define(Path(a).read_text(encoding="utf-8"), a).checks)
         else:
-            hit = [c for c in (s.lib.bundle.checks if s.lib else ()) if c.id == a]
+            hit = [c for c in (s.lib.bundle.checks if s.lib is not None else ()) if c.id == a]
             if not hit:
                 console.print(f"[warn]no check named {a!r}[/warn] — see [key]checks[/key]")
                 return
             wanted.extend(hit)
     if not args:
-        wanted = list(s.lib.bundle.checks) if s.lib else []
+        wanted = list(s.lib.bundle.checks) if s.lib is not None else []
     if not wanted:
         console.print("[muted]no checks to run — type one at the prompt or pass a .decn file[/muted]")
         return

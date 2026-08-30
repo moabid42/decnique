@@ -405,8 +405,8 @@ def _status_chips(s: Session) -> str:
         cls = "tb.on" if on else "tb.off"
         return f"<{cls}>{label}</{cls}> <tb.val>{_esc(value)}</tb.val>"
 
-    rules = str(len(s.lib.detections)) if s.lib else "—"
-    cands = str(len(s.lib.bundle.candidates)) if s.lib else "—"
+    rules = str(len(s.lib.detections)) if s.lib is not None else "—"
+    cands = str(len(s.lib.bundle.candidates)) if s.lib is not None else "—"
     acct = s.account.name if s.account else "—"
     evs = str(len(s.events)) if s.events else "—"
     return "   ·   ".join([

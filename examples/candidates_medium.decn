@@ -1,0 +1,84 @@
+// ============================================================================
+// candidates_medium.decn — a working set of common GCP attacker techniques.
+//
+// Each `candidate` is one technique: what the attacker must already hold
+// (`required`), the trace it leaves in the audit log (`footprint`), and what it
+// grants on success (`gains`, used by `chains`).  Method names are the real
+// audit-log `methodName` values; the `where` payloads are the fields the
+// detections actually read (e.g. the IAM binding deltas of a SetIamPolicy).
+//
+// Try it:
+//   load  <rule dirs…>  examples/candidates_medium.decn
+//   account examples/account.json
+//   stealth grant_self_owner        // can this one move go unseen?
+//   chains  resourcemanager.projects.setIamPolicy   // paths to owner
+// ============================================================================
+
+// --- persistence: mint a long-lived key for a service account -------------
+candidate steal_sa_key {
+  required { iam.serviceAccountKeys.create }
+  footprint { act: "google.iam.admin.v1.CreateServiceAccountKey" span 1h }
+  gains { iam.serviceAccounts.getAccessToken }
+}
+
+// --- credential access: impersonate the SA by minting access tokens --------
+// Repeated from several source IPs — the shape a token-abuse rule looks for.
+candidate mint_token {
+  required { iam.serviceAccounts.getAccessToken }
+  footprint {
+    act: "iam.serviceAccounts.getAccessToken" repeat 3 distinct caller_ip
+    span 1h
+  }
+  gains { resourcemanager.projects.setIamPolicy }
+}
+
+// --- privilege escalation: add yourself as project Owner -------------------
+// The payload (the binding delta) is what the SetIamPolicy detections read.
+candidate grant_self_owner {
+  required { resourcemanager.projects.setIamPolicy }
+  footprint {
+    act: "SetIamPolicy"
+      where udm("target.resource.attribute.labels[ser_binding_deltas_action]") = "ADD"
+        and udm("target.resource.attribute.labels[ser_binding_deltas_role]") = "roles/owner"
+        and udm("target.resource.attribute.labels[ser_binding_deltas_member]") startswith "user:"
+    span 1h
+  }
+}
+
+// --- persistence: create a fresh service account to hide behind ------------
+candidate create_sa {
+  required { iam.serviceAccounts.create }
+  footprint { act: "google.iam.admin.v1.CreateServiceAccount" span 1h }
+  gains { iam.serviceAccountKeys.create }
+}
+
+// --- collection: read a secret out of Secret Manager ----------------------
+candidate access_secret {
+  required { secretmanager.versions.access }
+  footprint { act: "google.cloud.secretmanager.v1.SecretManagerService.AccessSecretVersion" span 1h }
+}
+
+// --- exfiltration: bulk-read objects out of a bucket ----------------------
+candidate exfil_objects {
+  required { storage.objects.get }
+  footprint {
+    act: "storage.objects.get" repeat 5 within 10m
+    span 1h
+  }
+}
+
+// --- defense evasion: make a bucket world-readable ------------------------
+candidate expose_bucket_public {
+  required { storage.buckets.setIamPolicy }
+  footprint {
+    act: "storage.setIamPermissions"
+      where udm("target.resource.attribute.labels[ser_binding_deltas_member]") = "allUsers"
+    span 1h
+  }
+}
+
+// --- defense evasion: delete the log sink that would export the evidence ---
+candidate disable_log_sink {
+  required { logging.sinks.delete }
+  footprint { act: "google.logging.v2.ConfigServiceV2.DeleteSink" span 1h }
+}

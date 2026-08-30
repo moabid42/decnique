@@ -1,0 +1,97 @@
+[
+  {
+    "logName": "projects/demo/logs/cloudaudit.googleapis.com%2Factivity",
+    "timestamp": "2026-08-30T10:00:00Z",
+    "protoPayload": {
+      "@type": "type.googleapis.com/google.cloud.audit.AuditLog",
+      "methodName": "google.iam.admin.v1.CreateServiceAccountKey",
+      "serviceName": "iam.googleapis.com",
+      "authenticationInfo": {"principalEmail": "attacker@demo.iam.gserviceaccount.com"},
+      "authorizationInfo": [{"permission": "iam.serviceAccountKeys.create", "granted": true, "resource": "projects/demo/serviceAccounts/svc@demo.iam.gserviceaccount.com"}],
+      "requestMetadata": {"callerIp": "203.0.113.10", "callerSuppliedUserAgent": "google-cloud-sdk/459.0.0"},
+      "resourceName": "projects/demo/serviceAccounts/svc@demo.iam.gserviceaccount.com"
+    }
+  },
+  {
+    "logName": "projects/demo/logs/cloudaudit.googleapis.com%2Fdata_access",
+    "timestamp": "2026-08-30T10:03:00Z",
+    "protoPayload": {
+      "@type": "type.googleapis.com/google.cloud.audit.AuditLog",
+      "methodName": "iam.serviceAccounts.getAccessToken",
+      "serviceName": "iamcredentials.googleapis.com",
+      "authenticationInfo": {"principalEmail": "attacker@demo.iam.gserviceaccount.com"},
+      "authorizationInfo": [{"permission": "iam.serviceAccounts.getAccessToken", "granted": true, "resource": "projects/demo/serviceAccounts/svc@demo.iam.gserviceaccount.com"}],
+      "requestMetadata": {"callerIp": "203.0.113.10", "callerSuppliedUserAgent": "google-cloud-sdk/459.0.0"}
+    }
+  },
+  {
+    "logName": "projects/demo/logs/cloudaudit.googleapis.com%2Fdata_access",
+    "timestamp": "2026-08-30T10:04:00Z",
+    "protoPayload": {
+      "@type": "type.googleapis.com/google.cloud.audit.AuditLog",
+      "methodName": "iam.serviceAccounts.getAccessToken",
+      "serviceName": "iamcredentials.googleapis.com",
+      "authenticationInfo": {"principalEmail": "attacker@demo.iam.gserviceaccount.com"},
+      "authorizationInfo": [{"permission": "iam.serviceAccounts.getAccessToken", "granted": true, "resource": "projects/demo/serviceAccounts/svc@demo.iam.gserviceaccount.com"}],
+      "requestMetadata": {"callerIp": "198.51.100.7", "callerSuppliedUserAgent": "curl/8.4.0"}
+    }
+  },
+  {
+    "logName": "projects/demo/logs/cloudaudit.googleapis.com%2Factivity",
+    "timestamp": "2026-08-30T10:10:00Z",
+    "udm": {
+      "target.resource.attribute.labels[ser_binding_deltas_action]": "ADD",
+      "target.resource.attribute.labels[ser_binding_deltas_role]": "roles/owner",
+      "target.resource.attribute.labels[ser_binding_deltas_member]": "user:mallory@evil.example"
+    },
+    "protoPayload": {
+      "@type": "type.googleapis.com/google.cloud.audit.AuditLog",
+      "methodName": "SetIamPolicy",
+      "serviceName": "cloudresourcemanager.googleapis.com",
+      "authenticationInfo": {"principalEmail": "admin@demo.com"},
+      "authorizationInfo": [{"permission": "resourcemanager.projects.setIamPolicy", "granted": true, "resource": "projects/demo"}],
+      "requestMetadata": {"callerIp": "198.51.100.7", "callerSuppliedUserAgent": "curl/8.4.0"},
+      "resourceName": "projects/demo",
+      "serviceData": {"policyDelta": {"bindingDeltas": [{"action": "ADD", "role": "roles/owner", "member": "user:mallory@evil.example"}]}}
+    }
+  },
+  {
+    "logName": "projects/demo/logs/cloudaudit.googleapis.com%2Fdata_access",
+    "timestamp": "2026-08-30T10:12:00Z",
+    "protoPayload": {
+      "@type": "type.googleapis.com/google.cloud.audit.AuditLog",
+      "methodName": "google.cloud.secretmanager.v1.SecretManagerService.AccessSecretVersion",
+      "serviceName": "secretmanager.googleapis.com",
+      "authenticationInfo": {"principalEmail": "admin@demo.com"},
+      "authorizationInfo": [{"permission": "secretmanager.versions.access", "granted": true, "resource": "projects/demo/secrets/db-password/versions/1"}],
+      "requestMetadata": {"callerIp": "198.51.100.7", "callerSuppliedUserAgent": "curl/8.4.0"},
+      "resourceName": "projects/demo/secrets/db-password/versions/1"
+    }
+  },
+  {
+    "logName": "projects/demo/logs/cloudaudit.googleapis.com%2Factivity",
+    "timestamp": "2026-08-30T10:15:00Z",
+    "protoPayload": {
+      "@type": "type.googleapis.com/google.cloud.audit.AuditLog",
+      "methodName": "google.logging.v2.ConfigServiceV2.DeleteSink",
+      "serviceName": "logging.googleapis.com",
+      "authenticationInfo": {"principalEmail": "admin@demo.com"},
+      "authorizationInfo": [{"permission": "logging.sinks.delete", "granted": true, "resource": "projects/demo/sinks/export-to-siem"}],
+      "requestMetadata": {"callerIp": "198.51.100.7", "callerSuppliedUserAgent": "curl/8.4.0"},
+      "resourceName": "projects/demo/sinks/export-to-siem"
+    }
+  },
+  {
+    "logName": "projects/demo/logs/cloudaudit.googleapis.com%2Fdata_access",
+    "timestamp": "2026-08-30T10:20:00Z",
+    "protoPayload": {
+      "@type": "type.googleapis.com/google.cloud.audit.AuditLog",
+      "methodName": "storage.objects.get",
+      "serviceName": "storage.googleapis.com",
+      "authenticationInfo": {"principalEmail": "admin@demo.com"},
+      "authorizationInfo": [{"permission": "storage.objects.get", "granted": true, "resource": "projects/demo/buckets/secrets"}],
+      "requestMetadata": {"callerIp": "198.51.100.7", "callerSuppliedUserAgent": "curl/8.4.0"},
+      "resourceName": "projects/_/buckets/secrets/objects/customers.csv"
+    }
+  }
+]

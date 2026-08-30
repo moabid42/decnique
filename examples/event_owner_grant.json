@@ -1,0 +1,19 @@
+{
+  "logName": "projects/demo/logs/cloudaudit.googleapis.com%2Factivity",
+  "timestamp": "2026-08-30T10:10:00Z",
+  "udm": {
+    "target.resource.attribute.labels[ser_binding_deltas_action]": "ADD",
+    "target.resource.attribute.labels[ser_binding_deltas_role]": "roles/owner",
+    "target.resource.attribute.labels[ser_binding_deltas_member]": "user:mallory@evil.example"
+  },
+  "protoPayload": {
+    "@type": "type.googleapis.com/google.cloud.audit.AuditLog",
+    "methodName": "SetIamPolicy",
+    "serviceName": "cloudresourcemanager.googleapis.com",
+    "authenticationInfo": {"principalEmail": "admin@demo.com"},
+    "authorizationInfo": [{"permission": "resourcemanager.projects.setIamPolicy", "granted": true, "resource": "projects/demo"}],
+    "requestMetadata": {"callerIp": "198.51.100.7", "callerSuppliedUserAgent": "curl/8.4.0"},
+    "resourceName": "projects/demo",
+    "serviceData": {"policyDelta": {"bindingDeltas": [{"action": "ADD", "role": "roles/owner", "member": "user:mallory@evil.example"}]}}
+  }
+}

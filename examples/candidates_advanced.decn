@@ -1,0 +1,132 @@
+// ============================================================================
+// candidates_advanced.decn — a larger, wired-together technique library.
+//
+// These techniques are connected by `gains`: what one grants, another
+// `requires`.  Feed them to `chains` and it searches for stealthy multi-step
+// privilege-escalation paths (e.g. a leaked key -> impersonation -> a VM that
+// runs as a powerful SA -> project Owner -> turn the logs off).  They also
+// exercise the harder DSL: `actor` (who does it), `context` (extra condition),
+// per-step `within`, `distinct`, `repeat`, and a multi-step `order`.
+//
+// Try it:
+//   load  <rule dirs…>  examples/candidates_advanced.decn
+//   account examples/account.json
+//   chains  resourcemanager.projects.setIamPolicy --from iam.serviceAccountKeys.create
+//   chains  --start iam.serviceAccountKeys.create        // reachable goals
+//   stealth vm_actas_escalation
+// ============================================================================
+
+// ---- entry: a leaked/created key becomes an access token ------------------
+candidate key_to_token {
+  meta { tactic = "credential-access" }
+  required { iam.serviceAccountKeys.create }
+  footprint {
+    make_key: "google.iam.admin.v1.CreateServiceAccountKey"
+    use_key:  "iam.serviceAccounts.getAccessToken" within 30m
+    order make_key < use_key
+    span 1h
+  }
+  gains { iam.serviceAccounts.actAs compute.instances.create }
+}
+
+// ---- lateral: launch a VM that runs AS a privileged service account -------
+// The classic actAs escalation: attach a powerful SA to a new instance.
+candidate vm_actas_escalation {
+  meta { tactic = "privilege-escalation" }
+  required {
+    compute.instances.create
+    iam.serviceAccounts.actAs
+  }
+  footprint {
+    boot_vm: "v1.compute.instances.insert"
+      where udm("target.resource.attribute.labels[ser_binding_deltas_member]") startswith "serviceAccount:"
+    span 1h
+  }
+  gains { resourcemanager.projects.setIamPolicy }
+}
+
+// ---- alternate lateral: poison instance metadata (startup script) --------
+candidate metadata_takeover {
+  meta { tactic = "execution" }
+  required { compute.instances.setMetadata }
+  footprint {
+    set_meta: "v1.compute.instances.setMetadata" repeat 1
+    span 1h
+  }
+  gains { iam.serviceAccounts.getAccessToken }
+}
+
+// ---- the pivot: grant yourself Owner (a human doing it, on purpose) -------
+candidate escalate_owner {
+  meta { tactic = "privilege-escalation" }
+  actor principal_type = "USER"
+  required { resourcemanager.projects.setIamPolicy }
+  footprint {
+    grant: "SetIamPolicy"
+      where udm("target.resource.attribute.labels[ser_binding_deltas_action]") = "ADD"
+        and udm("target.resource.attribute.labels[ser_binding_deltas_role]") = "roles/owner"
+    span 1h
+  }
+  // once Owner, everything below opens up
+  gains {
+    iam.roles.update
+    logging.sinks.delete
+    secretmanager.versions.access
+    storage.buckets.setIamPolicy
+  }
+}
+
+// ---- backdoor: widen a custom role instead of touching membership --------
+// Quieter than SetIamPolicy on the project: edits a role definition.
+candidate role_update_backdoor {
+  meta { tactic = "persistence" }
+  required { iam.roles.update }
+  footprint { edit_role: "google.iam.admin.v1.UpdateRole" span 1h }
+  gains { resourcemanager.projects.setIamPolicy }
+}
+
+// ---- defense evasion: stop the audit logs from leaving --------------------
+// Do it AFTER escalating; the `context` says these are un-alarming service accts.
+candidate kill_logging {
+  meta { tactic = "defense-evasion" }
+  required { logging.sinks.delete }
+  footprint {
+    delete_sink: "google.logging.v2.ConfigServiceV2.DeleteSink"
+    span 1h
+  }
+}
+
+// ---- collection: sweep every secret in the project -----------------------
+candidate dump_all_secrets {
+  meta { tactic = "collection" }
+  required { secretmanager.versions.access }
+  footprint {
+    read_secret: "google.cloud.secretmanager.v1.SecretManagerService.AccessSecretVersion"
+      repeat 5 distinct resource within 15m
+    span 1h
+  }
+}
+
+// ---- exfiltration: make a data bucket public, then drain it ---------------
+candidate exfil_via_public_bucket {
+  meta { tactic = "exfiltration" }
+  required {
+    storage.buckets.setIamPolicy
+    storage.objects.get
+  }
+  footprint {
+    open_bucket: "storage.setIamPermissions"
+      where udm("target.resource.attribute.labels[ser_binding_deltas_member]") = "allUsers"
+    drain:       "storage.objects.get" repeat 5 within 20m
+    order open_bucket < drain
+    span 2h
+  }
+}
+
+// ---- a self-contained data-access technique (no chain needed) -------------
+candidate read_one_secret {
+  meta { tactic = "collection" }
+  required { secretmanager.versions.access }
+  footprint { read: "google.cloud.secretmanager.v1.SecretManagerService.AccessSecretVersion" span 1h }
+  context principal_type = "SERVICE_ACCOUNT"
+}

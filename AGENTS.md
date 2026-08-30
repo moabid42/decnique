@@ -79,7 +79,8 @@ python3 run.py blindspots resourcemanager.projects.setIamPolicy
 In the shell: `load [--all] [--deprecated] <rule dirs…> <candidates.decn>`,
 `account <json | raw gcloud export> [resource]`, `blindspots [perm…]`, `stealth [id]`,
 `chains [goal] [--from p] [--start p1,p2]`, `check [id… | file.decn…]`, `checks`,
-`methods <perm>`, `suggest <perm…> [define]`, `export <file.json>`, `config`, `reports`,
+`perms [filter]`, `methods <perm|method>`, `roles [role|--with perm]`, `who [perm|principal]`,
+`suggest <perm…> [define]`, `export <file.json>`, `config`, `reports`,
 `report <file> | report diff <a> <b>`, `clear`, `help [verb]`.
 
 `help <verb>` (or `config <verb>`) explains one verb: its arguments, what every word on screen
@@ -88,7 +89,11 @@ means, and its settings.  With `config report.save on`, every `blindspots` / `st
 the end), JSON, or YAML (`report.format`); `reports` lists them, `report <file>` reopens one, and
 `report diff <a> <b>` shows what changed between two runs.  `export <file.json>` writes the last
 run's witnesses as Cloud Audit Log entries to replay in a SIEM; `suggest <perm> [define]` proposes
-DSL detections that would close a blind spot; `methods <perm>` is the catalog lookup for authoring.
+DSL detections that would close a blind spot.  The browsing verbs (`ui/browse.py`) look things up
+without leaving the shell: `perms` (by service, then by name; `--tag`, `--reachable`, `--unwatched`),
+`methods` (a permission's methods, or one method's fact card), `roles` (a role's permissions, or the
+roles granting one), `who` (who holds a permission and where).  Every listing is capped (`--limit N`,
+`--all`).
 
 **Batch / CI mode.** `python3 run.py --rules DIR… --account a.json [--json] [--report DIR]
 [--fail-on finding|unknown] [-f script] <verb …>` runs one command (or a script of them) and

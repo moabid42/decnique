@@ -114,3 +114,15 @@ def test_blindspots_over_many_permissions_is_brief_and_summarised(tmp_path):
     assert doc["summary"]["covered"] == 1 and doc["summary"]["gaps"] >= 1
     assert doc["summary"]["unnamed"] == doc["summary"]["gaps"]  # no rule names a dns/setIamPolicy method
     assert "no rule names any of its" in flat
+
+
+def test_show_prints_the_source_file(tmp_path, capsys):
+    from decnique.ui.theme import console
+    s = Session()
+    s.settings = Settings(tmp_path / "cfg.json")
+    rules = tmp_path / "r.decn"
+    rules.write_text('detection d { event method = "X" }\n')
+    dispatch(s, f"load {rules}")
+    with console.capture() as cap:
+        dispatch(s, "show d")
+    assert "source:" in cap.get() and "r.decn" in cap.get()

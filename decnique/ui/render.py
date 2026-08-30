@@ -122,7 +122,9 @@ def show(s: Session, ident: str | None) -> None:
         return
     for d in s.lib.detections:
         if d.id == ident:
-            _print_source("detection", d.id, fmt.detection(d), approximate=d.approximate)
+            src = d.source
+            origin = f"{src.frontend}: {src.file}" + (f":{src.line}" if src.line else "") if src else None
+            _print_source("detection", d.id, fmt.detection(d), approximate=d.approximate, origin=origin)
             _print_untranslated(d)
             return
     for c in s.lib.bundle.candidates:
@@ -136,15 +138,18 @@ def show(s: Session, ident: str | None) -> None:
     console.print(f"[warn]no detection, candidate, or check named {ident!r}[/warn]")
 
 
-def _print_source(kind: str, ident: str, text: str, *, approximate: bool = False) -> None:
+def _print_source(kind: str, ident: str, text: str, *, approximate: bool = False, origin: str | None = None) -> None:
     tag = Text()
     tag.append(f"{kind}  ", style="muted")
     tag.append(ident, style="brand")
     if approximate:
         tag.append("   ~approx", style="approx")
+    body = Text(text)
+    if origin:  # the original rule's file, so the engineer can open it
+        body.append(f"\n\n# source: {origin}", style="muted")
     console.print(
         Panel(
-            Text(text),
+            body,
             title=tag,
             title_align="left",
             subtitle=Text("what decnique translated this rule to (canonical DSL)", style="muted"),

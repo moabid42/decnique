@@ -1,10 +1,10 @@
 {
-  "_comment": "A classic escalation setup for `chains`/`stealth`. An attacker service account starts with only iam.serviceAccountKeys.create; the `attack` block wires each technique's gains so the search can climb key -> token -> Owner. Load a candidates file first (examples/candidates_medium.decn or _advanced.decn).",
+  "_comment": "A classic escalation setup for `ask chains`/`ask stealth`. An attacker service account starts with only iam.serviceAccountKeys.create; the `attack` block wires each technique's gains so the search can climb key -> token -> Owner. Load a candidates file first (examples/candidates_medium.decn or _advanced.decn).",
   "_expect": [
-    "load examples/candidates_advanced.decn   (then)   account examples/accounts/05_escalation_path.json",
-    "chains resourcemanager.projects.setIamPolicy --from iam.serviceAccountKeys.create  ->  finds a STEALTHY multi-hop path (with no rules loaded, nothing catches it).",
-    "stealth escalate_owner  ->  EVASIVE as the human; load the GCP corpus and a SetIamPolicy owner-grant rule flips it to always_detected.",
-    "blindspots iam.serviceAccountKeys.create  ->  reachable + logged; a gap unless a key-creation rule is loaded."
+    "candidates load examples/candidates_advanced.decn   (then)   account load examples/accounts/05_escalation_path.json",
+    "ask chains resourcemanager.projects.setIamPolicy --from iam.serviceAccountKeys.create  ->  finds a STEALTHY multi-hop path (with no rules loaded, nothing catches it).",
+    "ask stealth escalate_owner  ->  EVASIVE as the human; load the GCP corpus and a SetIamPolicy owner-grant rule flips it to always_detected.",
+    "ask blindspots iam.serviceAccountKeys.create  ->  reachable + logged; a gap unless a key-creation rule is loaded."
   ],
   "version": 1,
   "name": "escalation-path",

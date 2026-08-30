@@ -1,8 +1,8 @@
 {
   "_comment": "Identical grants to 03, but Data Access logging is turned ON for the two services. Now the reads ARE recorded, so whether they are a blind spot no longer depends on LOGGING — it depends on whether a loaded rule OBSERVES them. This is the Log-vs-Observes contrast.",
   "_expect": [
-    "account examples/accounts/04_data_access_on.json  ->  loads 1 principal",
-    "blindspots secretmanager.versions.access  ->  now LOGGED. With no rules loaded it is still a gap (nothing observes it). Load the corpus and it depends on whether a secret-access rule exists.",
+    "account load examples/accounts/04_data_access_on.json  ->  loads 1 principal",
+    "ask blindspots secretmanager.versions.access  ->  now LOGGED. With no rules loaded it is still a gap (nothing observes it). Load the corpus and it depends on whether a secret-access rule exists.",
     "Diff against 03: same reachability, different logging — the reason a gap exists changes from 'unlogged' to 'unobserved'."
   ],
   "version": 1,

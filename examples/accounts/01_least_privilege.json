@@ -1,10 +1,10 @@
 {
   "_comment": "A well-run, least-privilege project. A read-only human (roles/viewer) and one service account that may only read one bucket. This is the 'nothing to see here' baseline — very few permissions are reachable, so every scan is instant.",
   "_expect": [
-    "account examples/accounts/01_least_privilege.json  ->  loads 2 principals",
-    "blindspots  ->  finishes in well under a second; almost every permission is 'unreachable' (nobody holds it). This is the FAST path — contrast with the owner account.",
-    "blindspots storage.objects.get  ->  reachable + (data-access logging is on) logged; whether it's a gap depends on the rules you loaded. With no rules loaded, it's an unobserved event (a gap by default).",
-    "who  ->  lists reader@demo.com and log-reader@demo.iam.gserviceaccount.com"
+    "account load examples/accounts/01_least_privilege.json  ->  loads 2 principals",
+    "ask blindspots  ->  finishes in well under a second; almost every permission is 'unreachable' (nobody holds it). This is the FAST path — contrast with the owner account.",
+    "ask blindspots storage.objects.get  ->  reachable + (data-access logging is on) logged; whether it's a gap depends on the rules you loaded. With no rules loaded, it's an unobserved event (a gap by default).",
+    "account who  ->  lists reader@demo.com and log-reader@demo.iam.gserviceaccount.com"
   ],
   "version": 1,
   "name": "least-privilege",

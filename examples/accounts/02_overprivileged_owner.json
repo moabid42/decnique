@@ -1,9 +1,9 @@
 {
   "_comment": "The opposite extreme: one principal holds roles/owner. Owner expands (from the bundled role catalog) to ~13k permissions, ~4k of them with a logged method. This is the 'audit an over-privileged account' case — and the sheer size IS the finding.",
   "_expect": [
-    "account examples/accounts/02_overprivileged_owner.json  ->  loads 1 principal; needs the GCP role catalog present (falls back to a single literal grant without it)",
-    "blindspots  ->  SLOW on purpose: ~4k reachable permissions x a few hundred ms each = ~10-20 min. It's a whole-corpus audit, not an interactive call.",
-    "blindspots resourcemanager.projects.setIamPolicy iam.serviceAccountKeys.create  ->  scope it to specific permissions and it returns in seconds.",
+    "account load examples/accounts/02_overprivileged_owner.json  ->  loads 1 principal; needs the GCP role catalog present (falls back to a single literal grant without it)",
+    "ask blindspots  ->  SLOW on purpose: ~4k reachable permissions x a few hundred ms each = ~10-20 min. It's a whole-corpus audit, not an interactive call.",
+    "ask blindspots resourcemanager.projects.setIamPolicy iam.serviceAccountKeys.create  ->  scope it to specific permissions and it returns in seconds.",
     "who resourcemanager.projects.setIamPolicy  ->  owner@demo.com holds it (through roles/owner)"
   ],
   "version": 1,

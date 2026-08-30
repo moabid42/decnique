@@ -19,7 +19,8 @@ the audit log. This tool answers, for one concrete account and one rule corpus:
 - **chains** — stealthy privilege-escalation paths built from stealthy techniques.
 - **check** — the DSL's own `check` blocks: named questions (`coverage`, `candidate`, `compare`,
   `dead_rules`, `redundant_rules`, `boundary`, `require_coverage`, `attempt_coverage`,
-  `public_access`) answered pass / fail / unknown, from a file or typed at the prompt.
+  `public_access`) answered pass / fail / unknown.  `checks load` loads them from a file (or
+  type one at the prompt); `ask check` runs them.
 
 The core idea: translate every rule into one shared language (the DSL), abstract each string
 field to the finite set of tests the rules make on it (**atoms**), and ask a propositional
@@ -33,7 +34,7 @@ Formal question (single event): `∃ e : Reach_p(e) ∧ Log(e) ∧ ¬(⋁_R Obse
 | term | meaning |
 |---|---|
 | **detection** | a rule; single-event or correlation (windows, counts, joins) |
-| **candidate / technique** | what an attacker needs (`required` permissions), the trace it leaves (`footprint` steps, optionally with a `where` payload), and optionally what it `gains` (permissions added on success — how `chains` advances) |
+| **candidate / technique** | what an attacker needs (`required` permissions), the trace it leaves (`footprint` steps, optionally with a `where` payload), and optionally what it `gains` (permissions added on success — how `ask chains` advances) |
 | **Reach / Log / Observes** | account grants it / the method is audit-logged / rule R fires on event e |
 | **unknown(...)** | an atom a front-end could not translate; anything touching it is **approximate** |
 | **approximate vs exact** | a verdict is exact only if no `unknown` and no unverified assumption was involved |
@@ -59,8 +60,9 @@ decnique/
                 bucket (optional grouping), legacy_coverage (old engine, differential test only)
   graph/        chains: search over stealthy techniques
   checks.py     runs `check` blocks (one engine per check type, three-valued, replayed)
-  ui/           repl (commands, per-verb help, batch/CI main), render (verbs), session, config,
-                report (saved runs: md/json/yaml), words (opt-in wording)
+  ui/           commands (the object/verb table: single source for dispatch, help, completion),
+                repl (prompt, help pages, batch/CI main), render (verbs), browse (catalog),
+                session, config, report (saved runs: md/json/yaml), words (opt-in wording)
   catalogs/     UDM field map; gcp_methods/gcp_roles (built by catalogs/build_gcp.py), gcp_tags
 answers.py      engine-level JSON (blindspots/stealth/chains) for the argparse CLI
 examples/       account.json, candidates.decn
@@ -74,34 +76,47 @@ run.py          launcher for the interactive shell / one-shot commands
 python -m venv .venv && .venv/bin/pip install -e .[test]
 .venv/bin/python -m pytest -q tests                      # ~10 s, must stay green
 python3 run.py                                           # shell
-python3 run.py blindspots resourcemanager.projects.setIamPolicy
+python3 run.py ask blindspots resourcemanager.projects.setIamPolicy
 ```
-In the shell: `load [--all] [--deprecated] <rule dirs…> <candidates.decn>`,
-`account <json | raw gcloud export> [resource]`, `blindspots [perm…]`, `stealth [id]`,
-`chains [goal] [--from p] [--start p1,p2]`, `check [id… | file.decn…]`, `checks`,
-`perms [filter]`, `methods <perm|method>`, `roles [role|--with perm]`, `who [perm|principal]`,
-`suggest <perm…> [define]`, `export <file.json>`, `config`, `reports`,
-`report <file> | report diff <a> <b>`, `clear`, `help [verb]`.
+Every shell command reads **`<object> <verb> [args…]`**.  The objects are the things the
+session holds; their verbs only load or look at state.  The math lives under one object, `ask`.
 
-`help <verb>` (or `config <verb>`) explains one verb: its arguments, what every word on screen
-means, and its settings.  With `config report.save on`, every `blindspots` / `stealth` / `chains`
-/ `check` run is written to `report.dir` as Markdown (default; the data is embedded as JSON at
-the end), JSON, or YAML (`report.format`); `reports` lists them, `report <file>` reopens one, and
-`report diff <a> <b>` shows what changed between two runs.  `export <file.json>` writes the last
-run's witnesses as Cloud Audit Log entries to replay in a SIEM; `suggest <perm> [define]` proposes
-DSL detections that would close a blind spot.  The browsing verbs (`ui/browse.py`) look things up
-without leaving the shell: `perms` (by service, then by name; `--tag`, `--reachable`, `--unwatched`),
-`methods` (a permission's methods, or one method's fact card), `roles` (a role's permissions, or the
-roles granting one), `who` (who holds a permission and where).  Every listing is capped (`--limit N`,
-`--all`).
+| object | verbs |
+|---|---|
+| `rules` | `load [--all] [--deprecated] <paths…>` · `list [~][substr]` · `inspect <id>` · `dsl <id>` · `admits <method>` · `summary` |
+| `candidates` | `load <paths…>` · `list` · `inspect <id>` · `dsl <id>` · `footprint [id]` |
+| `checks` | `load <paths…>` · `list` · `inspect <id>` · `dsl <id>` (loading never runs a check) |
+| `events` | `load <file.json>` · `list` · `inspect <n>` · `trace [all]` · `observe <file.json>` |
+| `account` | `load <json \| raw gcloud export> [resource]` · `show` · `who [perm \| principal]` |
+| `catalog` | `perms [filter]` · `methods <perm \| method>` · `roles [role \| --with perm]` |
+| `ask` | `blindspots [perm…]` · `stealth [id]` · `chains [goal] [--from p] [--start p1,p2]` · `check [id…]` · `suggest <perm…> [define]` |
+| `reports` | `list` · `show <file>` · `diff <a> <b>` · `export <file.json> [n]` |
+
+Shell words: `config [key [value|reset]]`, `help [object [verb]]`, `clear`, `quit`.  An object
+typed alone runs its default verb (`rules` = `rules list`, `account` = `account show`); `ask`
+has no default, so the solver never runs by accident.  `inspect` shows an item with everything
+around it (source file, untranslated parts, question, steps); `dsl` prints only the canonical
+DSL as plain text, for copying into a `.decn` file.
+
+`help <object> <verb>` explains one verb: its arguments, what every word on screen means, and
+its settings.  With `config report.save on`, every `ask` run is written to `report.dir` as
+Markdown (default; the data is embedded as JSON at the end), JSON, or YAML (`report.format`);
+`reports list` lists them, `reports show <file>` reopens one, and `reports diff <a> <b>` shows
+what changed between two runs.  `reports export <file.json>` writes the last run's witnesses as
+Cloud Audit Log entries to replay in a SIEM; `ask suggest <perm> [define]` proposes DSL
+detections that would close a blind spot.  The `catalog` verbs (`ui/browse.py`) look things up
+without leaving the shell: `perms` (by service, then by name; `--tag`, `--reachable`,
+`--unwatched`), `methods` (a permission's methods, or one method's fact card), `roles` (a role's
+permissions, or the roles granting one); `account who` says who holds a permission and where.
+Every listing is capped (`--limit N`, `--all`).
 
 **Batch / CI mode.** `python3 run.py --rules DIR… --account a.json [--json] [--report DIR]
-[--fail-on finding|unknown] [-f script] <verb …>` runs one command (or a script of them) and
+[--fail-on finding|unknown] [-f script] <object> <verb> …` runs one command (or a script of them) and
 exits: 0 clean · 2 a finding (gap / evasive / stealthy / failed check) · 3 input error · 4
 inconclusive (with `--fail-on unknown`).  In the interactive shell an error in a verb is reported
 and the session survives (`DECNIQUE_DEBUG=1` re-raises).
 
-**The account.** `account` takes the tool's own JSON *or* a raw export, converted on load:
+**The account.** `account load` takes the tool's own JSON *or* a raw export, converted on load:
 `gcloud projects get-iam-policy P --format=json` (bindings + Data Access `auditConfigs`) with a
 `resource` scope, or `gcloud asset search-all-iam-policies --format=json` (grants scoped per
 resource).  Predefined roles expand from the bundled catalog; conditional bindings are kept and
@@ -112,10 +127,10 @@ falls back to the small hand-checked seed when the data files are absent.
 The prompt also accepts DSL directly, like a Python interpreter: a line starting with
 `detection`, `candidate`, `check`, or `ruleset` and containing `{` opens a block that is read
 until its braces close, then parsed and merged into the loaded library (same id = replaced).
-So `detection d { … }` → `candidate c { … }` → `check q { type candidate for c }` → `check q`
+So `detection d { … }` → `candidate c { … }` → `check q { type candidate for c }` → `ask check q`
 is a complete session without any file.  `examples/checks.decn` shows every implemented type.
 
-Rule corpora are **not** in the repo. Point `load` at directories of native rules (YARA-L
+Rule corpora are **not** in the repo. Point `rules load` at directories of native rules (YARA-L
 `.yaral`, Elastic `.toml`, Sigma `.yml`, Panther `.yml`+`.py`). The loader keeps GCP-relevant
 rules by default; `--all` loads every platform (only useful for scale tests).
 
@@ -155,16 +170,18 @@ rule across hops is caught); stealth reports the rules that always catch a techn
   `run_check`, added to `IMPLEMENTED`, and a question line in `ui/render.py` `_CHECK_QUESTION`.
   Every type is implemented; the one option without an engine, `mode fires_bg` (against a
   background trace), answers `unknown` — never guess.
-- **New shell verb** → add to `COMMANDS` *and* `DETAILS` in `ui/repl.py` (single source for
-  help/completion; a test checks both stay in sync), implement in `ui/render.py`.  A verb that
-  computes something wraps its body in `with s.report(verb, args) as rep:` and calls
-  `rep.add(label, verdict, detail, …)` per finding, so it can be saved and reopened.
+- **New shell verb** → one `Verb(...)` in the right `Obj` in `ui/commands.py` (name, hint,
+  one-line help, `run`, `detail` page, `paths=` for path completion; a test checks every verb
+  has a detail page), implemented in `ui/render.py` or `ui/browse.py`.  Anything that runs the
+  solver goes under `ASK`; loading / listing / inspecting goes under the object it belongs to.
+  A verb that computes something wraps its body in `with s.report(verb, args) as rep:` and
+  calls `rep.add(label, verdict, detail, …)` per finding, so it can be saved and reopened.
 - **Engine change in `smt/`** → keep `tests/test_coverage_differential.py` green (old vs new
   engine agree) and the soundness tests in `tests/test_smt_coverage.py`.
 
 ## 7. Traps that already cost time
 
-- `blindspots` and `stealth` ask different questions and can both be right: a permission can
+- `ask blindspots` and `ask stealth` ask different questions and can both be right: a permission can
   have unwatched *kinds* of change while the specific attack payload is caught.
 - The simplest unobserved event is often boring (e.g. a role *removal*). Use the per-change
   list or `config blindspots.explain formula` before concluding a rule is missing.

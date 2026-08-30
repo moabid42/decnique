@@ -1,6 +1,7 @@
 // Check blocks: each one asks the rule set a question and is answered pass / fail / unknown.
-// Run in the shell:  load <rules/> examples/candidates.decn  →  account examples/account.json
-//                    →  check examples/checks.decn        (or type a block at the prompt)
+// Run in the shell:  rules load <rules/> examples/candidates.decn  →  account load examples/account.json
+//                    →  checks load examples/checks.decn  →  ask check
+//                    (or type a check block at the prompt, then ask check <id>)
 
 // is every reachable + logged way of using this permission observed by some rule?
 check key_creation_watched { type coverage permission iam.serviceAccountKeys.create }

@@ -2,13 +2,15 @@
 """decnique — interactive front door.
 
     python3 run.py                              start the interactive shell
-    python3 run.py blindspots iam.foo.bar        one-shot: run a single command and exit
+    python3 run.py ask blindspots iam.foo.bar    one-shot: run a single command and exit
     python3 run.py trace -e events.json rules/   (delegates to decnique.cli)
 
 The shell holds a *session*: a loaded library of detections + candidates, an account model,
 and an ordered event trace.  It answers three-valued (yes / no / don't-know) using the real
-engine — never a reimplementation — and, for the coverage verbs (`blindspots`, `stealth`,
-`chains`), narrates the actual checks and replays each witness through the concrete oracle.
+engine — never a reimplementation — and, for the `ask` verbs (`ask blindspots`, `ask stealth`,
+`ask chains`, `ask check`), narrates the actual checks and replays each witness through the
+concrete oracle.  Commands read `<object> <verb> [args…]`: `rules load …`, `rules inspect <id>`,
+`checks load …`, `ask check`.
 
 The UI lives in :mod:`decnique.ui`; this file is only the launcher.
 """

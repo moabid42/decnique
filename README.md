@@ -64,6 +64,22 @@ obs = lib.observing(ev)      # Observes(R, e): which rules fire, which are "unkn
 
 
 
+## In the shell
+
+Every command reads `<object> <verb> [args…]`.  Objects hold state; `ask` runs the math.
+
+```
+rules load <rules/> examples/candidates.decn     # detections (+ candidates / checks in the same files)
+rules list ~                                     # only the approximate rules
+rules inspect <id>   ·   rules dsl <id>          # one rule with context / just its DSL
+candidates inspect <id>   ·   checks load examples/checks.decn
+account load examples/account.json               # or a raw gcloud export
+ask blindspots resourcemanager.projects.setIamPolicy
+ask stealth escalate_project_iam   ·   ask chains   ·   ask check
+reports list   ·   reports show <file>   ·   reports diff <a> <b>
+help <object> [verb]
+```
+
 ## The honesty mechanism
 
 Anything the language cannot express becomes a first-class `unknown("label")` atom;
@@ -78,7 +94,7 @@ Tick a box as each lands. Roughly ordered by how much it widens what the tool ca
 Reason about rules that need *several* events   
 thresholds (`N in a window`), value aggregates, and joins — instead of stepping around them.
 - [x] **A richer technique library.**  
-Wired-together GCP techniques for `chains` / `stealth`, plus replayable event traces to test against  
+Wired-together GCP techniques for `ask chains` / `ask stealth`, plus replayable event traces to test against  
 (`examples/candidates_medium.decn`, `examples/candidates_advanced.decn`,  
 `examples/events.json`).
 
@@ -94,10 +110,10 @@ Ingest actual audit-log samples to check the tool's own assumptions, and confirm
 turning *we believe this is a gap* into *we watched it go uncaught*.
 
 - [ ] **Faster whole-account audits.**  
-Cache each method's solver domain across permissions that share methods, so an owner-level `blindspots` scan drops well under its current  
+Cache each method's solver domain across permissions that share methods, so an owner-level `ask blindspots` scan drops well under its current  
 ~10–20 min.
 - [ ] **A second cloud.**  
 Everything is GCP IAM today; a new catalog + account importer + front-end idioms would open the same questions for AWS or Azure.
 - [ ] **Product polish.**  
-Severity ranking of gaps, MITRE ATT&CK mapping, and an over-time trend on top of `report diff`.
+Severity ranking of gaps, MITRE ATT&CK mapping, and an over-time trend on top of `reports diff`.
 

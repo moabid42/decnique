@@ -8,10 +8,10 @@
 // detections actually read (e.g. the IAM binding deltas of a SetIamPolicy).
 //
 // Try it:
-//   load  <rule dirs…>  examples/candidates_medium.decn
-//   account examples/account.json
-//   stealth grant_self_owner        // can this one move go unseen?
-//   chains  resourcemanager.projects.setIamPolicy   // paths to owner
+//   rules load <rule dirs…>   →   candidates load examples/candidates_medium.decn
+//   account load examples/account.json
+//   ask stealth grant_self_owner        // can this one move go unseen?
+//   ask chains resourcemanager.projects.setIamPolicy   // paths to owner
 // ============================================================================
 
 // --- persistence: mint a long-lived key for a service account -------------

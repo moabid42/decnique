@@ -2,18 +2,18 @@
 // candidates_advanced.decn — a larger, wired-together technique library.
 //
 // These techniques are connected by `gains`: what one grants, another
-// `requires`.  Feed them to `chains` and it searches for stealthy multi-step
+// `requires`.  Feed them to `ask chains` and it searches for stealthy multi-step
 // privilege-escalation paths (e.g. a leaked key -> impersonation -> a VM that
 // runs as a powerful SA -> project Owner -> turn the logs off).  They also
 // exercise the harder DSL: `actor` (who does it), `context` (extra condition),
 // per-step `within`, `distinct`, `repeat`, and a multi-step `order`.
 //
 // Try it:
-//   load  <rule dirs…>  examples/candidates_advanced.decn
-//   account examples/account.json
-//   chains  resourcemanager.projects.setIamPolicy --from iam.serviceAccountKeys.create
-//   chains  --start iam.serviceAccountKeys.create        // reachable goals
-//   stealth vm_actas_escalation
+//   rules load <rule dirs…>   →   candidates load examples/candidates_advanced.decn
+//   account load examples/account.json
+//   ask chains resourcemanager.projects.setIamPolicy --from iam.serviceAccountKeys.create
+//   ask chains --start iam.serviceAccountKeys.create        // reachable goals
+//   ask stealth vm_actas_escalation
 // ============================================================================
 
 // ---- entry: a leaked/created key becomes an access token ------------------

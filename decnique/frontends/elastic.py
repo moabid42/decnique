@@ -27,6 +27,7 @@ from decnique.model.predicates import (
     all_of,
     any_of,
 )
+from decnique.dsl.interpret import glob_has_wildcard, glob_unescape
 from decnique.model.trace import RuleOptions, single_event
 
 # Sigma / KQL have no zero-value rule: a test on an absent field is simply false, and a negated
@@ -53,6 +54,9 @@ FIELD_MAP: dict[str, str] = {
     "gcp.audit.authentication_info.principal_email": "principal",
     "gcp.audit.method_name": "method",
 }
+# ECS classification fields the GCP integration computes (`event.category: iam`, `event.type:
+# start`) — not stored in the audit record and not a function of the method alone.
+_DERIVED_FIELDS = frozenset({"event.category", "event.kind", "event.type"})
 _DATASET_FIELDS = {
     "data_stream.dataset",
     "event.dataset",
@@ -307,9 +311,11 @@ class _Kql:
 
 
 def _unescape(t: str) -> str:
+    """Drop the quotes and KQL escapes, but keep ``\*`` / ``\?`` escaped: the glob matcher reads
+    them as literal characters (a quoted value has no wildcards at all)."""
     if t.startswith('"') and t.endswith('"') and len(t) >= 2:
-        return re.sub(r"\\(.)", r"\1", t[1:-1])
-    return re.sub(r"\\(.)", r"\1", t)
+        return re.sub(r"\\(.)", lambda m: "\\" + m.group(1) if m.group(1) in "*?" else m.group(1), t[1:-1])
+    return re.sub(r"\\(.)", lambda m: "\\" + m.group(1) if m.group(1) in "*?\\" else m.group(1), t)
 
 
 def _leaf(field: str, op: str, value: str, unsupported: list[str]) -> Pred:
@@ -333,8 +339,14 @@ def _leaf(field: str, op: str, value: str, unsupported: list[str]) -> Pred:
         )
         if mapped is not None:
             return Cmp(field=qf, op="=", value=mapped)
-    if "*" in value or "?" in value:
+    if low in _DERIVED_FIELDS:
+        # ECS fields the integration derives from the raw record by rules we do not model; a
+        # free value here would let the solver dodge the rule by inventing one (false gap)
+        unsupported.append(f"derived:{low}")
+        return Unknown(label="elastic:derived_field", raw=f"{field}:{value}", fields=(qf,))
+    if glob_has_wildcard(value):
         return Like(field=qf, pattern=value, nocase=True)
+    value = glob_unescape(value)
     if value.lower() in {"true", "false"} and path not in {"method", "principal", "resource"}:
         return Cmp(field=qf, op="=", value=value.lower() == "true")
     return Cmp(field=qf, op="=", value=value, nocase=True)

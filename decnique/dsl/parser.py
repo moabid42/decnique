@@ -166,9 +166,15 @@ def _pretty_token(tok: Token) -> str:
 
 
 def unescape(s: str) -> str:
-    """Decode a STRING token (surrounding quotes and backslash escapes)."""
+    """Decode a STRING token (surrounding quotes and backslash escapes).  Only ``\\\\``, ``\\"``,
+    ``\\n`` and ``\\t`` are escapes; any other backslash is kept, so a regex or glob written
+    as ``"\\d+"`` or ``"foo\\*"`` means what it says."""
     body = s[1:-1]
-    return re.sub(r"\\(.)", lambda m: {"n": "\n", "t": "\t"}.get(m.group(1), m.group(1)), body)
+    return re.sub(
+        r"\\(.)",
+        lambda m: {"n": "\n", "t": "\t", '"': '"', "\\": "\\"}.get(m.group(1), "\\" + m.group(1)),
+        body,
+    )
 
 
 def unescape_regex(s: str) -> str:

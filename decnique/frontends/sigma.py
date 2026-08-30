@@ -31,6 +31,7 @@ from decnique.model.predicates import (
     all_of,
     any_of,
 )
+from decnique.dsl.interpret import glob_has_wildcard, glob_unescape
 from decnique.model.trace import RuleOptions, single_event
 
 # Sigma / KQL have no zero-value rule: a test on an absent field is simply false, and a negated
@@ -232,7 +233,12 @@ def _leaf(path: str, v: AnyT, mods: list[str], unsupported: list[str], key: str)
             return Cmp(field=qf, op="=", value=b)
     if isinstance(v, bool | int) and not mods:
         return Cmp(field=qf, op="=", value=v)
-    wild = "*" in s or "?" in s
+    # Sigma escapes a literal wildcard as ``\*`` — same convention the DSL's `like` uses, so a
+    # pattern passes through as is; a value without a live wildcard is an equality on the
+    # unescaped text
+    wild = glob_has_wildcard(s)
+    if not wild:
+        s = glob_unescape(s)
     nocase = True  # Sigma string matching is case-insensitive by default
     if "contains" in mods:
         return (

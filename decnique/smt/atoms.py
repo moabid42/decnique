@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 
 import z3
 
-from decnique.dsl.interpret import _leaf as _concrete_leaf
+from decnique.dsl.interpret import glob_unescape, _leaf as _concrete_leaf
 from decnique.model import event_fields as ef
 from decnique.model.predicates import Cmp, In, Like, Pred, Regex, StrFn, Value
 from decnique.smt.encode_event import SymEvent
@@ -259,8 +259,10 @@ def simple_glob(pattern: str) -> tuple[str, str]:
     """Classify a glob as an exact substring test when it has that shape — ``*lit*`` is
     ``contains``, ``lit*`` ``startswith``, ``*lit`` ``endswith``, a bare literal ``eq`` — so the
     consistency reasoning of the substring kinds applies.  Anything else stays ``glob``."""
+    if "\\" in pattern:  # escaped wildcards: leave the exact reading to the interpreter
+        return "glob", pattern
     core = pattern.strip("*")
-    if not core or any(c in core for c in "*?["):
+    if not core or any(c in core for c in "*?"):
         return "glob", pattern
     lead, trail = pattern.startswith("*"), pattern.endswith("*")
     if lead and trail:
@@ -283,7 +285,8 @@ def _regex_seed(pattern: str) -> str:
 
 
 def _glob_seed(pattern: str) -> str:
-    return pattern.replace("*", "").replace("?", "a")
+    """A literal that satisfies a glob: live wildcards removed / filled, escapes undone."""
+    return glob_unescape(re.sub(r"(?<!\\)\*", "", pattern).replace("?", "a"))
 
 
 def _dedupe(xs: list[str]) -> list[str]:

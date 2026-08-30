@@ -10,7 +10,6 @@ caller did not supply).
 
 from __future__ import annotations
 
-import fnmatch
 import ipaddress
 import re
 from collections.abc import Mapping, Sequence
@@ -112,16 +111,42 @@ def _norm(v: object, nocase: bool) -> object:
     return v
 
 
+def glob_to_regex(pattern: str) -> str:
+    """The SIEM wildcard language: ``*`` any run, ``?`` one character, a backslash escapes the
+    next character (``\\*`` is a literal star).  Nothing else is special — unlike
+    :mod:`fnmatch`, ``[`` is an ordinary character (``projects/[x]/*``)."""
+    out: list[str] = []
+    i = 0
+    while i < len(pattern):
+        c = pattern[i]
+        if c == "\\" and i + 1 < len(pattern):
+            out.append(re.escape(pattern[i + 1]))
+            i += 2
+            continue
+        out.append(".*" if c == "*" else "." if c == "?" else re.escape(c))
+        i += 1
+    return "".join(out)
+
+
+def glob_match(value: str, pattern: str, nocase: bool = False) -> bool:
+    flags = re.IGNORECASE | re.S if nocase else re.S
+    return re.fullmatch(glob_to_regex(pattern), value, flags) is not None
+
+
+def glob_unescape(pattern: str) -> str:
+    """The literal a glob without wildcards denotes (``foo\\*`` → ``foo*``)."""
+    return re.sub(r"\\(.)", r"\1", pattern)
+
+
+def glob_has_wildcard(pattern: str) -> bool:
+    return re.search(r"(?<!\\)(?:\\\\)*[*?]", pattern) is not None
+
+
 def _leaf(p: Pred, v: object, ref_lists: RefLists | None) -> Tri:
     if isinstance(p, Cmp):
         return _cmp(p.op, v, p.value, p.nocase)
     if isinstance(p, Like):
-        s = str(v)
-        return (
-            fnmatch.fnmatchcase(s.lower(), p.pattern.lower())
-            if p.nocase
-            else fnmatch.fnmatchcase(s, p.pattern)
-        )
+        return glob_match(str(v), p.pattern, p.nocase)
     if isinstance(p, Regex):
         try:
             flags = re.IGNORECASE if p.nocase else 0

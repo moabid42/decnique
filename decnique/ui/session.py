@@ -35,6 +35,7 @@ class Session:
         self.settings = Settings()
         self.account = None
         self.account_doc: dict = {}
+        self.last_report: Report | None = None  # the most recent verb's findings (batch mode reads it)
 
     # -- loading ---------------------------------------------------------------------------
 
@@ -144,6 +145,7 @@ class Session:
         try:
             yield rep
         finally:
+            self.last_report = rep
             if saving:
                 rep.transcript = console.export_text(clear=True)
                 console.record = False

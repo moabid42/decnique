@@ -11,9 +11,12 @@ runs everywhere.
 
 from __future__ import annotations
 
+import argparse
 import json
+import os
 import shlex
 import sys
+from pathlib import Path
 
 from decnique.dsl.parser import DslError
 
@@ -231,12 +234,18 @@ def dispatch(s: Session, line: str) -> bool:
             render.chains(s, args[0] if args else None)
         else:
             console.print(f"[warn]unknown command {cmd!r}[/warn] — type [key]help[/key]")
-    except (OSError, json.JSONDecodeError) as e:
+    except (OSError, json.JSONDecodeError, ValueError) as e:  # ValueError: bad account / schema
         console.print(f"[err]input error:[/err] {e}")
     except DslError as e:
         console.print(f"[err]dsl error:[/err] {e}")
     except KeyError as e:
         console.print(f"[err]not found:[/err] {e}")
+    except KeyboardInterrupt:
+        console.print("[warn]interrupted[/warn] — the session is intact")
+    except Exception as e:  # noqa: BLE001 — a bug in a verb must not take the session with it
+        console.print(f"[err]{type(e).__name__}:[/err] {e}   (the session is intact; please report this)")
+        if os.environ.get("DECNIQUE_DEBUG"):
+            raise
     return True
 
 
@@ -496,6 +505,48 @@ def repl(s: Session) -> int:
 _DELEGATED = {"parse", "fmt", "import", "event", "trace", "coverage", "admits", "show"}
 _DELEGATED_FLAGS = {"-e", "-o", "-a", "--account", "--yaml", "--permission"}
 
+# what a finding is, per verb, for --fail-on
+_FINDING = {"blindspots": ("gap",), "stealth": ("evasive",), "chains": ("stealthy",), "check": ("fail",)}
+_INCONCLUSIVE = ("exhausted", "unknown", "inconclusive")
+
+EXIT_CLEAN, EXIT_FINDING, EXIT_INPUT, EXIT_INCONCLUSIVE = 0, 2, 3, 4
+
+
+def _parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="decnique",
+        description="decnique — no arguments: the interactive shell.  With a verb: run it once and exit "
+                    "(batch / CI mode).  A script (`-f file`, or `-f -` for stdin) runs one shell line per "
+                    "line.",
+        epilog="exit codes: 0 clean · 2 a finding (gap / evasive / stealthy path / failed check) with "
+               "--fail-on · 3 input error · 4 inconclusive with --fail-on unknown",
+    )
+    p.add_argument("--rules", "-r", nargs="+", metavar="PATH", help="rule dirs / .decn files to load first")
+    p.add_argument("--all", action="store_true", help="load every platform, not only GCP rules")
+    p.add_argument("--account", "-a", metavar="FILE", help="account model or raw gcloud export")
+    p.add_argument("--resource", default="*", metavar="RES", help="scope of a plain IAM policy (projects/x)")
+    p.add_argument("--json", action="store_true", help="print the run's findings as JSON on stdout")
+    p.add_argument("--report", metavar="DIR", help="save the run to DIR (like `config report.save on`)")
+    p.add_argument("--format", choices=("md", "json", "yaml"), help="report format (default md)")
+    p.add_argument("--fail-on", choices=("finding", "unknown"), help="exit 2 on a finding; 4 on inconclusive too")
+    p.add_argument("--file", "-f", metavar="SCRIPT", help="run shell lines from a file (`-` = stdin)")
+    p.add_argument("verb", nargs="*", help="a shell command and its arguments")
+    return p
+
+
+def _outcome(s: Session, verb: str, fail_on: str | None) -> int:
+    rep = s.last_report
+    if rep is None or not fail_on:
+        return EXIT_CLEAN
+    verdicts = [it["verdict"] for it in rep.items]
+    if rep.verb == "chains" and rep.summary.get("found"):
+        verdicts.append("stealthy")
+    if any(v in _FINDING.get(rep.verb, ()) for v in verdicts):
+        return EXIT_FINDING
+    if fail_on == "unknown" and (any(v in _INCONCLUSIVE for v in verdicts) or rep.summary.get("inconclusive")):
+        return EXIT_INCONCLUSIVE
+    return EXIT_CLEAN
+
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
@@ -507,6 +558,39 @@ def main(argv: list[str] | None = None) -> int:
         from decnique.cli import main as cli_main
 
         return cli_main(argv)
-    # otherwise run one command and exit (one-shot)
-    dispatch(s, " ".join(shlex.quote(a) for a in argv))
-    return 0
+    ns = _parser().parse_args(argv)
+    if ns.report:
+        s.settings.set("report.save", "on", persist=False)
+        s.settings.set("report.dir", ns.report, persist=False)
+    if ns.format:
+        s.settings.set("report.format", ns.format, persist=False)
+    try:
+        if ns.rules:
+            s.load((["--all"] if ns.all else []) + list(ns.rules))
+            if s.lib is None:
+                return EXIT_INPUT
+        if ns.account:
+            s.account_load(ns.account, ns.resource)
+    except (OSError, ValueError, DslError) as e:
+        console.print(f"[err]input error:[/err] {e}")
+        return EXIT_INPUT
+    worst = EXIT_CLEAN
+    lines: list[str] = []
+    if ns.file:
+        text = sys.stdin.read() if ns.file == "-" else Path(ns.file).read_text(encoding="utf-8")
+        lines += [ln for ln in text.splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
+    if ns.verb:
+        lines.append(" ".join(shlex.quote(a) for a in ns.verb))
+    if not lines:
+        _parser().print_usage()
+        return EXIT_INPUT
+    for line in lines:
+        s.last_report = None
+        if not dispatch(s, line):
+            break
+        if s.last_report is not None and ns.json:
+            from .report import to_json
+
+            print(to_json(s.last_report))
+        worst = max(worst, _outcome(s, line.split()[0], ns.fail_on))
+    return worst

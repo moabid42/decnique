@@ -86,14 +86,17 @@ class Settings:
     def get(self, key: str) -> str:
         return self._values.get(key, REGISTRY[key].default)
 
-    def set(self, key: str, value: str) -> None:
+    def set(self, key: str, value: str, *, persist: bool = True) -> None:
+        """``persist=False`` sets the value for this process only (batch flags must not
+        rewrite the user's config file)."""
         if key not in REGISTRY:
             raise KeyError(f"unknown setting {key!r}; known: {', '.join(REGISTRY)}")
         spec = REGISTRY[key]
         if spec.choices and value not in spec.choices:
             raise ValueError(f"{key} must be one of {', '.join(spec.choices)} (got {value!r})")
         self._values[key] = value
-        self.save()
+        if persist:
+            self.save()
 
     def reset(self, key: str) -> None:
         self._values.pop(key, None)

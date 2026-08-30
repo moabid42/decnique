@@ -10,6 +10,7 @@ import pytest
 
 from decnique.detections import DetectionLibrary
 from decnique.dsl.parser import parse_text
+from decnique.env.catalog import Catalog
 from decnique.env.model import Account, Grant, LogConfig
 from decnique.eval import fires
 from decnique.smt import legacy_coverage as legacy
@@ -58,6 +59,7 @@ def _account() -> Account:
             admin_activity=True,
             data_access_services=frozenset({"iamcredentials.googleapis.com", "storage.googleapis.com"}),
         ),
+        catalog=Catalog.seed(),  # the legacy engine has no verified-name preference
     )
 
 

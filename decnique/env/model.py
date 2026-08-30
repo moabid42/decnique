@@ -62,7 +62,7 @@ class Account:
     deny: tuple[Deny, ...] = ()
     logging: LogConfig = field(default_factory=LogConfig)
     access_levels: frozenset[str] = frozenset()
-    catalog: Catalog = field(default_factory=Catalog.seed)
+    catalog: Catalog = field(default_factory=Catalog.default)
 
     # -- reachability ----------------------------------------------------------------------
 
@@ -95,7 +95,8 @@ class Account:
 
         A grant applies if its permission glob covers ``permission`` and its resource glob
         covers ``resource`` **or an ancestor** of it (a project-level grant reaches child
-        buckets).  An applicable deny policy overrides."""
+        buckets).  ``resource="*"`` asks "on *some* resource": any grant of the permission
+        counts, however narrowly scoped.  An applicable deny policy overrides."""
         grants = self.bindings.get(principal, ())
         if not grants:
             return False
@@ -105,7 +106,7 @@ class Account:
         for g in grants:
             if not _perm_match(g.permission, permission):
                 continue
-            if g.resource == "*" or any(_res_match(g.resource, r) for r in scope):
+            if resource == "*" or g.resource == "*" or any(_res_match(g.resource, r) for r in scope):
                 return True
         return False
 

@@ -43,4 +43,4 @@ packages = [
 
 [tool.setuptools.package-data]
 "decnique.dsl" = ["*.lark"]
-"decnique" = ["catalogs/*.json"]
+"decnique" = ["catalogs/*.json", "catalogs/*.json.gz"]

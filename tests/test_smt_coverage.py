@@ -6,6 +6,7 @@ import itertools
 
 from decnique.detections import DetectionLibrary
 from decnique.dsl.parser import parse_text
+from decnique.env.catalog import Catalog
 from decnique.env.model import Account, Grant, LogConfig
 from decnique.eval import fires
 from decnique.smt.coverage import Gap, NoGap, find_gap
@@ -20,6 +21,7 @@ def _account(perm: str, method_logged: bool = True) -> Account:
         name="t",
         bindings={"attacker@x.com": (Grant(permission=perm, resource="*"),)},
         logging=LogConfig(admin_activity=True, data_access_services=frozenset()),
+        catalog=Catalog.seed(),  # these tests reason about the hand-checked seed entries
     )
 
 

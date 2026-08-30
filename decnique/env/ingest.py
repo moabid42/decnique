@@ -52,6 +52,7 @@ def account_from_dict(doc: Mapping[str, Any], *, catalog: Catalog | None = None)
     roles: dict[str, tuple[str, ...]] = {
         r: tuple(perms) for r, perms in (doc.get("roles") or {}).items()
     }
+    cat = catalog or Catalog.default()
 
     bindings: dict[str, tuple[Grant, ...]] = {}
     for principal, grants in (doc.get("bindings") or {}).items():
@@ -59,9 +60,12 @@ def account_from_dict(doc: Mapping[str, Any], *, catalog: Catalog | None = None)
         for g in grants:
             resource = g.get("resource", "*")
             if "role" in g:
-                for perm in roles.get(g["role"], ()):
+                perms = roles.get(g["role"])
+                if perms is None:  # not declared in the file: a predefined role from the catalog
+                    perms = cat.role_permissions(g["role"])
+                for perm in perms or ():
                     out.append(Grant(permission=perm, resource=resource))
-                if g["role"] not in roles:  # unknown role → a single wildcard-ish marker
+                if perms is None:  # unknown role → a single wildcard-ish marker
                     out.append(Grant(permission=g["role"], resource=resource))
             for perm in g.get("permissions", ()):
                 out.append(Grant(permission=perm, resource=resource))
@@ -90,7 +94,7 @@ def account_from_dict(doc: Mapping[str, Any], *, catalog: Catalog | None = None)
         deny=deny,
         logging=logging,
         access_levels=frozenset(doc.get("access_levels", ())),
-        catalog=catalog or Catalog.seed(),
+        catalog=cat,
     )
 
 

@@ -12,10 +12,14 @@ returns ``None`` for a method it does not know, and every consumer treats ``None
 
 from __future__ import annotations
 
+import gzip
 import json
-from collections.abc import Mapping
-from dataclasses import dataclass, field
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, field, replace
+from functools import lru_cache
 from pathlib import Path
+
+_DATA = Path(__file__).resolve().parents[1] / "catalogs"
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +32,8 @@ class MethodInfo:
     data_access: bool = False  # True → a Data-Access log (off by default in GCP)
     product_name: str | None = None  # UDM metadata.product_name a real event of this method carries
     verified: bool = True  # False: the name is plausible but not confirmed to appear in audit logs
+    source: str = "seed"  # seed (hand-checked) | rules (a loaded rule names it) | generated (iam-dataset)
+    low_confidence: tuple[str, ...] = ()  # permissions the dataset is unsure the method checks
 
 
 # UDM ``metadata.product_name`` a Cloud Audit Log carries, keyed by service.  Grounded in the
@@ -191,6 +197,29 @@ class Catalog:
         return cls(by_method={m.method: m for m in _SEED})
 
     @classmethod
+    def gcp(cls) -> "Catalog":
+        """The seed plus every method of the iam-dataset (``catalogs/gcp_methods.json.gz``,
+        built by ``catalogs/build_gcp.py``).  Generated entries are *unverified*: each API
+        method contributes several candidate audit-log spellings, and a blind spot reached only
+        through an unverified name is reported approximate (invariant #3).  Seed entries win."""
+        return _gcp_catalog()
+
+    @classmethod
+    def default(cls) -> "Catalog":
+        """The GCP catalog when its data file is present, else the seed."""
+        return cls.gcp() if (_DATA / "gcp_methods.json.gz").is_file() else cls.seed()
+
+    def attest(self, names: Iterable[str]) -> "Catalog":
+        """A copy in which the methods in ``names`` are verified — used for names that loaded
+        rules test literally: a rule author writes what the audit log really carries."""
+        merged = dict(self.by_method)
+        for n in names:
+            m = merged.get(n)
+            if m is not None and not m.verified:
+                merged[n] = replace(m, verified=True, source="rules")
+        return Catalog(by_method=merged)
+
+    @classmethod
     def load(cls, path: str | Path) -> "Catalog":
         """Load/extend the seed from a JSON file ``{method: {permissions, service, data_access}}``."""
         raw = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -273,6 +302,60 @@ class Catalog:
 
     def all_permissions(self) -> frozenset[str]:
         return frozenset(p for m in self.by_method.values() for p in m.permissions)
+
+    # -- roles / tags (data files, GCP only) ------------------------------------------------
+
+    @staticmethod
+    def role_permissions(role: str) -> tuple[str, ...] | None:
+        """Permissions of a predefined role (``roles/owner``), or ``None`` when unknown."""
+        perms = _gcp_roles().get(role)
+        return tuple(perms) if perms is not None else None
+
+    @staticmethod
+    def tags() -> dict[str, tuple[str, ...]]:
+        """Attack tags from the dataset: ``{"PrivEsc": (permissions…), …}``."""
+        return {k: tuple(v) for k, v in _gcp_tags().get("iam", {}).items()}
+
+
+@lru_cache(maxsize=1)
+def _gcp_catalog() -> Catalog:
+    merged = {m.method: m for m in _SEED}
+    path = _DATA / "gcp_methods.json.gz"
+    if not path.is_file():
+        return Catalog(by_method=merged)
+    with gzip.open(path, "rt", encoding="utf-8") as fh:
+        data = json.load(fh)
+    for mid, m in data.items():
+        if not m["permissions"] and not m["low_confidence"]:
+            continue  # nothing an account could grant: no question to ask
+        for name in m["names"]:
+            if name in merged and merged[name].source == "seed":
+                continue
+            merged[name] = MethodInfo(
+                method=name,
+                permissions=tuple(m["permissions"]),
+                service=m["service"],
+                data_access=bool(m["data_access"]),
+                verified=False,
+                source="generated",
+                low_confidence=tuple(m["low_confidence"]),
+            )
+    return Catalog(by_method=merged)
+
+
+@lru_cache(maxsize=1)
+def _gcp_roles() -> dict[str, list[str]]:
+    path = _DATA / "gcp_roles.json.gz"
+    if not path.is_file():
+        return {}
+    with gzip.open(path, "rt", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+@lru_cache(maxsize=1)
+def _gcp_tags() -> dict:
+    path = _DATA / "gcp_tags.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
 
 
 def _service_of(method: str) -> str:

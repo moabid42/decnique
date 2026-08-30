@@ -54,6 +54,7 @@ class Session:
         )
         self.lib = DetectionLibrary.load(*paths, options=self.options)
         self.paths = paths
+        self._attest()
         b = self.lib.bundle
         errs = [i for i in b.issues if i.severity == "error"]
         console.print(
@@ -95,11 +96,24 @@ class Session:
 
         self.account_doc = json.loads(Path(file).read_text(encoding="utf-8"))
         self.account = account_from_dict(self.account_doc)
+        self._attest()
         n = len(self.account.bindings)
         console.print(
             f"[ok]{CHECK}[/ok] loaded account [key]{self.account.name}[/key]: "
             f"[title]{n}[/title] principals"
         )
+
+    def _attest(self) -> None:
+        """Method names the loaded rules test literally are real audit-log spellings: mark them
+        verified in the account's catalog (generated entries start unverified)."""
+        if self.lib is None or self.account is None:
+            return
+        from dataclasses import replace
+
+        from decnique.dsl.interpret import spec_methods_literal
+
+        names = {m for d in self.lib.detections for m in spec_methods_literal(d.spec)}
+        self.account = replace(self.account, catalog=self.account.catalog.attest(names))
 
     # -- reports ---------------------------------------------------------------------------
 

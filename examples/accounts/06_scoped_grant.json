@@ -1,0 +1,24 @@
+{
+  "_comment": "Shows resource scoping. The admin may SetIamPolicy only on projects/demo (not '*'). A project-level grant also reaches child buckets via the hierarchy, but nothing outside projects/demo. Witnesses are pinned to a resource the principal can actually touch.",
+  "_expect": [
+    "account examples/accounts/06_scoped_grant.json  ->  loads 1 principal",
+    "who resourcemanager.projects.setIamPolicy  ->  scoped-admin@demo.com (on projects/demo only)",
+    "blindspots resourcemanager.projects.setIamPolicy  ->  reachable ON projects/demo; any witness event uses that resource, never a project the admin can't reach.",
+    "The child bucket //storage.../buckets/secrets inherits projects/demo, so a bucket-scoped question still resolves through the hierarchy."
+  ],
+  "version": 1,
+  "name": "scoped-grant",
+  "bindings": {
+    "scoped-admin@demo.com": [
+      {"permission": "resourcemanager.projects.setIamPolicy", "resource": "projects/demo"}
+    ]
+  },
+  "hierarchy": {
+    "//storage.googleapis.com/projects/demo/buckets/secrets": "projects/demo"
+  },
+  "logging": {
+    "admin_activity": true,
+    "data_access_services": [],
+    "disabled_methods": []
+  }
+}

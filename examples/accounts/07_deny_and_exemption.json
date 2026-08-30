@@ -1,0 +1,25 @@
+{
+  "_comment": "Two ways a granted permission is still blocked or blind. (1) DENY: breaker@demo.com is granted setIamPolicy on '*' but a deny policy removes it on projects/locked — deny wins there. (2) EXEMPTION: secretmanager.versions.access has a single audit method, and even though Data Access logging is ON for Secret Manager, that method is listed in disabled_methods — an explicit exemption blinds it anyway. (Note: exempting works cleanly here because the permission has ONE method spelling; a permission with several spellings, like logging.sinks.delete, would need all of them exempted.)",
+  "_expect": [
+    "load examples/candidates_medium.decn   (then)   account examples/accounts/07_deny_and_exemption.json   (blindspots needs a library loaded)",
+    "blindspots resourcemanager.projects.setIamPolicy  ->  reachable; a witness avoids projects/locked because the deny wins there.",
+    "blindspots secretmanager.versions.access  ->  1 unlogged: Data Access logging is on, but the AccessSecretVersion method is exempted in disabled_methods, so it is never recorded. This is the 'someone turned logging off for this method' blind spot.",
+    "Contrast with 03 (whole-service data-access off) — same silence, different cause (a targeted exemption vs the service-wide default)."
+  ],
+  "version": 1,
+  "name": "deny-and-exemption",
+  "bindings": {
+    "breaker@demo.com": [
+      {"permission": "resourcemanager.projects.setIamPolicy", "resource": "*"},
+      {"permission": "secretmanager.versions.access", "resource": "projects/demo"}
+    ]
+  },
+  "deny": [
+    {"principal": "*", "permission": "resourcemanager.projects.setIamPolicy", "resource": "projects/locked"}
+  ],
+  "logging": {
+    "admin_activity": true,
+    "data_access_services": ["secretmanager.googleapis.com"],
+    "disabled_methods": ["google.cloud.secretmanager.v1.SecretManagerService.AccessSecretVersion"]
+  }
+}

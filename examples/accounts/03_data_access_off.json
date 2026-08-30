@@ -1,0 +1,22 @@
+{
+  "_comment": "A service account that can read secrets and objects — but Data Access audit logging is OFF (the GCP default). Reads of secrets/objects are therefore never written to the log, so no rule can ever see them. This is a blind spot that comes from LOGGING, independent of any detection rule.",
+  "_expect": [
+    "account examples/accounts/03_data_access_off.json  ->  loads 1 principal",
+    "blindspots secretmanager.versions.access  ->  GAP, reason = unlogged: reachable, but AccessSecretVersion is a Data Access method and data-access logging is off, so it is never recorded.",
+    "blindspots storage.objects.get  ->  same story: reachable but unlogged.",
+    "Compare with 04_data_access_on.json, which is identical except logging is enabled."
+  ],
+  "version": 1,
+  "name": "data-access-off",
+  "bindings": {
+    "reader@demo.iam.gserviceaccount.com": [
+      {"permission": "secretmanager.versions.access", "resource": "projects/demo"},
+      {"permission": "storage.objects.get", "resource": "projects/demo/buckets/data"}
+    ]
+  },
+  "logging": {
+    "admin_activity": true,
+    "data_access_services": [],
+    "disabled_methods": []
+  }
+}

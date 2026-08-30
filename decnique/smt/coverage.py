@@ -677,13 +677,15 @@ def blind_region(
     # a plain solver that asks the *opposite* question — is some event in the cube observed?
     obs = z3.Solver()
     obs.add(*domain, *ctx.consistency, *ctx.learned, ctx.any_obs_exact)
+    # literals are built once and passed as assumptions: minimisation asks this question
+    # hundreds of times per cube, and building `Not(v)` afresh each time dominated the cost
+    lit_expr: dict[tuple[int, bool], z3.BoolRef] = {}
+    for v, _, _ in variables:
+        lit_expr[(v.get_id(), True)] = v
+        lit_expr[(v.get_id(), False)] = z3.Not(v)
 
     def implicant(lits: list[tuple[z3.BoolRef, bool]]) -> bool:
-        obs.push()
-        obs.add(*[v if pos else z3.Not(v) for v, pos in lits])
-        r = obs.check()
-        obs.pop()
-        return r == z3.unsat
+        return obs.check(*[lit_expr[(v.get_id(), pos)] for v, pos in lits]) == z3.unsat
 
     s = ctx.solver
     s.push()

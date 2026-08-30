@@ -1,0 +1,8 @@
+[
+  {"assetType": "cloudresourcemanager.googleapis.com/Project",
+   "policy": {"bindings": [{"members": ["user:admin@demo.com"], "role": "roles/owner"}]},
+   "project": "projects/123", "resource": "//cloudresourcemanager.googleapis.com/projects/123"},
+  {"assetType": "storage.googleapis.com/Bucket",
+   "policy": {"bindings": [{"members": ["serviceAccount:reader@demo.iam.gserviceaccount.com"], "role": "roles/storage.objectViewer"}]},
+   "project": "projects/123", "resource": "//storage.googleapis.com/projects/_/buckets/secrets"}
+]

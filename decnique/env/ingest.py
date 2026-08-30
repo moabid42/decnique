@@ -98,6 +98,18 @@ def account_from_dict(doc: Mapping[str, Any], *, catalog: Catalog | None = None)
     )
 
 
-def load_account(path: str | Path, *, catalog: Catalog | None = None) -> Account:
-    doc = json.loads(Path(path).read_text(encoding="utf-8"))
-    return account_from_dict(doc, catalog=catalog)
+def normalize_account_doc(doc: Any, *, resource: str = "*", name: str | None = None) -> dict:
+    """Accept the tool's own document as is, or convert a raw ``gcloud`` export
+    (:mod:`decnique.env.gcp_import`) into one.  ``resource`` scopes a plain IAM policy."""
+    from decnique.env.gcp_import import account_doc_from_gcp, looks_like_asset_search, looks_like_iam_policy
+
+    if looks_like_iam_policy(doc) or looks_like_asset_search(doc):
+        return account_doc_from_gcp(doc, resource=resource, name=name or "gcp")
+    if not isinstance(doc, dict):
+        raise AccountSchemaError("account document must be a JSON object or a gcloud export")
+    return doc
+
+
+def load_account(path: str | Path, *, catalog: Catalog | None = None, resource: str = "*") -> Account:
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    return account_from_dict(normalize_account_doc(raw, resource=resource, name=Path(path).stem), catalog=catalog)

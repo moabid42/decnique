@@ -45,7 +45,7 @@ class LogConfig:
     """What the account actually writes to Cloud Audit Logs.
 
     In GCP, Admin-Activity logs are always on; Data-Access logs are **off by default**
-    and enabled per service.  ``disabled_methods`` are explicit exemptions (e.g. an
+    and enabled per service (``"*"`` = ``allServices``).  ``disabled_methods`` are explicit exemptions (e.g. an
     ``exemptedMembers`` config or a removed sink) — a first-class blind-spot source.
     """
 
@@ -144,7 +144,8 @@ class Account:
         if method in self.logging.disabled_methods:
             return False
         if self.catalog.is_data_access(method):
-            return self.catalog.service_of(method) in self.logging.data_access_services
+            return ("*" in self.logging.data_access_services  # allServices
+                    or self.catalog.service_of(method) in self.logging.data_access_services)
         # admin-activity (or unknown → treated as admin-activity)
         return self.logging.admin_activity
 

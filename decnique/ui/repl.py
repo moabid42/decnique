@@ -26,7 +26,7 @@ from .theme import BULLET, console
 # verb -> (argument hint, one-line help).  Single source for completion, help, and dispatch.
 COMMANDS: dict[str, tuple[str, str]] = {
     "load": ("[--all] [--deprecated] <paths…>", "load detections + candidates (default: GCP only, skips _deprecated)"),
-    "account": ("<file.json>", "load the GCP account model (Reach / Log constraints)"),
+    "account": ("<file.json> [resource]", "load the account model, or a raw gcloud IAM policy / asset export"),
     "events": ("<file.json>", "load an ordered event trace into the session"),
     "rules": ("[substr]", "list loaded detections (~ = approximate)"),
     "candidates": ("", "list loaded techniques and their footprints"),
@@ -59,9 +59,16 @@ DETAILS: dict[str, str] = {
             "  --all         keep every platform (default keeps only GCP-relevant rules)\n"
             "  --deprecated  also load rules under _deprecated/\n"
             "  What you get: detections, candidates (techniques) and checks, merged into the session.",
-    "account": "account <file.json>\n"
+    "account": "account <file.json> [resource]\n"
                "  The GCP account model: who holds which permission on which resource (Reach), and\n"
-               "  which audit logs are on (Log). Optional `attack` block for `chains`.",
+               "  which audit logs are on (Log). Optional `attack` block for `chains`.\n"
+               "  Also accepts a raw export, converted on load:\n"
+               "    gcloud projects get-iam-policy PROJECT --format=json > policy.json\n"
+               "      → account policy.json projects/PROJECT     (bindings + Data Access audit config)\n"
+               "    gcloud asset search-all-iam-policies --scope=projects/PROJECT --format=json > cai.json\n"
+               "      → account cai.json                          (grants scoped per resource)\n"
+               "  Predefined roles expand from the built-in catalog; conditional bindings are kept\n"
+               "  unconditionally and listed as notes.",
     "events": "events <file.json>\n  An ordered trace of audit-log events (raw protoPayload or the flat event form).",
     "rules": "rules [substr]\n  List loaded detections; `~` marks a rule that has an untranslatable part (approximate).",
     "candidates": "candidates\n  List the loaded techniques: required permissions and the footprint they leave.",
@@ -184,7 +191,10 @@ def dispatch(s: Session, line: str) -> bool:
         elif cmd == "load":
             s.load(args)
         elif cmd == "account":
-            s.account_load(args[0]) if args else console.print("[muted]usage:[/muted] account <file.json>")
+            if args:
+                s.account_load(args[0], args[1] if len(args) > 1 else "*")
+            else:
+                console.print("[muted]usage:[/muted] account <file.json> [resource]")
         elif cmd == "events":
             s.events_load(args[0]) if args else console.print("[muted]usage:[/muted] events <file.json>")
         elif cmd == "rules":

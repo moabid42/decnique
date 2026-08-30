@@ -9,7 +9,7 @@ world to the account's ``permission`` world.
 from __future__ import annotations
 
 from decnique.env.catalog import Catalog, MethodInfo
-from decnique.env.ingest import AccountSchemaError, account_from_dict, load_account
+from decnique.env.ingest import AccountSchemaError, account_from_dict, load_account, normalize_account_doc
 from decnique.env.model import Account, Deny, Grant, LogConfig
 
 __all__ = [
@@ -22,4 +22,5 @@ __all__ = [
     "MethodInfo",
     "account_from_dict",
     "load_account",
+    "normalize_account_doc",
 ]

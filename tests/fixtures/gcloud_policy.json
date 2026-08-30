@@ -1,0 +1,16 @@
+{
+  "auditConfigs": [
+    {"auditLogConfigs": [{"logType": "ADMIN_READ"}, {"logType": "DATA_READ", "exemptedMembers": ["user:ci@demo.com"]}, {"logType": "DATA_WRITE"}],
+     "service": "storage.googleapis.com"}
+  ],
+  "bindings": [
+    {"members": ["user:admin@demo.com", "group:sec@demo.com"], "role": "roles/owner"},
+    {"members": ["serviceAccount:ci@demo.iam.gserviceaccount.com"], "role": "roles/iam.serviceAccountKeyAdmin"},
+    {"members": ["allUsers"], "role": "roles/storage.objectViewer"},
+    {"condition": {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')", "title": "expires"},
+     "members": ["user:temp@demo.com"], "role": "roles/viewer"},
+    {"members": ["domain:demo.com", "deleted:user:gone@demo.com?uid=1"], "role": "roles/browser"}
+  ],
+  "etag": "BwYh",
+  "version": 3
+}

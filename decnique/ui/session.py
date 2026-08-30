@@ -91,17 +91,26 @@ class Session:
         self.events_src = file
         console.print(f"[ok]{CHECK}[/ok] loaded [title]{len(self.events)}[/title] events from {file}")
 
-    def account_load(self, file: str) -> None:
-        from decnique.env import account_from_dict
+    def account_load(self, file: str, resource: str = "*") -> None:
+        """``file`` is the tool's own account JSON, or a raw gcloud export (IAM policy /
+        asset search) converted on the fly; ``resource`` scopes a plain IAM policy."""
+        from decnique.env import account_from_dict, normalize_account_doc
 
-        self.account_doc = json.loads(Path(file).read_text(encoding="utf-8"))
+        raw = json.loads(Path(file).read_text(encoding="utf-8"))
+        self.account_doc = normalize_account_doc(raw, resource=resource, name=Path(file).stem)
+        converted = self.account_doc is not raw
         self.account = account_from_dict(self.account_doc)
         self._attest()
         n = len(self.account.bindings)
         console.print(
             f"[ok]{CHECK}[/ok] loaded account [key]{self.account.name}[/key]: "
-            f"[title]{n}[/title] principals"
+            f"[title]{n}[/title] principals" + ("  (converted from a gcloud export)" if converted else "")
         )
+        if converted:
+            da = self.account_doc["logging"]["data_access_services"]
+            console.print(f"    Data Access logging: {', '.join(da) if da else 'off (Admin Activity only)'}")
+        for note in self.account_doc.get("notes", []):
+            console.print(f"    [warn]note[/warn] {note}")
 
     def _attest(self) -> None:
         """Method names the loaded rules test literally are real audit-log spellings: mark them

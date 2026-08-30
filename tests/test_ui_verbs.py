@@ -96,3 +96,21 @@ def test_blindspots_names_why_rules_answered_dont_know(tmp_path):
     flat = " ".join(doc["transcript"].split())
     assert "1 rule(s) answered don't-know" in flat and "secops:unsupported ×1" in flat
     assert dispatch(s, "rules ~") is True and dispatch(s, "rules ~vag") is True
+
+
+def test_blindspots_over_many_permissions_is_brief_and_summarised(tmp_path):
+    s = _session(tmp_path)
+    acct = tmp_path / "owner.json"
+    acct.write_text(json.dumps({"version": 1, "name": "o", "bindings": {"o@x.com": [{"role": "roles/owner"}]},
+                                "logging": {"admin_activity": True, "data_access_services": []}}))
+    dispatch(s, f"account {acct}")
+    dispatch(s, 'detection keys { event method = "google.iam.admin.v1.CreateServiceAccountKey" }')
+    perms = ["iam.serviceAccountKeys.create", "resourcemanager.projects.setIamPolicy"] + [
+        p for p in sorted(s.account.catalog.all_permissions()) if p.startswith("dns.")][:25]
+    assert dispatch(s, "blindspots " + " ".join(perms)) is True
+    doc = _last(tmp_path)
+    flat = " ".join(doc["transcript"].split())
+    assert f"[1/{len(perms)}]" in flat and "by service" in flat
+    assert doc["summary"]["covered"] == 1 and doc["summary"]["gaps"] >= 1
+    assert doc["summary"]["unnamed"] == doc["summary"]["gaps"]  # no rule names a dns/setIamPolicy method
+    assert "no rule names any of its" in flat

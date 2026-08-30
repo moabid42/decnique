@@ -435,9 +435,13 @@ def _blindspots(s, lib, account, single, ctx, permissions, explain, show_raw, re
 
     gaps: list[dict] = []
     covered = inconclusive = unreachable = unlogged = 0
+    # A whole account is thousands of permissions: explain a gap only when some rule names one
+    # of its methods (otherwise there is nothing to explain — no rule looks there at all).
+    many = len(permissions) > 20
+    unnamed = 0
 
-    for p in permissions:
-        r.section(p)
+    for i, p in enumerate(permissions, 1):
+        r.section(p, f"[{i}/{len(permissions)}]" if many else None)
         if not account.reachable(p):
             r.no("unreachable — no principal in this account can exercise it")
             unreachable += 1
@@ -496,7 +500,11 @@ def _blindspots(s, lib, account, single, ctx, permissions, explain, show_raw, re
         # way the user configured (`config blindspots.explain rules|formula|both`).
         logged = [m for m in account.catalog.methods_for(p) if account.logged(m)]
         naming = rules_naming(lib, logged)
-        if explain == "words":
+        mode = explain if (naming or not many) else "none"
+        if mode == "none":
+            unnamed += 1
+            r.no(f"no rule names any of its {len(logged)} logged method(s) — every use is unseen")
+        if mode == "words":
             # HARD-CODED wording (ui/words.py): only IAM binding-delta fields get sentences
             from .words import change_sentence
 
@@ -512,7 +520,7 @@ def _blindspots(s, lib, account, single, ctx, permissions, explain, show_raw, re
                         r.no(f"UNWATCHED:  {change_sentence(v)}")
                     else:
                         r.note(f"unclear:    {change_sentence(v)}  ({v.result.reason})")
-        if explain in ("rules", "both"):
+        if mode in ("rules", "both"):
             with r.thinking("which kinds of change are watched, and by which rules…"):
                 verdicts = probe_atoms(p, lib, account, ctx=ctx)
             if verdicts:
@@ -531,7 +539,7 @@ def _blindspots(s, lib, account, single, ctx, permissions, explain, show_raw, re
                         r.no("\n".join([f"UNWATCHED:  {change_text(v)}", *lines]))
                     else:
                         r.note(f"unclear:    {change_text(v)}  ({v.result.reason})")
-        if explain in ("formula", "both"):
+        if mode in ("formula", "both"):
             with r.thinking("computing the blind region as a formula (prime implicants)…"):
                 cubes = blind_region(p, lib, account, ctx=ctx)
             if cubes:
@@ -542,7 +550,7 @@ def _blindspots(s, lib, account, single, ctx, permissions, explain, show_raw, re
                 n_approx = len(ctx.single_rules) - len(ctx.exact_rules)
                 r.note(f"every cube is proven against the {len(ctx.exact_rules)} exactly-translated rules; "
                        f"{n_approx} approximate rule(s) are left out and might observe more")
-        verdicts = verdicts if explain in ("rules", "both", "words") else ()
+        verdicts = verdicts if mode in ("rules", "both", "words") else ()
         # And the techniques that need this permission — the attacker's actual payloads.
         techs = [c for c in lib.bundle.candidates if any(q.permission == p for q in c.required)]
         detected_techs = []
@@ -568,21 +576,43 @@ def _blindspots(s, lib, account, single, ctx, permissions, explain, show_raw, re
         r.blank()
 
     rep.summary = {"gaps": len(gaps), "covered": covered, "inconclusive": inconclusive,
-                   "unreachable": unreachable, "unlogged": unlogged,
+                   "unreachable": unreachable, "unlogged": unlogged, "unnamed": unnamed,
                    "permissions": len(permissions), "single_event_rules": len(single)}
     console.print(
         f"[title]result[/title]  [gap]{len(gaps)} gaps[/gap] · "
         f"[safe]{covered} covered[/safe] · {inconclusive} inconclusive · "
         f"{unreachable} unreachable · {unlogged} unlogged"
+        + (f"   ({unnamed} of the gaps: no rule names the method at all)" if many else "")
     )
+    if many:
+        _service_summary(rep)
     if gaps:
-        t = _table("blind spots", [("PERMISSION",), ("METHOD",), ("PRINCIPAL",), ("STATUS",)])
-        for g in gaps:
+        cap = 60 if many else len(gaps)
+        t = _table("blind spots" + (f" (first {cap} of {len(gaps)}; the report has all)" if len(gaps) > cap else ""),
+                   [("PERMISSION",), ("METHOD",), ("PRINCIPAL",), ("STATUS",)])
+        for g in gaps[:cap]:
             _add(t, g["permission"], g["event"].get("method", "—"), g["event"].get("principal", "—"),
                  approx_word(g["approximate"]))
         console.print(t)
     else:
         console.print("[safe]no blind spots for the probed permissions[/safe]")
+
+
+def _service_summary(rep) -> None:  # type: ignore[no-untyped-def]
+    """Verdict counts per GCP service (the permission's first segment) — the shape of the
+    account's exposure at a glance when thousands of permissions were probed."""
+    from collections import defaultdict
+
+    rows: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    for it in rep.items:
+        rows[it["label"].split(".")[0]][it["verdict"]] += 1
+    t = _table("by service", [("SERVICE",), ("GAPS", "right"), ("COVERED", "right"), ("UNLOGGED", "right"),
+                              ("OTHER", "right")],
+               caption="UNLOGGED = Data Access logging off for every method · OTHER = unreachable / inconclusive")
+    for svc, c in sorted(rows.items(), key=lambda kv: (-kv[1]["gap"], kv[0])):
+        other = sum(n for k, n in c.items() if k not in ("gap", "all_covered", "unlogged"))
+        _add(t, svc, str(c["gap"]), str(c["all_covered"]), str(c["unlogged"]), str(other))
+    console.print(t)
 
 
 def stealth(s: Session, ident: str | None) -> None:

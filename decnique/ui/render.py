@@ -631,34 +631,6 @@ def _blindspots(s, lib, account, single, ctx, permissions, explain, show_raw, re
         console.print("[safe]no blind spots for the probed permissions[/safe]")
 
 
-def methods(s: Session, perm: str | None) -> None:
-    """Catalog lookup: the audit-log methods that exercise a permission (or, with no argument,
-    a permission's own facts) — for writing a candidate's footprint and `where` payload."""
-    if not s.need_account():
-        return
-    cat = s.account.catalog
-    if not perm:
-        console.print("[muted]usage:[/muted] methods <permission>   (e.g. methods iam.serviceAccountKeys.create)")
-        return
-    ms = sorted(cat.methods_for(perm))
-    if not ms:
-        console.print(f"[muted]no catalog method exercises {perm!r}[/muted] "
-                      "(the catalog is GCP; an unknown permission has no method)")
-        return
-    t = _table(f"methods exercising {perm}",
-               [("METHOD",), ("SERVICE",), ("LOG",), ("NAME",), ("REQUIRED FIELDS (a real event carries)",)],
-               caption="LOG: admin = always on · data = off unless enabled · NAME: verified = seen in real logs")
-    for m in ms:
-        info = cat.info(m)
-        log = "data" if cat.is_data_access(m) else "admin"
-        if s.account.logged(m):
-            log += " ✓"
-        req = ", ".join(f.split("labels[")[-1].rstrip("]") for f in cat.required_fields(m)) or "—"
-        _add(t, m, cat.service_of(m), log, "verified" if cat.verified(m) else "unverified", req)
-    console.print(t)
-    console.print(f"[muted]principals holding it: {', '.join(s.account.principals_with(perm)) or '(none in this account)'}[/muted]")
-
-
 def export(s: Session, args: list[str]) -> None:
     """Write the last run's witness events as Cloud Audit Log JSON (a list of entries), so a
     blind spot can be replayed in the real SIEM."""

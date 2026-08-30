@@ -20,7 +20,7 @@ from pathlib import Path
 
 from decnique.dsl.parser import DslError
 
-from . import render
+from . import browse, render
 from .session import Session
 from .theme import BULLET, console
 
@@ -48,7 +48,10 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "reports": ("", "list saved report files (config report.save on)"),
     "export": ("<file.json> [n]", "write the last run's witnesses as Cloud Audit Log JSON (replay in the SIEM)"),
     "suggest": ("<perm…> [define]", "DSL detections that would close a permission's blind spot"),
-    "methods": ("<permission>", "catalog: which audit-log methods exercise a permission (for authoring)"),
+    "perms": ("[filter] [--tag T] [--reachable] [--unwatched] [--limit N|--all]", "browse permissions: by service, then by name"),
+    "methods": ("<permission | method> [--limit N]", "catalog: a permission's audit-log methods, or one method's facts"),
+    "roles": ("[filter | role [filter]] [--with perm] [--limit N]", "predefined roles: what a role grants, which roles grant a permission"),
+    "who": ("[permission | principal [filter]] [--limit N]", "the account: who holds a permission and where, or what a principal holds"),
     "report": ("<file> | diff <a> <b>", "reopen a saved run: its summary and findings"),
     "clear": ("", "clear the screen (session state is kept)"),
     "help": ("[verb]", "show this command list, or everything about one verb"),
@@ -128,10 +131,25 @@ DETAILS: dict[str, str] = {
               "  Write the last run's witness events (or only finding n) as Cloud Audit Log entries\n"
               "  (protoPayload form, one list) — replay them in the SIEM to confirm the gap for real.\n"
               "  Each entry carries `_decnique` (finding number, label, verdict).",
-    "methods": "methods <permission>\n"
-               "  The audit-log methods that exercise a permission, each with its service, whether it is\n"
-               "  logged in this account, whether the catalog name is verified, and the fields a real\n"
-               "  event carries — what you need to write a candidate's footprint and `where` payload.",
+    "perms": "perms [filter] [--tag PrivEsc|CredentialExposure|DataAccess] [--reachable] [--unwatched] [--limit N | --all]\n"
+             "  Browse the permission catalog without leaving the shell.\n"
+             "  No filter: one row per service (how many permissions, how many reachable / watched / tagged).\n"
+             "  A filter (substring or glob: `iam.`, `*.setIamPolicy`): one row per permission — its methods,\n"
+             "  how it is logged, how many rules name a method of it, who holds it, its attack tag.\n"
+             "  --reachable  only permissions someone in the account holds      --unwatched  only ones no rule names\n"
+             "  Listings stop at 20 rows and say how many were hidden (--limit N, --all).",
+    "methods": "methods <permission | method> [--limit N]\n"
+               "  A permission: the audit-log methods that exercise it, each with its service, whether it is\n"
+               "  logged in this account, whether the name is verified, how many rules name it, and the\n"
+               "  fields a real event carries — what you need for a candidate's footprint and `where`.\n"
+               "  A method: its facts on one card (service, log, permissions, pinned fields, rules naming it).",
+    "roles": "roles [filter | roles/x [filter]] [--with permission] [--limit N | --all]\n"
+             "  Predefined GCP roles.  `roles` / `roles storage` lists roles with how many tagged permissions\n"
+             "  each carries; `roles roles/owner iam.` lists a role's permissions; `roles --with p` lists the\n"
+             "  roles that grant p, smallest first (the tightest role that still gives the permission).",
+    "who": "who [permission | principal [filter]] [--limit N | --all]\n"
+           "  The loaded account.  `who` lists principals; `who <permission>` who holds it, through which\n"
+           "  grant, on which resource; `who <principal> [filter]` the grants that principal holds.",
     "suggest": "suggest <permission> [permission …] [define]\n"
                "  For a permission with a blind spot: DSL `detection` blocks that would close it — one per\n"
                "  unwatched kind of change (built from the rules' own tests) and one catch-all over every\n"
@@ -250,7 +268,13 @@ def dispatch(s: Session, line: str) -> bool:
         elif cmd == "suggest":
             render.suggest(s, args)
         elif cmd == "methods":
-            render.methods(s, args[0] if args else None)
+            browse.methods(s, args)
+        elif cmd == "perms":
+            browse.perms(s, args)
+        elif cmd == "roles":
+            browse.roles(s, args)
+        elif cmd == "who":
+            browse.who(s, args)
         elif cmd == "check":
             render.check(s, args)
         elif cmd == "blindspots":

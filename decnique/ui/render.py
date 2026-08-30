@@ -711,6 +711,19 @@ def _report_path(s: Session, name: str) -> Path:
     return p
 
 
+def _payload(ev: dict) -> str:
+    """The parts of a schedule event a red teamer acts on: the binding-delta payload and any
+    fields the technique pinned (principal, caller_ip, …), skipping the derived boilerplate."""
+    bits = []
+    for k, v in (ev.get("udm") or {}).items():
+        key = k.split("ser_binding_deltas_")[-1].rstrip("]") if "ser_binding_deltas_" in k else k
+        bits.append(f"{key}={v}")
+    for k in ("principal", "caller_ip", "user_agent"):
+        if ev.get(k):
+            bits.append(f"{k}={ev[k]}")
+    return ", ".join(bits) or "—"
+
+
 def _service_summary(rep) -> None:  # type: ignore[no-untyped-def]
     """Verdict counts per GCP service (the permission's first segment) — the shape of the
     account's exposure at a glance when thousands of permissions were probed."""
@@ -816,28 +829,45 @@ def _stealth(lib, account, cands, rep) -> None:  # type: ignore[no-untyped-def]
     console.print(t)
 
 
-def chains(s: Session, goal: str | None) -> None:
+def chains(s: Session, args: list[str]) -> None:
     if not s.need_lib() or not s.need_account():
         return
+    from decnique.report import techniques_for
+
     lib, account = s.lib, s.account
     attack = dict(s.account_doc.get("attack", {}))
-    if goal:
-        attack["goal"] = goal
-    if "goal" not in attack or "principal" not in attack:
+    # flags let the red teamer set the plan without touching the defender's account file
+    rest: list[str] = []
+    it = iter(args)
+    for a in it:
+        if a in ("--from", "--goal"):
+            attack["principal" if a == "--from" else "goal"] = next(it, "")
+        elif a == "--start":
+            attack["initial_state"] = [x for x in next(it, "").split(",") if x]
+        else:
+            rest.append(a)
+    if rest:
+        attack["goal"] = rest[0]
+    if "goal" not in attack:
         console.print(
-            "[warn]chains needs an `attack` block[/warn] in the account file "
-            "(principal, initial_state, goal, effects) — or pass a goal permission."
+            "[warn]chains needs a goal permission[/warn] — `chains <permission>`, or `--goal`, "
+            "or a `goal` in the account's `attack` block.\n"
+            "  optional: `--from <principal>` `--start p1,p2` (default: the account's most "
+            "capable principal and what they already hold)."
         )
         return
+    if not techniques_for(lib, account):
+        console.print("[warn]no techniques with an effect[/warn] — a candidate needs a `gains { … }` "
+                      "clause (or an `effects` table in the account) to advance a chain.")
+        return
 
-    with s.report("chains", [goal] if goal else []) as rep:
+    with s.report("chains", args) as rep:
         _chains(lib, account, attack, rep)
 
 
 def _chains(lib, account, attack, report) -> None:  # type: ignore[no-untyped-def]
     from decnique.graph.search import price_transitions
-    from decnique.graph.state import Technique
-    from decnique.report import chains_report
+    from decnique.report import chains_report, techniques_for
 
     r = Reasoner()
     r.header(
@@ -846,20 +876,20 @@ def _chains(lib, account, attack, report) -> None:  # type: ignore[no-untyped-de
         subtitle=f"from {attack['principal']} to the goal permission; the search is exhaustive over the "
                  f"finite reachable state space",
     )
-    initial = frozenset(attack.get("initial_state", ()))
+    from decnique.report import _start
+
+    principal, initial = _start(account, attack)
     r.section("start")
-    r.note(f"principal: {attack['principal']}")
+    r.note(f"principal: {principal}")
     r.note(f"initial permissions: {', '.join(sorted(initial)) or '(none)'}")
     r.note(f"goal: {attack['goal']}")
 
     # Detection-pricing at the initial state: which techniques are stealthy from here?
-    by_id = {c.id: c for c in lib.bundle.candidates}
-    effects = attack.get("effects", {})
-    techs = [Technique(by_id[cid], gains=tuple(g)) for cid, g in effects.items() if cid in by_id]
+    techs = techniques_for(lib, account, attack.get("effects", {}))
     if techs:
         r.section("pricing the initial state", "which moves are stealthy right now?")
         with r.thinking("evaluating each applicable technique's detection price…"):
-            edges = price_transitions(techs, lib, account, attack["principal"], initial)
+            edges = price_transitions(techs, lib, account, principal, initial)
         for e in edges:
             (r.ok if e.stealthy else r.no)(
                 f"{e.technique}: {'stealthy' if e.stealthy else e.verdict}"
@@ -876,7 +906,7 @@ def _chains(lib, account, attack, report) -> None:  # type: ignore[no-untyped-de
         r.note(f"proven by exhausting {rep['states_explored']} reachable state(s) ({rep['reason']})")
         console.print(f"[safe]result[/safe]  no stealthy escalation to {rep['goal']}")
         report.summary = {"found": False, "goal": rep["goal"], "states_explored": rep["states_explored"],
-                          "reason": rep["reason"], "principal": attack["principal"]}
+                          "reason": rep["reason"], "principal": principal}
         return
 
     # Found: narrate each hop, then replay the whole path as one trace (hops laid end to end
@@ -901,17 +931,25 @@ def _chains(lib, account, attack, report) -> None:  # type: ignore[no-untyped-de
 
     tag = "approximate" if rep["tag"] == "approximate" else "stealthy"
     report.summary = {"found": True, "goal": rep["goal"], "hops": len(rep["hops"]), "tag": rep["tag"],
-                      "principal": attack["principal"]}
+                      "principal": principal}
     for i, h in enumerate(rep["hops"]):
         report.add(f"hop {i + 1}: {h['technique']}", "stealthy", "gains " + (", ".join(h["gains"]) or "—"),
                    gains=list(h["gains"]), schedule=list(h.get("schedule", [])), delay=h.get("delay", 0))
     r.blank()
     r.verdict_gap(f"{tag.upper()} PATH to {rep['goal']} — {len(rep['hops'])} hop(s)")
-    t = _table(f"stealthy escalation to {rep['goal']}",
-               [("#", "right"), ("TECHNIQUE",), ("GAINS (new permissions)",), ("EVENTS", "right")])
-    for i, h in enumerate(rep["hops"]):
-        _add(t, str(i + 1), h["technique"], ", ".join(h["gains"]) or "—", str(h["events"]))
+    # the executable plan: one row per event, absolute time, method, principal, payload
+    t = _table(f"stealthy escalation to {rep['goal']} — as {principal}",
+               [("t (s)", "right"), ("HOP",), ("METHOD",), ("PAYLOAD / notes",)])
+    clock = 0
+    for i, h in enumerate(rep["hops"], 1):
+        clock += int(h.get("delay", 0))
+        base = clock
+        for ev in h.get("schedule", []):
+            _add(t, str(base + int(ev.get("time", 0))), f"{i} {h['technique']}",
+                 str(ev.get("method", "—")), _payload(ev))
+        clock = base + max((int(e.get("time", 0)) for e in h.get("schedule", [])), default=0)
     console.print(t)
+    r.note("export the plan as replayable audit-log JSON with `export <file.json>`")
 
 
 # --- checks: the DSL's own questions ------------------------------------------------------------

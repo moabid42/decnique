@@ -74,32 +74,52 @@ def stealth_report(lib: DetectionLibrary, account: Account) -> dict[str, Any]:
     }
 
 
+def techniques_for(lib: DetectionLibrary, account: Account, effects: Mapping[str, Any] | None = None) -> list[Technique]:
+    """Every candidate that declares an effect — from its own ``gains`` clause, or from the
+    ``effects`` override.  A candidate with no gain cannot advance the search and is skipped."""
+    effects = effects or {}
+    out: list[Technique] = []
+    for c in lib.bundle.candidates:
+        gains = tuple(effects[c.id]) if c.id in effects else c.gains
+        if gains:
+            out.append(Technique(c, gains=gains))
+    return out
+
+
+def _start(account: Account, attack: Mapping[str, Any]) -> tuple[str, frozenset]:
+    """Principal and initial permissions for the search.  Defaults come from the account: the
+    principal is the one given (or, if none, the one holding the most permissions — the attacker
+    is whoever is most capable), and the initial state is what that principal already holds."""
+    principal = attack.get("principal")
+    if principal is None:
+        principal = max(account.bindings, key=lambda p: len(account.bindings[p]), default="attacker")
+    if "initial_state" in attack:
+        return principal, frozenset(attack["initial_state"])
+    held = {g.permission for g in account.bindings.get(principal, ()) if "*" not in g.permission}
+    return principal, frozenset(held)
+
+
 def chains_report(
     lib: DetectionLibrary,
     account: Account,
     attack: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """``attack`` supplies the declared effect table and the start/goal of the search::
+    """``attack`` supplies the start/goal of the search; the effect of each technique comes
+    from its own ``gains`` clause, or from an ``effects`` override table::
 
-        {"principal": "attacker@x.com",
-         "initial_state": ["iam.serviceAccountKeys.create"],
+        {"principal": "attacker@x.com",       # optional: default = every principal, best first
+         "initial_state": [...],              # optional: default = what `principal` already holds
          "goal": "resourcemanager.projects.setIamPolicy",
-         "effects": {"create_key": ["iam.serviceAccounts.getAccessToken"], ...}}
+         "effects": {"create_key": [...]}}    # optional: overrides a candidate's `gains`
     """
-    effects: Mapping[str, list[str]] = attack.get("effects", {})
-    by_id = {c.id: c for c in lib.bundle.candidates}
-    techniques = [
-        Technique(by_id[cid], gains=tuple(gains))
-        for cid, gains in effects.items()
-        if cid in by_id
-    ]
-    principal = attack["principal"]
-    initial = frozenset(attack.get("initial_state", ()))
+    techniques = techniques_for(lib, account, attack.get("effects", {}))
+    principal, initial = _start(account, attack)
     goal = attack["goal"]
     result = search_stealth_path(
         techniques, lib, account, principal, initial, goal,
         max_depth=attack.get("max_depth"),
     )
+    
     if isinstance(result, StealthyPath):
         return {
             "goal": goal,

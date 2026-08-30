@@ -255,6 +255,8 @@ def candidate(c: Candidate) -> str:
         lines.append(f"{_IND}context {pred(c.context)}")
     if c.share != ("principal",):
         lines.append(f"{_IND}share " + ", ".join(c.share))
+    if c.gains:
+        lines.append(f"{_IND}gains {{ " + " ".join(c.gains) + " }")
     lines.append("}")
     return "\n".join(lines)
 

@@ -45,7 +45,7 @@ def test_export_suggest_define_and_diff(tmp_path):
     assert dispatch(s, "export x.json") is True  # nothing to export yet: a message, not an error
     dispatch(s, "config report.save on")
     dispatch(s, "blindspots resourcemanager.projects.setIamPolicy")
-    before = list_reports(tmp_path / "out")[-1]
+    before = list_reports(tmp_path / "out")[0]
     out = tmp_path / "witness.json"
     assert dispatch(s, f"export {out}") is True
     entries = json.loads(out.read_text())
@@ -58,7 +58,9 @@ def test_export_suggest_define_and_diff(tmp_path):
     # targeted rule is needed; the catch-all closes the rest
     assert "watch_resourcemanager_projects_setIamPolicy" in ids
     dispatch(s, "blindspots resourcemanager.projects.setIamPolicy")
-    after = list_reports(tmp_path / "out")[-1]
+    assert s.last_report.items[0]["verdict"] == "all_covered"  # the gap is closed
+    after = list_reports(tmp_path / "out")[0]
+    assert after != before  # same-second runs get distinct files
     assert json.loads(after.read_text())["items"][0]["verdict"] == "all_covered"
     assert dispatch(s, f"report diff {before.name} {after.name}") is True
     assert dispatch(s, "suggest iam.serviceAccountKeys.create") is True  # covered: nothing to close

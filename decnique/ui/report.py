@@ -96,6 +96,10 @@ def save(r: Report, directory: Path | str, fmt: str) -> Path:
     stamp = r.started.replace(":", "").replace("-", "")
     path = Path(directory) / f"{r.verb}-{stamp}.{fmt}"
     path.parent.mkdir(parents=True, exist_ok=True)
+    n = 1  # two runs of one verb in the same second must not clobber each other
+    while path.exists():
+        n += 1
+        path = Path(directory) / f"{r.verb}-{stamp}_{n}.{fmt}"
     path.write_text(WRITERS[fmt](r), encoding="utf-8")
     return path
 

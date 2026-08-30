@@ -244,6 +244,7 @@ def candidate_to_dict(c: A.Candidate) -> dict[str, AnyT]:
         },
         "context": pred_to_dict(c.context) if c.context else None,
         "share": list(c.share),
+        "gains": list(c.gains),
     }
 
 
@@ -274,6 +275,7 @@ def candidate_from_dict(d: dict[str, AnyT]) -> A.Candidate:
         actor=pred_from_dict(d["actor"]) if d.get("actor") else None,
         context=pred_from_dict(d["context"]) if d.get("context") else None,
         share=tuple(d.get("share") or ("principal",)),
+        gains=tuple(d.get("gains") or ()),
     )
 
 

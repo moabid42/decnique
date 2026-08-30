@@ -43,7 +43,7 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "check": ("[id… | file.decn…]", "run check blocks (all loaded, by id, or from files)  (SMT)"),
     "blindspots": ("[perm…]", "reachable+logged events no rule observes  (SMT · M2)"),
     "stealth": ("[id]", "can a technique evade every rule?  (SMT · M3)"),
-    "chains": ("[goal]", "stealthy privilege-escalation paths  (graph+SMT · M4)"),
+    "chains": ("[goal] [--from p] [--start p1,p2]", "stealthy privilege-escalation paths  (graph+SMT · M4)"),
     "config": ("[verb | key [value|reset]]", "show or change settings; `config <verb>` explains a verb and its settings"),
     "reports": ("", "list saved report files (config report.save on)"),
     "export": ("<file.json> [n]", "write the last run's witnesses as Cloud Audit Log JSON (replay in the SIEM)"),
@@ -107,9 +107,12 @@ DETAILS: dict[str, str] = {
                "  QUESTION: can THIS technique be run so that no rule fires?\n"
                "  Verdicts: evasive (a concrete schedule, replayed) / always_detected (proof) /\n"
                "            not_feasible (no principal holds the permissions) / exhausted.",
-    "chains": "chains [goal]\n"
-              "  Stealthy privilege-escalation paths: every hop is a technique that evades every rule.\n"
-              "  Needs an `attack` block in the account file (principal, initial_state, goal, effects).",
+    "chains": "chains [goal] [--from <principal>] [--start <p1,p2,…>]\n"
+              "  Stealthy privilege-escalation paths: every hop is a technique that evades every rule,\n"
+              "  and the whole path is replayed so a correlation rule across hops still catches it.\n"
+              "  Techniques advance the chain via their `gains { … }` clause.  The start defaults to the\n"
+              "  account's most capable principal and what they already hold; override with the flags or\n"
+              "  an `attack` block (principal, initial_state, goal, effects) in the account file.",
     "config": "config                      list every setting\n"
               "config <verb>               this help page for a verb, with its settings\n"
               "config <key>                show one value\n"
@@ -248,7 +251,7 @@ def dispatch(s: Session, line: str) -> bool:
         elif cmd == "stealth":
             render.stealth(s, args[0] if args else None)
         elif cmd == "chains":
-            render.chains(s, args[0] if args else None)
+            render.chains(s, args)
         else:
             console.print(f"[warn]unknown command {cmd!r}[/warn] — type [key]help[/key]")
     except (OSError, json.JSONDecodeError, ValueError) as e:  # ValueError: bad account / schema

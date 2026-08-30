@@ -433,6 +433,8 @@ class _Builder:
                     )
                 names.append(str(tok))
             share = tuple(names)
+        gains_node = self.sub(node, "gains")
+        gains = tuple(dict.fromkeys(str(t) for t in self.tokens(gains_node, "DOTTED"))) if gains_node else ()
         return Candidate(
             id=str(name),
             required=tuple(required),
@@ -441,6 +443,7 @@ class _Builder:
             actor=actor,
             context=context,
             share=share,
+            gains=gains,
         )
 
     # --- checks -----------------------------------------------------------------------

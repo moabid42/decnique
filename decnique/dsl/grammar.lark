@@ -84,7 +84,7 @@ bool_: "true" -> true | "false" -> false
 literal: STRING | NUMBER | bool_ | DURATION
 
 // ===== candidates (adversary techniques) =====
-candidate: "candidate" NAME "{" meta? actor? required footprint context? share? "}"
+candidate: "candidate" NAME "{" meta? actor? required footprint context? share? gains? "}"
 actor: "actor" expr
 required: "required" "{" req+ "}"
 req: DOTTED ("on" expr)?
@@ -99,6 +99,7 @@ fp_order: "order" NAME ("<" NAME)+
 span: "span" DURATION
 context: "context" expr
 share: "share" NAME ("," NAME)*
+gains: "gains" "{" DOTTED+ "}"
 
 // ===== checks and rulesets =====
 check: "check" NAME "{" "type" typename checkopt* "}"

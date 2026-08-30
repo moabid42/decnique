@@ -109,6 +109,7 @@ class Candidate:
     actor: Pred | None = None
     context: Pred | None = None
     share: tuple[str, ...] = ("principal",)
+    gains: tuple[str, ...] = ()  # permissions the actor holds after the technique succeeds
 
 
 @dataclass(frozen=True, slots=True)

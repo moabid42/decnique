@@ -1,11 +1,13 @@
 candidate create_service_account_key {
   required { iam.serviceAccountKeys.create }
   footprint { act: "google.iam.admin.v1.CreateServiceAccountKey" span 1h }
+  gains { iam.serviceAccounts.getAccessToken }
 }
 
 candidate mint_access_token {
   required { iam.serviceAccounts.getAccessToken }
   footprint { act: "iam.serviceAccounts.getAccessToken" repeat 3 distinct caller_ip span 1h }
+  gains { resourcemanager.projects.setIamPolicy }
 }
 
 // The attacker does not merely *call* SetIamPolicy — they add themselves as Owner.  The
@@ -22,3 +24,6 @@ candidate escalate_project_iam {
     span 1h
   }
 }
+
+// Effects for `chains`: each technique's `gains` is the Reach it adds on success, so the
+// search can build a path.  (A candidate with no `gains` is still usable by `stealth`.)

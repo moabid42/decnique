@@ -22,7 +22,7 @@ def _session(tmp_path) -> Session:
 
 
 def _last(tmp_path) -> dict:
-    return load(list_reports(tmp_path / "out")[-1])
+    return load(list_reports(tmp_path / "out")[0])  # newest first
 
 
 def test_blindspots_counts_gap_and_covered(tmp_path):

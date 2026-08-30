@@ -131,5 +131,59 @@ def event_from_audit_log(entry: Mapping[str, AnyT]) -> dict[str, AnyT]:
     return {k: v for k, v in event.items() if v is not None and v != []}
 
 
+_DELTA_PREFIX = "target.resource.attribute.labels[ser_binding_deltas_"
+
+
+def to_audit_log(event: Mapping[str, AnyT]) -> dict[str, AnyT]:
+    """The inverse of :func:`event_from_audit_log`: a witness as a Cloud Audit Log entry
+    (``protoPayload`` form) that can be replayed in a SIEM.  Model fields land where the log
+    keeps them; IAM binding deltas go to ``serviceData.policyDelta.bindingDeltas``; any other
+    ``udm`` field is kept under ``udm`` (it has no fixed place in the raw record)."""
+    e = dict(event)
+    pp: dict[str, AnyT] = {"@type": "type.googleapis.com/google.cloud.audit.AuditLog"}
+    if e.get("method"):
+        pp["methodName"] = e["method"]
+    if e.get("service"):
+        pp["serviceName"] = e["service"]
+    if e.get("principal"):
+        pp["authenticationInfo"] = {"principalEmail": e["principal"]}
+    perms = e.get("permission") or []
+    perms = perms if isinstance(perms, list) else [perms]
+    if perms or "granted" in e or e.get("resource"):
+        info = {}
+        if perms:
+            info["permission"] = perms[0]
+        if "granted" in e:
+            info["granted"] = bool(e["granted"])
+        if e.get("resource"):
+            info["resource"] = e["resource"]
+        if e.get("resource_type"):
+            info["resourceAttributes"] = {"type": e["resource_type"]}
+        pp["authorizationInfo"] = [info] + [{"permission": p, "granted": bool(e.get("granted", True))} for p in perms[1:]]
+    if e.get("resource"):
+        pp["resourceName"] = e["resource"]
+    meta = {}
+    if e.get("caller_ip"):
+        meta["callerIp"] = e["caller_ip"]
+    if e.get("user_agent"):
+        meta["callerSuppliedUserAgent"] = e["user_agent"]
+    if meta:
+        pp["requestMetadata"] = meta
+    udm = dict(e.get("udm") or {})
+    delta = {k[len(_DELTA_PREFIX):-1]: udm.pop(k) for k in list(udm) if k.startswith(_DELTA_PREFIX)}
+    if delta:
+        pp["serviceData"] = {"policyDelta": {"bindingDeltas": [delta]}}
+    entry: dict[str, AnyT] = {"protoPayload": pp}
+    if e.get("log_name"):
+        entry["logName"] = e["log_name"]
+    if e.get("project"):
+        entry["resource"] = {"labels": {"project_id": e["project"]}}
+    if "time" in e:
+        entry["timestamp"] = e["time"]
+    if udm:
+        entry["udm"] = udm
+    return entry
+
+
 # re-export for callers that used to import these names from this module
 from decnique.dsl.loader import LoadOptions  # noqa: E402

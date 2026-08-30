@@ -46,13 +46,15 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "chains": ("[goal]", "stealthy privilege-escalation paths  (graph+SMT · M4)"),
     "config": ("[verb | key [value|reset]]", "show or change settings; `config <verb>` explains a verb and its settings"),
     "reports": ("", "list saved report files (config report.save on)"),
-    "report": ("<file>", "reopen a saved run: its summary and findings"),
+    "export": ("<file.json> [n]", "write the last run's witnesses as Cloud Audit Log JSON (replay in the SIEM)"),
+    "suggest": ("<perm…> [define]", "DSL detections that would close a permission's blind spot"),
+    "report": ("<file> | diff <a> <b>", "reopen a saved run: its summary and findings"),
     "clear": ("", "clear the screen (session state is kept)"),
     "help": ("[verb]", "show this command list, or everything about one verb"),
     "quit": ("", "leave the shell"),
 }
 
-_PATH_CMDS = {"load", "account", "events", "event", "check", "report"}
+_PATH_CMDS = {"load", "account", "events", "event", "check", "report", "export"}
 _MATH_CMDS = {"blindspots", "stealth", "chains", "check"}
 
 # plain-language detail for `help <verb>` / `config <verb>`: arguments, sub-words, what to expect
@@ -113,9 +115,20 @@ DETAILS: dict[str, str] = {
               "config <key>                show one value\n"
               "config <key> <value>        set (persisted)      config <key> reset   back to default",
     "reports": "reports\n  List the files in report.dir with the verb, time, and summary of each run.",
-    "report": "report <file>\n"
-              "  Reopen a saved run (md / json / yaml): what was loaded, the summary, every finding.\n"
+    "report": "report <file>            reopen a saved run (md / json / yaml): loaded, summary, findings\n"
+              "report diff <a> <b>      what changed between two runs of the same verb: findings that\n"
+              "                         appeared (new), closed (gone) or changed verdict — the before/after\n"
+              "                         of a rule edit or a corpus update\n"
               "  Settings: report.save (off | on), report.format (md | json | yaml), report.dir.",
+    "export": "export <file.json> [n]\n"
+              "  Write the last run's witness events (or only finding n) as Cloud Audit Log entries\n"
+              "  (protoPayload form, one list) — replay them in the SIEM to confirm the gap for real.\n"
+              "  Each entry carries `_decnique` (finding number, label, verdict).",
+    "suggest": "suggest <permission> [permission …] [define]\n"
+               "  For a permission with a blind spot: DSL `detection` blocks that would close it — one per\n"
+               "  unwatched kind of change (built from the rules' own tests) and one catch-all over every\n"
+               "  logged method.  `define` adds them to the session; then `blindspots <permission>` or a\n"
+               "  `check` shows the gap closed.  Suggestions are starting points, not tuned rules.",
     "clear": "clear\n  Clear the screen; nothing loaded is lost.",
     "help": "help [verb]\n  The command list, or everything about one verb (same as `config <verb>`).",
     "quit": "quit\n  Leave the shell.",
@@ -223,7 +236,11 @@ def dispatch(s: Session, line: str) -> bool:
         elif cmd == "reports":
             render.reports(s)
         elif cmd == "report":
-            render.report(s, args[0] if args else None)
+            render.report(s, args[0] if args else None, *args[1:])
+        elif cmd == "export":
+            render.export(s, args)
+        elif cmd == "suggest":
+            render.suggest(s, args)
         elif cmd == "check":
             render.check(s, args)
         elif cmd == "blindspots":
@@ -293,8 +310,8 @@ def print_help() -> None:
         ("load state", ["load", "account", "events"]),
         ("inspect", ["rules", "candidates", "show", "admits", "summary"]),
         ("run over a trace", ["event", "trace", "footprint"]),
-        ("coverage — the math", ["blindspots", "stealth", "chains", "check", "checks"]),
-        ("saved runs", ["reports", "report"]),
+        ("coverage — the math", ["blindspots", "stealth", "chains", "check", "checks", "suggest"]),
+        ("saved runs", ["reports", "report", "export"]),
         ("shell", ["config", "clear", "help", "quit"]),
     ]
     for heading, verbs in groups:

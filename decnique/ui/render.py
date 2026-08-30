@@ -14,6 +14,8 @@ re-description of it.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -599,6 +601,116 @@ def _blindspots(s, lib, account, single, ctx, permissions, explain, show_raw, re
         console.print("[safe]no blind spots for the probed permissions[/safe]")
 
 
+def export(s: Session, args: list[str]) -> None:
+    """Write the last run's witness events as Cloud Audit Log JSON (a list of entries), so a
+    blind spot can be replayed in the real SIEM."""
+    import json
+
+    from decnique.detections import to_audit_log
+
+    rep = s.last_report
+    if rep is None:
+        console.print("[warn]nothing to export[/warn] — run blindspots / stealth / chains / check first")
+        return
+    if not args:
+        console.print("[muted]usage:[/muted] export <file.json> [n]   (n = only the n-th finding)")
+        return
+    events: list[dict] = []
+    for i, it in enumerate(rep.items, 1):
+        if len(args) > 1 and str(i) != args[1]:
+            continue
+        for ev in ([it["event"]] if it.get("event") else []) + list(it.get("schedule") or []) + \
+                  ([it["witness"]] if it.get("witness") else []):
+            entry = to_audit_log(ev)
+            entry["_decnique"] = {"finding": i, "label": it["label"], "verdict": it["verdict"], "verb": rep.verb}
+            events.append(entry)
+    if not events:
+        console.print("[muted]the last run has no witness events[/muted]")
+        return
+    Path(args[0]).write_text(json.dumps(events, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    console.print(f"[ok]{CHECK}[/ok] wrote [title]{len(events)}[/title] audit-log entr{'y' if len(events) == 1 else 'ies'} → [key]{args[0]}[/key]")
+
+
+def suggest(s: Session, args: list[str]) -> None:
+    """Propose DSL detections that close a permission's blind spot: one per unwatched kind of
+    change (the rules' own tests the corpus does not cover), plus the coarse catch-all.  With
+    `define`, the blocks are added to the session so `blindspots` / `check` can confirm."""
+    if not s.need_lib() or not s.need_account():
+        return
+    from decnique.dsl import format as fmt
+    from decnique.model.predicates import In, all_of
+    from decnique.smt.coverage import CoverageContext, Gap, find_gap, probe_atoms
+
+    define = "define" in args
+    perms = [a for a in args if a != "define"]
+    if not perms:
+        console.print("[muted]usage:[/muted] suggest <permission> [permission …] [define]")
+        return
+    lib, account = s.lib, s.account
+    ctx = CoverageContext(lib)
+    blocks: list[str] = []
+    for p in perms:
+        logged = sorted(m for m in account.catalog.methods_for(p) if account.logged(m))
+        if not logged:
+            console.print(f"[muted]{p}: no logged method — a rule cannot help; turn logging on[/muted]")
+            continue
+        res = find_gap(p, lib, account, ctx=ctx)
+        if not isinstance(res, Gap):
+            console.print(f"[safe]{p}: {res.reason} — nothing to close[/safe]")
+            continue
+        slug = "".join(c if c.isalnum() else "_" for c in p)
+        methods = In(field=(None, "method"), values=tuple(logged))
+        n = 0
+        for v in probe_atoms(p, lib, account, ctx=ctx):
+            if not isinstance(v.result, Gap):
+                continue
+            n += 1
+            pred = all_of([methods, *(a.pred() for a in v.atoms)])
+            blocks.append(f"detection close_{slug}_{n} {{\n  meta {{ note = \"suggested by decnique: unwatched change on {p}\" }}\n"
+                          f"  event {fmt.pred(pred)}\n}}")
+        blocks.append(f"detection watch_{slug} {{\n  meta {{ note = \"suggested by decnique: every logged use of {p}\" }}\n"
+                      f"  event {fmt.pred(methods)}\n}}")
+        console.print(f"[title]{p}[/title]: {n} unwatched change(s) → {n} targeted rule(s) + 1 catch-all")
+    if not blocks:
+        return
+    text = "\n\n".join(blocks)
+    console.print(Panel(text, title="suggested detections (DSL) — paste, edit, or `suggest … define`", border_style="accent"))
+    if define:
+        s.define(text, "<suggest>")
+        console.print("[muted]defined into the session — run `blindspots <permission>` or a `check` to confirm[/muted]")
+
+
+def report_diff(s: Session, a: str, b: str) -> None:
+    """What changed between two saved runs of the same verb: findings that appeared, closed,
+    or changed verdict — the before/after of a rule edit or a corpus update."""
+    from .report import load
+
+    da, db = load(_report_path(s, a)), load(_report_path(s, b))
+    if da["verb"] != db["verb"]:
+        console.print(f"[warn]different verbs[/warn] ({da['verb']} vs {db['verb']}) — comparing anyway")
+    ia = {it["label"]: it for it in da["items"]}
+    ib = {it["label"]: it for it in db["items"]}
+    t = _table(f"{da['verb']}: {Path(a).name} → {Path(b).name}", [("FINDING",), ("BEFORE",), ("AFTER",), ("CHANGE",)])
+    changed = 0
+    for label in sorted(set(ia) | set(ib)):
+        va, vb = ia.get(label, {}).get("verdict", "—"), ib.get(label, {}).get("verdict", "—")
+        if va == vb:
+            continue
+        changed += 1
+        word = "new" if label not in ia else "gone" if label not in ib else "changed"
+        _add(t, label, va, vb, word)
+    if changed:
+        console.print(t)
+    console.print(f"[title]diff[/title]  {changed} finding(s) changed · summary before {da.get('summary')} · after {db.get('summary')}")
+
+
+def _report_path(s: Session, name: str) -> Path:
+    p = Path(name)
+    if not p.exists():
+        p = Path(s.settings.get("report.dir")) / name
+    return p
+
+
 def _service_summary(rep) -> None:  # type: ignore[no-untyped-def]
     """Verdict counts per GCP service (the permission's first segment) — the shape of the
     account's exposure at a glance when thousands of permissions were probed."""
@@ -963,7 +1075,17 @@ def reports(s: Session) -> None:
     console.print(t)
 
 
-def report(s: Session, file: str | None) -> None:
+def report(s: Session, file: str | None, *more: str) -> None:
+    if file == "diff":
+        if len(more) != 2:
+            console.print("[muted]usage:[/muted] report diff <a> <b>")
+            return
+        report_diff(s, more[0], more[1])
+        return
+    _report_one(s, file)
+
+
+def _report_one(s: Session, file: str | None) -> None:
     """Re-render a saved run: what was loaded, the summary, and every finding."""
     from pathlib import Path
 

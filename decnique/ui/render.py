@@ -2,9 +2,9 @@
 
 Two families live here:
 
-* **Listing verbs** (`rules`, `candidates`, `show`, `admits`, `event`, `trace`, `footprint`,
+* **Listing verbs** (`rules list`, `candidates list`, `… inspect`, `rules admits`, `events trace`, `candidates footprint`,
   `summary`) render session facts as tidy tables.
-* **Math verbs** (`blindspots`, `stealth`, `chains`) run a proof and narrate it through a
+* **Math verbs** (`ask blindspots`, `ask stealth`, `ask chains`, `ask check`) run a proof and narrate it through a
   :class:`~decnique.ui.reason.Reasoner`, then close with a result table.
 
 The math verbs deliberately drive the engine one item at a time and re-run the concrete oracle
@@ -459,7 +459,7 @@ def _blindspots(s, lib, account, single, ctx, permissions, explain, show_raw, re
         formula="find e :  Reach(e) ∧ Log(e) ∧ ¬( ⋁ Observes(R, e) )",
         subtitle=(
             "QUESTION: for each permission — is there ANY logged action using it that no rule "
-            "catches?  (Not \"is the attack caught\" — that is `stealth`; its verdict is shown "
+            "catches?  (Not \"is the attack caught\" — that is `ask stealth`; its verdict is shown "
             "per permission below.)\n"
             f"{len(permissions)} permission(s) · {len(single)} single-event rule(s) · every "
             "example is replayed through the concrete oracle before it is believed"
@@ -665,7 +665,7 @@ def export(s: Session, args: list[str]) -> None:
 def suggest(s: Session, args: list[str]) -> None:
     """Propose DSL detections that close a permission's blind spot: one per unwatched kind of
     change (the rules' own tests the corpus does not cover), plus the coarse catch-all.  With
-    `define`, the blocks are added to the session so `blindspots` / `check` can confirm."""
+    `define`, the blocks are added to the session so `ask blindspots` / `ask check` can confirm."""
     if not s.need_lib() or not s.need_account():
         return
     from decnique.dsl import format as fmt
@@ -705,10 +705,10 @@ def suggest(s: Session, args: list[str]) -> None:
     if not blocks:
         return
     text = "\n\n".join(blocks)
-    console.print(Panel(text, title="suggested detections (DSL) — paste, edit, or `suggest … define`", border_style="accent"))
+    console.print(Panel(text, title="suggested detections (DSL) — paste, edit, or `ask suggest … define`", border_style="accent"))
     if define:
         s.define(text, "<suggest>")
-        console.print("[muted]defined into the session — run `blindspots <permission>` or a `check` to confirm[/muted]")
+        console.print("[muted]defined into the session — run `ask blindspots <permission>` or an `ask check` to confirm[/muted]")
 
 
 def report_diff(s: Session, a: str, b: str) -> None:
@@ -982,7 +982,7 @@ def _chains(lib, account, attack, report) -> None:  # type: ignore[no-untyped-de
                  str(ev.get("method", "—")), _payload(ev))
         clock = base + max((int(e.get("time", 0)) for e in h.get("schedule", [])), default=0)
     console.print(t)
-    r.note("export the plan as replayable audit-log JSON with `export <file.json>`")
+    r.note("export the plan as replayable audit-log JSON with `reports export <file.json>`")
 
 
 # --- checks: the DSL's own questions ------------------------------------------------------------

@@ -1,7 +1,7 @@
 """Small pure string renderers for spec fragments — windows, count conditions, footprints.
 
 These summarise a piece of AST into a single readable cell.  They are deliberately lossy
-(the full, exact form is always one `show <id>` away); their job is to make a table scannable.
+(the full, exact form is always one `rules inspect <id>` away); their job is to make a table scannable.
 """
 
 from __future__ import annotations

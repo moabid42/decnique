@@ -1,6 +1,6 @@
 """The reasoning log — the tool *thinking out loud*.
 
-Every math verb (`blindspots`, `stealth`, `chains`) runs a small proof.  Rather than print a
+Every `ask` verb (`ask blindspots`, `ask stealth`, `ask chains`) runs a small proof.  Rather than print a
 verdict from nowhere, the :class:`Reasoner` narrates the actual checks as they happen: the
 reachability/logging pre-conditions, the exact SMT formula being solved, whether it came back
 SAT or UNSAT, and — the honest heart of it — the *replay-verification* where each proposed

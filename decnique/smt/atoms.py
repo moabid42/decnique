@@ -197,7 +197,10 @@ class Realizer:
         mids = [m for m in mid if m.lower() not in head.lower() and m.lower() not in tail.lower()]
         if not (head or tail or mids):
             return _dedupe([*examples, "", "-", "x"])
-        out: list[str] = []
+        # realistic values first (they are checked against every atom like any candidate):
+        # a reachable resource that happens to satisfy `resource like "projects/*"` beats a
+        # string glued together from the literals
+        out: list[str] = list(examples)
         for order in (mids, list(reversed(mids))):
             for sep in ("", "-", "_", " ", "/"):
                 out.append(head + sep.join(order) + tail)

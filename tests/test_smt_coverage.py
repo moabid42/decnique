@@ -272,7 +272,10 @@ def test_unverified_method_cannot_be_the_reason_for_a_gap():
 def test_witness_resource_is_one_the_principal_reaches():
     # the grant is scoped to a project and a rule reads `resource`: the witness must carry a
     # resource the principal really reaches, not "" (which Reach rejects, looping to exhaustion)
-    lib = _lib('''detection d { event method = "storage.objects.get" and resource like "projects/secret*" }''')
+    lib = _lib('''
+        detection d { event method = "storage.objects.get" and resource like "projects/secret*" }
+        detection p { event method = "storage.objects.get" and resource like "projects/*" and principal = "nobody" }
+    ''')  # `p` adds a `startswith projects/` atom the minimizer would rather keep false
     acct = Account(
         name="t",
         bindings={"u": (Grant(permission="storage.objects.get", resource="projects/demo"),)},

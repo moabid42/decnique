@@ -122,6 +122,13 @@ class Account:
                 out.append(r)
         return tuple(out)
 
+    def reaches_anywhere(self, principal: str, permission: str) -> bool:
+        """Some grant of ``permission`` to ``principal`` is unscoped (``resource="*"``)."""
+        return any(
+            g.resource == "*" and _perm_match(g.permission, permission)
+            for g in self.bindings.get(principal, ())
+        ) and not self._denied(principal, permission, "*")
+
     def reachable(self, permission: str, resource: str = "*") -> bool:
         """Can *any* principal exercise ``permission`` on ``resource``?"""
         return any(self.reach(p, permission, resource) for p in self.bindings)

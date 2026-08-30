@@ -193,6 +193,18 @@ class CoverageContext:
             for v in values:  # the chosen value decides every other atom on the field
                 out.append(z3.Implies(t.eq(path, v), z3.And(*self._determine(path, v))))
         out.append(ev.present("principal"))
+        # Reach on the resource: a principal whose grants are all scoped can only act on a
+        # resource inside them, so the witness's `resource` is pinned to a reachable example
+        # (an unscoped grant leaves it free).  Without this the minimizer picks "" whenever a
+        # rule tests the resource, and every proposal fails replay.
+        for p in principals:
+            if account.reaches_anywhere(p, permission):
+                continue
+            exs = account.example_resources(p, permission)
+            if exs:
+                out.append(z3.Implies(t.eq("principal", p), z3.Or(*[t.eq("resource", r) for r in exs])))
+                for r in exs:
+                    out.append(z3.Implies(t.eq("resource", r), z3.And(*self._determine("resource", r))))
         out.append(t.eq("permission", permission))
         out.extend(self._determine("permission", permission))
         for m in methods:  # realism invariants: a real event fixes some fields by its method

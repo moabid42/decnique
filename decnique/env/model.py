@@ -54,8 +54,9 @@ class LogConfig:
     disabled_methods: frozenset[str] = frozenset()
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass
 class Account:
+    # not frozen/slots: dict fields already make it unhashable, and we cache a grant index
     name: str = "account"
     bindings: dict[str, tuple[Grant, ...]] = field(default_factory=dict)
     hierarchy: dict[str, str] = field(default_factory=dict)  # resource -> parent
@@ -90,6 +91,22 @@ class Account:
                 return True
         return False
 
+    def _index(self, principal: str) -> tuple[dict[str, list[str]], list[Grant]]:
+        """Per principal: exact permission → its grant resources, and the glob-permission grants.
+        Cached — an owner holds thousands of grants and reach is asked per permission."""
+        cache = self.__dict__.setdefault("_grant_index", {})
+        idx = cache.get(principal)
+        if idx is None:
+            exact: dict[str, list[str]] = {}
+            globs: list[Grant] = []
+            for g in self.bindings.get(principal, ()):
+                if "*" in g.permission:
+                    globs.append(g)
+                else:
+                    exact.setdefault(g.permission, []).append(g.resource)
+            idx = cache[principal] = (exact, globs)
+        return idx
+
     def reach(self, principal: str, permission: str, resource: str = "*") -> bool:
         """``Reach``: does the account grant ``principal`` the ``permission`` on ``resource``?
 
@@ -97,18 +114,20 @@ class Account:
         covers ``resource`` **or an ancestor** of it (a project-level grant reaches child
         buckets).  ``resource="*"`` asks "on *some* resource": any grant of the permission
         counts, however narrowly scoped.  An applicable deny policy overrides."""
-        grants = self.bindings.get(principal, ())
-        if not grants:
+        exact, globs = self._index(principal)
+        resources = exact.get(permission)
+        if resources is None and not globs:
             return False
         if self._denied(principal, permission, resource):
             return False
+        candidates = list(resources or ())
+        candidates += [g.resource for g in globs if _perm_match(g.permission, permission)]
+        if not candidates:
+            return False
+        if resource == "*" or "*" in candidates:
+            return True
         scope = self._ancestors(resource)
-        for g in grants:
-            if not _perm_match(g.permission, permission):
-                continue
-            if resource == "*" or g.resource == "*" or any(_res_match(g.resource, r) for r in scope):
-                return True
-        return False
+        return any(_res_match(gr, r) for gr in candidates for r in scope)
 
     def example_resources(self, principal: str, permission: str) -> tuple[str, ...]:
         """Concrete resources on which ``principal`` may exercise ``permission`` — one per

@@ -372,6 +372,3 @@ def _glob(pattern: str, name: str) -> bool:
 
 __all__ = ["FIELD_MAP", "is_sigma_gcp", "load_sigma_file", "load_sigma_text", "lower_sigma"]
 
-
-def _unused(_: Const) -> None:  # keep Const import for type completeness
-    pass

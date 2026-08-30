@@ -9,8 +9,8 @@ two can be compared directly.
 
 This repository is the *language* only — grammar, parser, AST, formatter, the
 three-valued interpreter, the event/predicate/trace model, and the four SIEM
-front-ends that translate real rules into the DSL. The permission-bitset / SMT
-coverage-matrix layer of the original prototype is intentionally excluded.
+front-ends that translate real rules into the DSL, plus the coverage/stealth/chains
+engine (`decnique/smt/`, `decnique/graph/`) and an interactive shell.
 
 The coverage engine (`decnique/smt/`) answers `Reach ∧ Log ∧ ¬⋁Observes` over a finite
 **atom abstraction** of string fields — no z3 string theory; see

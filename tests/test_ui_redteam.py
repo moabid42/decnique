@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 
 from decnique.dsl.parser import parse_text
-from decnique.report import techniques_for
+from decnique.answers import techniques_for
 from decnique.ui.config import Settings
 from decnique.ui.report import list_reports, load
 from decnique.ui.repl import dispatch

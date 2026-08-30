@@ -8,8 +8,8 @@ Given rules (a :class:`~decnique.detections.DetectionLibrary`) and an
 * :func:`stealth_report`     — per-technique stealth verdicts + evasive schedules (M3).
 * :func:`chains_report`      — stealthy privilege-escalation paths (M4).
 
-:func:`full_report` bundles all three plus reproducible counts.  This is what the CLI ``coverage``
-subcommand and the ``run.py`` verbs both call, so the tool has one honest source of truth.
+:func:`full_report` bundles all three plus reproducible counts.  The CLI `coverage` subcommand builds these; the interactive verbs narrate the same engine
+    (`smt`) directly in `ui/render.py`.
 """
 
 from __future__ import annotations

@@ -45,13 +45,6 @@ class LoadOptions:
     max_file_bytes: int = 2_000_000
 
 
-@dataclass(frozen=True, slots=True)
-class LoadStats:
-    files_seen: int = 0
-    files_loaded: int = 0
-    by_frontend: dict[str, int] | None = None
-
-
 def sniff(path: Path, text: str | None = None) -> str | None:
     """Which front-end handles this file, or ``None``."""
     suffix = path.suffix.lower()

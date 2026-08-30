@@ -862,7 +862,7 @@ def _stealth(lib, account, cands, rep) -> None:  # type: ignore[no-untyped-def]
 def chains(s: Session, args: list[str]) -> None:
     if not s.need_lib() or not s.need_account():
         return
-    from decnique.report import techniques_for
+    from decnique.answers import techniques_for
 
     lib, account = s.lib, s.account
     attack = dict(s.account_doc.get("attack", {}))
@@ -897,7 +897,7 @@ def chains(s: Session, args: list[str]) -> None:
 
 def _chains(lib, account, attack, report) -> None:  # type: ignore[no-untyped-def]
     from decnique.graph.search import price_transitions
-    from decnique.report import chains_report, techniques_for
+    from decnique.answers import chains_report, techniques_for
 
     r = Reasoner()
     r.header(
@@ -906,7 +906,7 @@ def _chains(lib, account, attack, report) -> None:  # type: ignore[no-untyped-de
         subtitle=f"from {attack['principal']} to the goal permission; the search is exhaustive over the "
                  f"finite reachable state space",
     )
-    from decnique.report import _start
+    from decnique.answers import _start
 
     principal, initial = _start(account, attack)
     r.section("start")

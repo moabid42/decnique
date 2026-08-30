@@ -16,7 +16,7 @@ import pytest
 from decnique.detections import DetectionLibrary
 from decnique.env import load_account
 from decnique.eval import fires
-from decnique.report import chains_report
+from decnique.answers import chains_report
 from decnique.smt.coverage import probe_permissions
 from decnique.smt.stealth import Evasive, stealth_feasible
 

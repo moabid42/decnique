@@ -139,11 +139,18 @@ class CoverageContext:
         self.solver.set("random_seed", 0)  # reproducible witnesses
         for d, o in zip(self.single_rules, obs):
             self.solver.add(z3.Implies(self.tracks[d.id], z3.Not(o)))
-        for path in list(self.table.by_field):
-            if path not in ENUMERATED:
-                for c in self.table.eq_exclusion(path):
-                    self.solver.add(c)
-                    self.consistency.append(c)
+        # `=` atoms of one field are mutually exclusive across case-folded literal groups.  Kept
+        # *incrementally* (see `_sync_eq`): the domain of every permission adds new `=` atoms
+        # (its method names), and re-deriving pairwise exclusions per call was the dominant cost
+        # of a whole-account run.  Applies to the enumerated fields too — one-hot selection in
+        # `domain` only covers the values it selects among, not the rules' own literals.
+        self._eq_groups: dict[str, dict[str, z3.BoolRef]] = {}   # field -> folded literal -> selector
+        self._eq_members: dict[str, dict[str, list[Atom]]] = {}
+        self._eq_any: dict[str, z3.BoolRef] = {}                  # field -> Or of selectors so far
+        self._eq_seen: dict[str, set[Atom]] = {}
+        self._pending: list[z3.BoolRef] = []                      # facts not yet in the solver
+        self._sync_eq()
+        self.flush()
         for b in self.enc.ev._present.values():
             self.solver.add_soft(z3.Not(b), weight=2)
         if minimize:
@@ -158,6 +165,57 @@ class CoverageContext:
         self.replay_rules = [d for d in lib.detections if d.id not in set(self.vacuous)]
         self.learned: list[z3.BoolRef] = []
         self.stats = {"checks": 0, "learned": 0, "blocked": 0, "unproven": 0}
+        self._det_cache: dict[tuple[str, str, int], list[z3.BoolRef]] = {}
+        from decnique.dsl.interpret import spec_methods_literal
+
+        self.method_literals = {d.id: spec_methods_literal(d.spec) for d in lib.detections}
+
+    def _fact(self, c: z3.BoolRef) -> None:
+        """A library-level consistency fact: part of every solve, never popped."""
+        self.consistency.append(c)
+        self._pending.append(c)
+
+    def flush(self) -> None:
+        """Add pending facts to the shared solver — call outside any push/pop scope."""
+        for c in self._pending:
+            self.solver.add(c)
+        self._pending.clear()
+
+    def _sync_eq(self) -> None:
+        """Register every `=` atom not seen yet: it implies its group's selector; a new group
+        excludes all earlier ones (O(1) facts per atom); inside a group two case-sensitive
+        literals with different text exclude each other and a case-sensitive one implies the
+        case-insensitive one — exactly :meth:`AtomTable.eq_exclusion`, made incremental."""
+        t = self.table
+        for path, atoms in list(t.by_field.items()):
+            seen = self._eq_seen.setdefault(path, set())
+            groups = self._eq_groups.setdefault(path, {})
+            members = self._eq_members.setdefault(path, {})
+            for a in atoms:
+                if a.kind != "eq" or a in seen:
+                    continue
+                seen.add(a)
+                v = t.var(a)
+                key = a.text.lower()
+                g = groups.get(key)
+                if g is None:
+                    g = z3.Bool(f"eqgrp.{path}.{len(groups)}")
+                    prev = self._eq_any.get(path)
+                    if prev is not None:
+                        self._fact(z3.Implies(g, z3.Not(prev)))
+                    self._eq_any[path] = g if prev is None else z3.Or(prev, g)
+                    groups[key] = g
+                    members[key] = []
+                self._fact(z3.Implies(v, g))
+                for b in members[key]:
+                    vb = t.var(b)
+                    if not a.nocase and not b.nocase and a.text != b.text:
+                        self._fact(z3.Not(z3.And(v, vb)))
+                    elif not a.nocase and b.nocase:
+                        self._fact(z3.Implies(v, vb))
+                    elif a.nocase and not b.nocase:
+                        self._fact(z3.Implies(vb, v))
+                members[key].append(a)
 
     def _observes(self, spec) -> z3.BoolRef:  # type: ignore[no-untyped-def]
         """Single-event ``Observes`` under the zero-value guard."""
@@ -171,13 +229,24 @@ class CoverageContext:
     # -- domain ------------------------------------------------------------------------------
 
     def _determine(self, path: str, value: str) -> list[z3.BoolRef]:
-        """Every atom on ``path`` takes the truth value it has on the constant ``value``."""
-        out = []
-        for a in self.table.by_field.get(path, ()):
-            h = a.holds(value)
-            if h is not None:
-                out.append(self.table.var(a) if h else z3.Not(self.table.var(a)))
-        return out
+        """Every non-`=` atom on ``path`` takes the truth value it has on the constant ``value``
+        (the `=` atoms follow from the group exclusion).  Cached per (field, value, number of
+        atoms on the field) — the count guards against atoms added lazily by :meth:`AtomTable.eq`."""
+        atoms = self.table.by_field.get(path, ())
+        key = (path, value, len(atoms))
+        cached = self._det_cache.get(key)
+        if cached is None:
+            cached = []
+            for a in atoms:
+                # `=` atoms are decided by the group exclusion (`_sync_eq`) once the value's own
+                # `=` atom is true — which every caller asserts as the antecedent
+                if a.kind == "eq":
+                    continue
+                h = a.holds(value)
+                if h is not None:
+                    cached.append(self.table.var(a) if h else z3.Not(self.table.var(a)))
+            self._det_cache[key] = cached
+        return cached
 
     def domain(
         self, permission: str, methods: list[str], principals: list[str], account: Account,
@@ -209,11 +278,12 @@ class CoverageContext:
         out.extend(self._determine("permission", permission))
         for m in methods:  # realism invariants: a real event fixes some fields by its method
             for path, value in account.catalog.field_invariants(m).items():
-                if is_string_sort(path):
-                    out.append(z3.Implies(t.eq("method", m), z3.And(*self._determine(path, value))))
+                if is_string_sort(path):  # the field's own `=` atom first: it drives the exclusion
+                    out.append(z3.Implies(t.eq("method", m), z3.And(t.eq(path, value), *self._determine(path, value))))
             for path in account.catalog.required_fields(m):  # ... and always carries others
                 out.append(z3.Implies(t.eq("method", m), ev.present(path)))
         out.append(ev.term("granted") == z3.BoolVal(granted))  # False = a denied attempt
+        self._sync_eq()  # the `=` atoms created above join the exclusion (added outside push/pop)
         return out
 
     # -- decoding ------------------------------------------------------------------------------
@@ -346,9 +416,12 @@ def find_gap(
     s = ctx.solver
     learned_here: list[z3.BoolRef] = []
     unproven = False
+    dom = ctx.domain(permission, logged, principals, account, granted=granted)
+    ctx._sync_eq()  # `extra` may have created `=` atoms too
+    ctx.flush()     # consistency facts live outside the push below
     s.push()
     try:
-        for c in ctx.domain(permission, logged, principals, account, granted=granted):
+        for c in dom:
             s.add(c)
         for c in extra:
             s.add(c)
@@ -600,13 +673,13 @@ def dodged_conditions(lib: DetectionLibrary, event: dict, rule_ids: tuple[str, .
     return out
 
 
-def rules_naming(lib: DetectionLibrary, methods: list[str]) -> tuple[str, ...]:
+def rules_naming(lib: DetectionLibrary, methods: list[str], *, ctx: CoverageContext | None = None) -> tuple[str, ...]:
     """Rules whose literal method tests include one of ``methods``."""
     from decnique.dsl.interpret import spec_methods_literal
 
     out = []
     for d in lib.detections:
-        lits = spec_methods_literal(d.spec)
+        lits = ctx.method_literals[d.id] if ctx is not None and d.id in ctx.method_literals else spec_methods_literal(d.spec)
         if lits and not lits.isdisjoint(methods):
             out.append(d.id)
     return tuple(out)
@@ -673,6 +746,7 @@ def blind_region(
         for a in ctx.table.by_field.get(f, ()):
             variables.append((ctx.table.var(a), describe_atom(a), f))
     domain = ctx.domain(permission, logged, principals, account)
+    ctx.flush()
 
     # a plain solver that asks the *opposite* question — is some event in the cube observed?
     obs = z3.Solver()

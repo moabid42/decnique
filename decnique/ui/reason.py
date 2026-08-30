@@ -101,8 +101,13 @@ class Reasoner:
 
     # -- work in flight --------------------------------------------------------------------
 
+    fast: bool = False  # set by a verb that runs thousands of steps: no spinners
+
     @contextmanager
     def thinking(self, label: str):
         """Show a transient spinner while a blocking engine call runs (no-op when piped)."""
+        if self.fast:
+            yield
+            return
         with console.status(Text(label, style="muted"), spinner="dots"):
             yield

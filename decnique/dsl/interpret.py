@@ -11,6 +11,7 @@ caller did not supply).
 from __future__ import annotations
 
 import ipaddress
+import functools
 import re
 from collections.abc import Mapping, Sequence
 from typing import Any as AnyT
@@ -128,9 +129,13 @@ def glob_to_regex(pattern: str) -> str:
     return "".join(out)
 
 
+@functools.lru_cache(maxsize=4096)
+def _glob_re(pattern: str, nocase: bool) -> re.Pattern[str]:
+    return re.compile(glob_to_regex(pattern), re.IGNORECASE | re.S if nocase else re.S)
+
+
 def glob_match(value: str, pattern: str, nocase: bool = False) -> bool:
-    flags = re.IGNORECASE | re.S if nocase else re.S
-    return re.fullmatch(glob_to_regex(pattern), value, flags) is not None
+    return _glob_re(pattern, nocase).fullmatch(value) is not None
 
 
 def glob_unescape(pattern: str) -> str:

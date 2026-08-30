@@ -439,6 +439,7 @@ def _blindspots(s, lib, account, single, ctx, permissions, explain, show_raw, re
     # of its methods (otherwise there is nothing to explain — no rule looks there at all).
     many = len(permissions) > 20
     unnamed = 0
+    r.fast = many  # no spinner per step: starting one costs more than the solve at this size
 
     for i, p in enumerate(permissions, 1):
         r.section(p, f"[{i}/{len(permissions)}]" if many else None)
@@ -499,7 +500,7 @@ def _blindspots(s, lib, account, single, ctx, permissions, explain, show_raw, re
         # The witness is only the *simplest* unobserved event.  Explain the whole hole, the
         # way the user configured (`config blindspots.explain rules|formula|both`).
         logged = [m for m in account.catalog.methods_for(p) if account.logged(m)]
-        naming = rules_naming(lib, logged)
+        naming = rules_naming(lib, logged, ctx=ctx)
         mode = explain if (naming or not many) else "none"
         if mode == "none":
             unnamed += 1

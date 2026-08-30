@@ -218,6 +218,7 @@ def _compare(check: Check, lib: DetectionLibrary, ctx: CoverageContext | None) -
             return CheckResult(check, "unknown", f"{rid} is a correlation rule; compare works on single-event rules")
     approx = not ({a, b} <= ctx.exact_rules)
     oa, ob = ctx._observes(by_id[a].spec), ctx._observes(by_id[b].spec)  # type: ignore[index]
+    ctx._sync_eq()  # encoding may have created `=` atoms; their exclusion is a consistency fact
     s = z3.Solver()
     s.add(*ctx.consistency)
     rows: list[Row] = []
@@ -344,18 +345,17 @@ def _boundary(check: Check, lib: DetectionLibrary, account: Account, ctx: Covera
     # `observed`: an event is seen when ANY rule's event pattern accepts it — correlation rules
     # included — so their patterns join the solver's Observes, and replay uses `observes`.
     pushed = mode == "observed"
-    if pushed:
-        ctx.solver.push()
+    if pushed:  # as extra domain constraints of every solve (never pushed on the shared solver)
         for d in lib.detections:
             if d.id in ctx.tracks:
                 continue
             for ev in d.spec.events:
                 body = ctx.enc.pred(ev.pred)
                 guard = [ctx.enc.ev.present(path) for _, path in referenced_fields(ev.pred)]
-                ctx.solver.add(z3.Not(z3.And(body, *guard) if guard else body))
+                extra.append(z3.Not(z3.And(body, *guard) if guard else body))
     rows: list[Row] = []
     approx = False
-    try:
+    if True:
         for perm in _permissions(check, account):
             res = find_gap(perm, lib, account, ctx=ctx, extra=tuple(extra))
             if isinstance(res, Gap) and pushed:
@@ -373,9 +373,6 @@ def _boundary(check: Check, lib: DetectionLibrary, account: Account, ctx: Covera
                 rows.append(Row(perm, "pass", "held by " + (", ".join(res.covered_by) or "(no rule needed)")))
             elif res.reason == "exhausted":
                 rows.append(Row(perm, "unknown", "refinement bound exhausted"))
-    finally:
-        if pushed:
-            ctx.solver.pop()
     if not rows:
         return CheckResult(check, "pass", "vacuous: no reachable+logged permission in scope", rows=())
     v, d = _combine(rows, approximate=False, fail_word="permission(s) let a matching event slip", pass_word=f"no matching event slips ({mode})")

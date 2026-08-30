@@ -18,6 +18,7 @@ from typing import Any as AnyT
 import yaml
 
 from decnique.dsl.ast import Bundle, Detection, LoadIssue, Provenance
+from decnique.frontends.panther_py import rule_predicate
 from decnique.model.predicates import Cmp, Const, In, Like, Pred, StrFn, Unknown, all_of, any_of
 from decnique.model.trace import Count, EventVar, RuleOptions, TraceSpec, Window, single_event
 
@@ -113,7 +114,7 @@ def lower_panther(
         meta["correlates"] = ",".join(sub)
         spec = single_event("e", Unknown(label="panther:correlation_rule", raw=",".join(sub)))
     else:
-        pred = _datamodel_pred(py_text) or _python_pred(py_text, unsupported)
+        pred = _rule_pred(py_text, unsupported)
         threshold = int(doc.get("Threshold") or 1)
         if threshold > 1:
             window = Window(int(doc.get("DedupPeriodMinutes") or 60) * 60)
@@ -180,6 +181,23 @@ def _datamodel_pred(py_text: str | None) -> Pred | None:
     if "ADMIN_ROLE_ASSIGNED" in names:
         return _gcp_admin_role_assigned()
     return Const(value=False)  # the GCP data model never yields this event type
+
+
+def _rule_pred(py_text: str | None, unsupported: list[str]) -> Pred:
+    """Evaluate ``rule()`` symbolically (:mod:`decnique.frontends.panther_py`); the ``event.udm``
+    data-model idiom has its own exact translation; the regex scraper is the last resort when
+    the body cannot be evaluated at all."""
+    if not py_text:
+        return _python_pred(py_text, unsupported)
+    dm = _datamodel_pred(py_text)
+    if dm is not None:
+        return dm
+    pred, missing = rule_predicate(py_text)
+    if isinstance(pred, Unknown) and not pred.fields:
+        return _python_pred(py_text, unsupported)  # nothing understood: scrape literals
+    for what in missing:
+        unsupported.append(f"panther:python:{what}")
+    return pred
 
 
 def _python_pred(py_text: str | None, unsupported: list[str]) -> Pred:

@@ -46,17 +46,19 @@ def test_cunknown_round_trips_through_the_dsl():
     assert parse_text(text, "t").detections[0].spec == d.spec
 
 
-def test_panther_negated_method_test_is_unknown():
+def test_panther_negated_guard_is_read_as_python_not_as_a_literal():
     py = '''
 def rule(event):
-    if event.get("methodName") != "SetIamPolicy":
+    if event.deep_get("protoPayload", "methodName") != "SetIamPolicy":
         return False
     return True
 '''
     doc = {"AnalysisType": "rule", "RuleID": "r", "LogTypes": ["GCP.AuditLog"], "Enabled": True}
     d, _ = lower_panther(doc, py, "r.yml")
-    # must NOT say "method = SetIamPolicy": the rule fires on every OTHER method
-    assert fires(d.spec, [{"method": "SetIamPolicy"}]) is None
-    assert fires(d.spec, [{"method": "google.iam.admin.v1.CreateServiceAccountKey"}]) is None
-    pos, _ = lower_panther(doc, py.replace("!=", "=="), "r.yml")
-    assert fires(pos.spec, [{"method": "google.iam.admin.v1.CreateServiceAccountKey"}]) is False
+    # `!= X: return False` means "fires only on X" — the evaluator follows the control flow
+    assert not d.approximate
+    assert fires(d.spec, [{"method": "SetIamPolicy"}]) is True
+    assert fires(d.spec, [{"method": "google.iam.admin.v1.CreateServiceAccountKey"}]) is False
+    neg, _ = lower_panther(doc, py.replace("!=", "=="), "r.yml")  # now: fires on every OTHER method
+    assert fires(neg.spec, [{"method": "SetIamPolicy"}]) is False
+    assert fires(neg.spec, [{"method": "google.iam.admin.v1.CreateServiceAccountKey"}]) is True

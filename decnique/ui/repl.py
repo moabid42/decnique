@@ -28,7 +28,7 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "load": ("[--all] [--deprecated] <paths…>", "load detections + candidates (default: GCP only, skips _deprecated)"),
     "account": ("<file.json> [resource]", "load the account model, or a raw gcloud IAM policy / asset export"),
     "events": ("<file.json>", "load an ordered event trace into the session"),
-    "rules": ("[substr]", "list loaded detections (~ = approximate)"),
+    "rules": ("[~][substr]", "list loaded detections (~ = only approximate ones)"),
     "candidates": ("", "list loaded techniques and their footprints"),
     "show": ("<id>", "print canonical DSL for a detection or candidate"),
     "admits": ("<method>", "which detections could involve a method"),
@@ -70,7 +70,9 @@ DETAILS: dict[str, str] = {
                "  Predefined roles expand from the built-in catalog; conditional bindings are kept\n"
                "  unconditionally and listed as notes.",
     "events": "events <file.json>\n  An ordered trace of audit-log events (raw protoPayload or the flat event form).",
-    "rules": "rules [substr]\n  List loaded detections; `~` marks a rule that has an untranslatable part (approximate).",
+    "rules": "rules [~][substr]\n"
+             "  List loaded detections; `~` in STATUS marks a rule with an untranslatable part (approximate).\n"
+             "  `rules ~` lists only those — the rules a verdict can lean on as don't-know; `show <id>` says why.",
     "candidates": "candidates\n  List the loaded techniques: required permissions and the footprint they leave.",
     "show": "show <id>\n  Print a detection, candidate, or check in canonical DSL, plus what could not be translated.",
     "admits": "admits <method>\n  Which detections could involve an event with this method (a syntactic pre-filter).",

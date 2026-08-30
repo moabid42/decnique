@@ -64,7 +64,10 @@ def _add(table: Table, *cells) -> None:
 def rules(s: Session, filt: str | None) -> None:
     if not s.need_lib():
         return
-    shown = [d for d in s.lib.detections if not filt or filt in d.id]
+    only_approx = bool(filt) and filt.startswith("~")
+    if only_approx:
+        filt = filt[1:]
+    shown = [d for d in s.lib.detections if (not filt or filt in d.id) and (not only_approx or d.approximate)]
     if not shown:
         console.print(f"[muted]no detections match {filt!r}[/muted]" if filt
                       else "[muted]no detections loaded[/muted]")
@@ -191,10 +194,26 @@ def _untranslated_rows(d) -> list[tuple[str, str, str]]:
     # the raw text of any Unknown atom left in a predicate (extra detail beyond the label)
     for e in d.spec.events:
         for u in unknowns(e.pred):
-            if u.raw and u.label not in seen:
-                rows.append((u.label, u.raw[:80], _UNTRANSLATED_WHY.get(u.label, "unsupported construct")))
+            if u.label not in seen:
+                rows.append((u.label, (u.raw or "")[:80], _UNTRANSLATED_WHY.get(u.label, "unsupported construct")))
                 seen.add(u.label)
     return rows
+
+
+def unknown_summary(lib, ids) -> str:  # type: ignore[no-untyped-def]
+    """One line saying *why* these rules answered don't-know, grouped by the construct that
+    made them approximate: "5 rules — Panther python logic ×3, ES|QL ×2 (rules ~ lists them)"."""
+    from collections import Counter
+
+    by = {d.id: d for d in lib.detections}
+    reasons: Counter[str] = Counter()
+    for rid in ids:
+        d = by.get(rid)
+        rows = _untranslated_rows(d) if d is not None else []
+        reasons[rows[0][0] if rows else "unknown atom"] += 1
+    parts = ", ".join(f"{k} ×{n}" for k, n in reasons.most_common(4))
+    more = "" if len(reasons) <= 4 else f", +{len(reasons) - 4} more"
+    return f"{len(ids)} rule(s) answered don't-know — {parts}{more}  (`rules ~` lists them, `show <id>` says why)"
 
 
 def _print_untranslated(d) -> None:
@@ -468,6 +487,8 @@ def _blindspots(s, lib, account, single, ctx, permissions, explain, show_raw, re
             r.note(f"raw: {event_brief(res.event)}")
         r.replay(f"replay: {n_fire}/{len(lib.detections)} rules fire, {n_unk} unknown → "
                  f"{'sound' if n_fire == 0 else 'REJECTED'}", sound=(n_fire == 0))
+        if n_unk:
+            r.note(unknown_summary(lib, [rid for rid, v in verdicts.items() if v is None]))
         for c in res.caveats:
             r.note(f"caveat: {c}")
         tag = "approximate" if res.approximate else "exact"
@@ -619,6 +640,8 @@ def _stealth(lib, account, cands, rep) -> None:  # type: ignore[no-untyped-def]
                      f"{n_fire}/{len(lib.detections)} fire, {n_unk} unknown → "
                      f"{'sound' if realized and n_fire == 0 else 'REJECTED'}",
                      sound=(realized and n_fire == 0))
+            if n_unk:
+                r.note(unknown_summary(lib, [rid for rid, v in verdicts.items() if v is None]))
             tag = "approximate" if res.approximate else "exact"
             if res.unlogged:
                 r.no(f"not audit-logged by this account: {', '.join(res.unlogged)} — "

@@ -84,3 +84,15 @@ def test_chains_replays_the_whole_path(tmp_path):
     delays = [it["delay"] for it in doc["items"]]
     assert 3601 in delays  # the search waited out the 1 h correlation window
     assert "replay of the whole path" in doc["transcript"] and "REJECTED" not in doc["transcript"]
+
+
+def test_blindspots_names_why_rules_answered_dont_know(tmp_path):
+    s = _session(tmp_path)
+    dispatch(s, 'detection vague { event method = "SetIamPolicy" and unknown("secops:unsupported") }')
+    dispatch(s, 'detection other { event method = "x" }')
+    dispatch(s, "blindspots resourcemanager.projects.setIamPolicy")
+    doc = _last(tmp_path)
+    assert doc["items"][0]["verdict"] == "gap" and doc["items"][0]["approximate"] is True
+    flat = " ".join(doc["transcript"].split())
+    assert "1 rule(s) answered don't-know" in flat and "secops:unsupported ×1" in flat
+    assert dispatch(s, "rules ~") is True and dispatch(s, "rules ~vag") is True

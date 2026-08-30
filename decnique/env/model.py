@@ -110,6 +110,18 @@ class Account:
                 return True
         return False
 
+    def example_resources(self, principal: str, permission: str) -> tuple[str, ...]:
+        """Concrete resources on which ``principal`` may exercise ``permission`` — one per
+        grant, a glob instantiated (``projects/*`` → ``projects/example``).  For witnesses."""
+        out: list[str] = []
+        for g in self.bindings.get(principal, ()):
+            if not _perm_match(g.permission, permission):
+                continue
+            r = g.resource.replace("*", "example") if g.resource != "*" else "projects/example"
+            if self.reach(principal, permission, r) and r not in out:
+                out.append(r)
+        return tuple(out)
+
     def reachable(self, permission: str, resource: str = "*") -> bool:
         """Can *any* principal exercise ``permission`` on ``resource``?"""
         return any(self.reach(p, permission, resource) for p in self.bindings)

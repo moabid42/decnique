@@ -9,7 +9,7 @@ from decnique.dsl.parser import parse_text
 from decnique.env.catalog import Catalog
 from decnique.env.model import Account, Grant, LogConfig
 from decnique.eval import fires
-from decnique.smt.coverage import Gap, NoGap, find_gap
+from decnique.smt.coverage import CoverageContext, Gap, NoGap, find_gap
 
 
 def _lib(src: str) -> DetectionLibrary:
@@ -267,3 +267,19 @@ def test_unverified_method_cannot_be_the_reason_for_a_gap():
     acct = _account("resourcemanager.projects.setIamPolicy")
     r = find_gap("resourcemanager.projects.setIamPolicy", lib, acct)
     assert isinstance(r, NoGap) and r.reason == "all_covered"
+
+
+def test_witness_resource_is_one_the_principal_reaches():
+    # the grant is scoped to a project and a rule reads `resource`: the witness must carry a
+    # resource the principal really reaches, not "" (which Reach rejects, looping to exhaustion)
+    lib = _lib('''detection d { event method = "storage.objects.get" and resource like "projects/secret*" }''')
+    acct = Account(
+        name="t",
+        bindings={"u": (Grant(permission="storage.objects.get", resource="projects/demo"),)},
+        logging=LogConfig(admin_activity=True, data_access_services=frozenset({"storage.googleapis.com"})),
+        catalog=Catalog.seed(),
+    )
+    ctx = CoverageContext(lib)
+    r = find_gap("storage.objects.get", lib, acct, ctx=ctx)
+    assert isinstance(r, Gap) and r.event["resource"] == "projects/demo"
+    assert ctx.stats["checks"] <= 3 and acct.reach("u", "storage.objects.get", r.event["resource"])

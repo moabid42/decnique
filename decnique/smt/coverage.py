@@ -244,6 +244,8 @@ class CoverageContext:
                 tset = set(true)
                 false = [a for a in atoms if a not in tset]
                 examples = account.catalog.example_values(path, principal=event["principal"])
+                if path == "resource":  # a resource the principal really reaches (Reach is replayed)
+                    examples = account.example_resources(event["principal"], permission) + examples
                 r = self.realizer.realize(true, false, examples)
                 if not r.ok:
                     return None, list(r.learned)

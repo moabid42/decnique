@@ -59,6 +59,7 @@ class Evasive:
 @dataclass(frozen=True, slots=True)
 class AlwaysDetected:
     candidate: str
+    caught_by: tuple[str, ...] = ()  # rate rules whose evasion was impossible (the UNSAT core)
     verdict: str = "always_detected"
 
 
@@ -181,6 +182,7 @@ def stealth_feasible(
 
     rate_specs = []
     approx_rules: list[str] = []
+    track_of: dict[str, z3.BoolRef] = {}  # rule id → assumption literal gating its evasion clause
     for d in rules:
         # prune rules that literally cannot fire on the footprint's methods
         from decnique.dsl.interpret import spec_methods_literal
@@ -190,7 +192,9 @@ def stealth_feasible(
             continue
         constraint, exact = rule_evasion(trace, d.spec, visible=visible)
         if constraint is not None and exact:
-            s.add(constraint)
+            track = z3.Bool(f"track.{d.id}")
+            s.add(z3.Implies(track, constraint))
+            track_of[d.id] = track
             rate_specs.append(d.spec)
         else:
             approx_rules.append(d.id)
@@ -199,10 +203,16 @@ def stealth_feasible(
     required = {p for st in fp.steps for p in account.catalog.required_fields(st.method)}
     paths = tuple(sorted(set(paths) | required))  # a real event carries these even if unread
 
+    track_lits = list(track_of.values())
+    by_track = {str(t): rid for rid, t in track_of.items()}
     unproven = False
     for _ in range(max_refine):
-        if s.check() != z3.sat:
-            return Exhausted(candidate.id) if unproven else AlwaysDetected(candidate.id)
+        if s.check(*track_lits) != z3.sat:
+            if unproven:
+                return Exhausted(candidate.id)
+            core = {str(b) for b in s.unsat_core()}
+            caught = tuple(sorted(rid for t, rid in by_track.items() if t in core))
+            return AlwaysDetected(candidate.id, caught_by=caught)
         model = s.model()
         events = [_decode_event(o, model, paths) for o in trace.occs]
         realized = matches_footprint(fp, events, ref_lists=lib.ref_lists)

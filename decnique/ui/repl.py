@@ -48,6 +48,7 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "reports": ("", "list saved report files (config report.save on)"),
     "export": ("<file.json> [n]", "write the last run's witnesses as Cloud Audit Log JSON (replay in the SIEM)"),
     "suggest": ("<perm…> [define]", "DSL detections that would close a permission's blind spot"),
+    "methods": ("<permission>", "catalog: which audit-log methods exercise a permission (for authoring)"),
     "report": ("<file> | diff <a> <b>", "reopen a saved run: its summary and findings"),
     "clear": ("", "clear the screen (session state is kept)"),
     "help": ("[verb]", "show this command list, or everything about one verb"),
@@ -127,6 +128,10 @@ DETAILS: dict[str, str] = {
               "  Write the last run's witness events (or only finding n) as Cloud Audit Log entries\n"
               "  (protoPayload form, one list) — replay them in the SIEM to confirm the gap for real.\n"
               "  Each entry carries `_decnique` (finding number, label, verdict).",
+    "methods": "methods <permission>\n"
+               "  The audit-log methods that exercise a permission, each with its service, whether it is\n"
+               "  logged in this account, whether the catalog name is verified, and the fields a real\n"
+               "  event carries — what you need to write a candidate's footprint and `where` payload.",
     "suggest": "suggest <permission> [permission …] [define]\n"
                "  For a permission with a blind spot: DSL `detection` blocks that would close it — one per\n"
                "  unwatched kind of change (built from the rules' own tests) and one catch-all over every\n"
@@ -244,6 +249,8 @@ def dispatch(s: Session, line: str) -> bool:
             render.export(s, args)
         elif cmd == "suggest":
             render.suggest(s, args)
+        elif cmd == "methods":
+            render.methods(s, args[0] if args else None)
         elif cmd == "check":
             render.check(s, args)
         elif cmd == "blindspots":
@@ -311,7 +318,7 @@ def print_help() -> None:
 
     groups = [
         ("load state", ["load", "account", "events"]),
-        ("inspect", ["rules", "candidates", "show", "admits", "summary"]),
+        ("inspect", ["rules", "candidates", "show", "admits", "summary", "methods"]),
         ("run over a trace", ["event", "trace", "footprint"]),
         ("coverage — the math", ["blindspots", "stealth", "chains", "check", "checks", "suggest"]),
         ("saved runs", ["reports", "report", "export"]),

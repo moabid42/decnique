@@ -601,6 +601,34 @@ def _blindspots(s, lib, account, single, ctx, permissions, explain, show_raw, re
         console.print("[safe]no blind spots for the probed permissions[/safe]")
 
 
+def methods(s: Session, perm: str | None) -> None:
+    """Catalog lookup: the audit-log methods that exercise a permission (or, with no argument,
+    a permission's own facts) — for writing a candidate's footprint and `where` payload."""
+    if not s.need_account():
+        return
+    cat = s.account.catalog
+    if not perm:
+        console.print("[muted]usage:[/muted] methods <permission>   (e.g. methods iam.serviceAccountKeys.create)")
+        return
+    ms = sorted(cat.methods_for(perm))
+    if not ms:
+        console.print(f"[muted]no catalog method exercises {perm!r}[/muted] "
+                      "(the catalog is GCP; an unknown permission has no method)")
+        return
+    t = _table(f"methods exercising {perm}",
+               [("METHOD",), ("SERVICE",), ("LOG",), ("NAME",), ("REQUIRED FIELDS (a real event carries)",)],
+               caption="LOG: admin = always on · data = off unless enabled · NAME: verified = seen in real logs")
+    for m in ms:
+        info = cat.info(m)
+        log = "data" if cat.is_data_access(m) else "admin"
+        if s.account.logged(m):
+            log += " ✓"
+        req = ", ".join(f.split("labels[")[-1].rstrip("]") for f in cat.required_fields(m)) or "—"
+        _add(t, m, cat.service_of(m), log, "verified" if cat.verified(m) else "unverified", req)
+    console.print(t)
+    console.print(f"[muted]principals holding it: {', '.join(s.account.principals_with(perm)) or '(none in this account)'}[/muted]")
+
+
 def export(s: Session, args: list[str]) -> None:
     """Write the last run's witness events as Cloud Audit Log JSON (a list of entries), so a
     blind spot can be replayed in the real SIEM."""
@@ -810,9 +838,11 @@ def _stealth(lib, account, cands, rep) -> None:  # type: ignore[no-untyped-def]
                     unlogged=list(res.unlogged))
             evasive += 1
         elif res.verdict == "always_detected":
-            r.verdict_safe("always detected — UNSAT: every schedule trips a rate rule (proof over the encoded class)")
-            rows.append((c.id, ("always_detected", "safe"), "—", ("—", "muted")))
-            rep.add(c.id, "always_detected", "every schedule trips a rule (UNSAT proof)")
+            caught = ", ".join(_title(lib, rid) for rid in res.caught_by)
+            r.verdict_safe("always detected — UNSAT: every schedule trips a rule (proof over the encoded class)"
+                           + (f"\n        always caught by: {caught}" if caught else ""))
+            rows.append((c.id, ("always_detected", "safe"), caught or "—", ("—", "muted")))
+            rep.add(c.id, "always_detected", "every schedule trips a rule (UNSAT proof)", caught_by=list(res.caught_by))
         else:
             r.verdict_muted("exhausted — refinement bound reached without a schedule")
             rows.append((c.id, ("exhausted", "muted"), "—", ("—", "muted")))

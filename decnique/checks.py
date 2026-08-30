@@ -198,7 +198,8 @@ def _candidate(check: Check, lib: DetectionLibrary, account: Account) -> CheckRe
         return CheckResult(check, "fail", note, approximate=res.approximate,
                            rows=(Row(str(cid), "fail", note, res.schedule),))
     if isinstance(res, AlwaysDetected):
-        return CheckResult(check, "pass", "always detected (UNSAT proof)", rows=(Row(str(cid), "pass", "always detected"),))
+        by = ("; caught by " + ", ".join(res.caught_by)) if res.caught_by else ""
+        return CheckResult(check, "pass", "always detected (UNSAT proof)" + by, rows=(Row(str(cid), "pass", "always detected" + by),))
     if isinstance(res, NotFeasible):
         note = "vacuous: no principal can run it (" + (", ".join(res.missing) or "no one holds all permissions") + ")"
         return CheckResult(check, "pass", note, rows=(Row(str(cid), "pass", note),))

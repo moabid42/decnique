@@ -68,3 +68,36 @@ def test_chains_needs_a_technique_with_gains(tmp_path):
     dispatch(s, 'candidate x { required { iam.serviceAccountKeys.create } footprint { a: "m" } }')
     dispatch(s, "account examples/account.json")
     assert dispatch(s, "chains resourcemanager.projects.setIamPolicy") is True  # message: no gains
+
+
+def test_always_detected_names_the_catching_rules(tmp_path):
+    from decnique.ui.repl import EXIT_CLEAN, main
+
+    rules = tmp_path / "r.decn"
+    T = "iam.serviceAccounts.getAccessToken"
+    rules.write_text(f'detection watch {{ event method = "{T}" }}\n'
+                     f'candidate use {{ required {{ {T} }} footprint {{ u: "{T}" }} }}\n'
+                     f'check c {{ type candidate for use }}\n')
+    acct = tmp_path / "a.json"
+    acct.write_text('{"version":1,"bindings":{"a@x.com":[{"permission":"iam.serviceAccounts.getAccessToken"}]},'
+                    '"logging":{"admin_activity":true,"data_access_services":["iamcredentials.googleapis.com"]}}')
+    s = Session()
+    from decnique.ui.config import Settings
+    s.settings = Settings(tmp_path / "cfg.json")
+    dispatch(s, f"load {rules}")
+    dispatch(s, f"account {acct}")
+    dispatch(s, "stealth use")
+    assert s.last_report.items[0]["verdict"] == "always_detected"
+    assert s.last_report.items[0]["caught_by"] == ["watch"]
+    dispatch(s, "check c")
+    assert "caught by watch" in s.last_report.items[0]["detail"]
+
+
+def test_methods_verb(tmp_path):
+    s = Session()
+    from decnique.ui.config import Settings
+    s.settings = Settings(tmp_path / "cfg.json")
+    assert dispatch(s, "methods iam.serviceAccountKeys.create") is True  # no account: guard message
+    dispatch(s, "account examples/account.json")
+    assert dispatch(s, "methods iam.serviceAccountKeys.create") is True
+    assert dispatch(s, "methods no.such.permission") is True

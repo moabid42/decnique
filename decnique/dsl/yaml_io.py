@@ -32,7 +32,7 @@ _PRED_TYPES = {
     )
 }
 _AGG_TYPES = {c.__name__: c for c in (T.AggCall, T.AggConst, T.AggRef, T.AggIf, T.AggBin)}
-_COND_TYPES = {c.__name__: c for c in (T.Count, T.AggCmp, T.CAnd, T.COr, T.CNot, T.CTrue)}
+_COND_TYPES = {c.__name__: c for c in (T.Count, T.AggCmp, T.CAnd, T.COr, T.CNot, T.CTrue, T.CUnknown)}
 
 
 def _qf(f: P.QField) -> list[str | None]:
@@ -130,6 +130,8 @@ def cond_to_dict(c: T.CondExpr) -> dict[str, AnyT]:
         return {"kind": "CNot", "child": cond_to_dict(c.child)}
     if isinstance(c, T.CAnd | T.COr):
         return {"kind": type(c).__name__, "children": [cond_to_dict(x) for x in c.children]}
+    if isinstance(c, T.CUnknown):
+        return {"kind": "CUnknown", "label": c.label}
     return {"kind": "CTrue"}
 
 
@@ -144,6 +146,8 @@ def cond_from_dict(d: dict[str, AnyT]) -> T.CondExpr:
     if k in {"CAnd", "COr"}:
         cls = T.CAnd if k == "CAnd" else T.COr
         return cls(tuple(cond_from_dict(x) for x in d["children"]))
+    if k == "CUnknown":
+        return T.CUnknown(str(d["label"]))
     return T.CTrue()
 
 

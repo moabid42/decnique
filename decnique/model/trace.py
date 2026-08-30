@@ -108,7 +108,16 @@ class CTrue:
     pass
 
 
-CondExpr = Count | AggCmp | CAnd | COr | CNot | CTrue
+@dataclass(frozen=True, slots=True)
+class CUnknown:
+    """A part of the condition a front-end could not translate.  It evaluates to *don't-know*,
+    so a rule whose condition was only partly understood can never be claimed to fire or not
+    fire for certain (honesty invariant #1 — dropping the part would broaden the rule)."""
+
+    label: str
+
+
+CondExpr = Count | AggCmp | CAnd | COr | CNot | CTrue | CUnknown
 
 
 @dataclass(frozen=True, slots=True)

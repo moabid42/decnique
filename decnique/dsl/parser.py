@@ -59,6 +59,7 @@ from decnique.model.trace import (
     AggRef,
     CAnd,
     CNot,
+    CUnknown,
     CondExpr,
     COr,
     Count,
@@ -338,6 +339,8 @@ class _Builder:
             return cls(tuple(parts))
         if node.data == "cnot":
             return CNot(self.cond(node.children[0], var_names, agg_names))
+        if node.data == "cunknown":
+            return CUnknown(unescape(str(node.children[0])))
         if node.data == "count_cmp":
             tok, op, n = node.children
             if str(tok) not in var_names:

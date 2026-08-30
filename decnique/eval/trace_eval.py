@@ -397,7 +397,7 @@ def _eval_cond(c: CondExpr, group: Group, aggregates: Mapping[str, AggExpr]) -> 
         return _or_all(_eval_cond(x, group, aggregates) for x in c.children)
     if isinstance(c, CNot):
         return _not(_eval_cond(c.child, group, aggregates))
-    return None
+    return None  # CUnknown: the front-end could not say
 
 
 # --- public entry points ----------------------------------------------------------------

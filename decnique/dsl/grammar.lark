@@ -45,6 +45,7 @@ condition: "condition" cond
           | "#" NAME cmpop NUMBER             -> count_cmp
           | "#" NAME                          -> count_exists
           | NAME cmpop NUMBER                 -> agg_cmp
+          | "unknown" "(" STRING ")"          -> cunknown
 options: "options" "{" meta_entry* "}"
 
 // ===== single-event predicates (matchers) =====

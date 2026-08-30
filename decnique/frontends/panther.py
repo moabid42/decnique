@@ -201,14 +201,21 @@ def _python_pred(py_text: str | None, unsupported: list[str]) -> Pred:
         s = _first(m)
         if _METHOD_CTX.search(m.group(m.lastindex)) and _METHOD_LIKE.match(s):
             methods.append(StrFn(field=(None, "method"), fn="contains", value=s))
+    negated = False  # a `!=` / `not in` on the method: the rule fires on OTHER methods
     for m in _EQ.finditer(body):
         s = _first(m)
         ctx = _same_statement(body, m.start())
         if _METHOD_CTX.search(ctx) and _METHOD_LIKE.match(s):
-            methods.append(Cmp(field=(None, "method"), op="=", value=s))
+            if body[m.start():m.start() + 2] == "!=":
+                negated = True
+            else:
+                methods.append(Cmp(field=(None, "method"), op="=", value=s))
     for m in _IN_SET.finditer(body):
         ctx = _same_statement(body, m.start())
         if not _METHOD_CTX.search(ctx):
+            continue
+        if re.search(r"\bnot\s*$", body[max(0, m.start() - 8):m.start()]):
+            negated = True
             continue
         inner = m.group(1).strip()
         vals = sets.get(inner, _strings(inner))
@@ -224,8 +231,12 @@ def _python_pred(py_text: str | None, unsupported: list[str]) -> Pred:
     perms = [_first(m) for m in _PERM_CTX.finditer(body)]
     perms = [p for p in perms if _METHOD_LIKE.match(p)]
     parts: list[Pred] = []
-    if methods:
+    if methods and not negated:
         parts.append(any_of(_dedupe(methods)))
+    elif negated:
+        # the scraped literals are the methods the rule EXCLUDES; which methods it fires on
+        # is not knowable from a regex — say so instead of narrowing to the wrong set
+        parts.append(Unknown(label="panther:negated_method_test", fields=((None, "method"),)))
     if perms:
         parts.append(In(field=(None, "permission"), values=tuple(dict.fromkeys(perms))))
     parts.append(

@@ -35,6 +35,7 @@ from decnique.model.trace import (
     COr,
     Count,
     CTrue,
+    CUnknown,
     TraceSpec,
 )
 
@@ -160,6 +161,8 @@ def _cond(c: CondExpr, outer: int) -> str:
         return f"{c.name} {c.op} {c.n}"
     if isinstance(c, CTrue):
         return "#__true__"
+    if isinstance(c, CUnknown):
+        return f"unknown({quote(c.label)})"
     raise TypeError(f"cannot format {c!r}")
 
 

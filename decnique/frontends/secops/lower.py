@@ -40,6 +40,7 @@ from decnique.model.trace import (
     COr,
     Count,
     CTrue,
+    CUnknown,
     EventVar,
     Join,
     RuleOptions,
@@ -95,8 +96,17 @@ def lower_rule(rule: y.YaralRule, file: str, udm: UdmMap | None = None) -> Detec
         st.preds["e"].append(Unknown(label="secops:no_event_variable"))
         st.unsupported.append("events:no_event_variable")
 
-    # placeholders occurring in several variables are joins (lowering step 2)
+    # placeholders occurring in several variables are joins (lowering step 2); the same
+    # placeholder bound to two fields of ONE variable is a field-to-field equality the DSL
+    # cannot express — it stays a don't-know on that variable rather than vanishing
     for ph, fields in st.bindings.items():
+        by_var: dict[str, list] = defaultdict(list)
+        for f in fields:
+            by_var[f[0]].append(f)
+        for var, same in by_var.items():
+            if len({f[1] for f in same}) > 1 and var in st.vars:
+                st.preds[var].append(Unknown(label="secops:same_event_equality", raw=f"${ph}"))
+                st.unsupported.append(f"events:same_event_equality:${ph}")
         distinct_vars = {f[0] for f in fields}
         if len(distinct_vars) > 1:
             first = fields[0]
@@ -489,7 +499,9 @@ def _lower_condition(
             else Count(st.vars[0], ">=", 1)
         )
     out = _cond(c, st, aggregates, outcome_kinds)
-    return out if out is not None else CTrue()
+    # An untranslatable condition must not become "always true" — that would broaden the rule
+    # (e.g. drop a `#e > 3` threshold) and let a proof lean on it.
+    return out if out is not None else CUnknown("secops:condition")
 
 
 def _cond(
@@ -502,11 +514,12 @@ def _cond(
         inner = _cond(c.child, st, aggregates, kinds)
         return CNot(inner) if inner is not None else None
     if isinstance(c, y.CondAnd | y.CondOr):
-        parts = [x for x in (_cond(k, st, aggregates, kinds) for k in c.children) if x is not None]
-        if len(parts) != len(c.children):
+        lowered = [_cond(k, st, aggregates, kinds) for k in c.children]
+        if any(x is None for x in lowered):
+            # keep the understood parts, and an explicit don't-know for the rest: dropping a
+            # conjunct would make the rule fire more often than it really does
             st.unsupported.append("condition:partially_lowered")
-        if not parts:
-            return None
+        parts = [x if x is not None else CUnknown("secops:condition_part") for x in lowered]
         if len(parts) == 1:
             return parts[0]
         return CAnd(tuple(parts)) if isinstance(c, y.CondAnd) else COr(tuple(parts))

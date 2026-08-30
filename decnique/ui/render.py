@@ -51,6 +51,8 @@ def _table(title: str, columns, *, caption: str | None = None) -> Table:
 
 def _cell(value) -> Text:
     """A cell that may be a plain string or a ``(text, style)`` pair."""
+    if isinstance(value, Text):
+        return value
     if isinstance(value, tuple):
         return Text(value[0], style=value[1])
     return Text(str(value))
@@ -258,13 +260,36 @@ def admits(s: Session, method: str | None) -> None:
     console.print(t)
 
 
+_SUMMARY_MEANING = {
+    "detections": "rules loaded",
+    "by_frontend": "rules per rule language",
+    "exact": "rules translated fully — verdicts on them are proofs",
+    "approximate": "rules with an untranslated part (unknown) — verdicts are approximate",
+    "correlation": "multi-event rules (windows, counts, joins)",
+    "candidates": "techniques loaded (for stealth / chains)",
+    "checks": "check blocks loaded",
+    "errors": "files that failed to load",
+    "warnings": "load warnings (untranslated parts, unbound placeholders, …)",
+    "unsupported_labels": "what could not be translated, and in how many rules",
+}
+
+
 def summary(s: Session) -> None:
     if not s.need_lib():
         return
     data = s.lib.summary()
-    t = _table("corpus summary", [("METRIC",), ("VALUE", "right")])
+    t = _table("corpus summary", [("METRIC",), ("VALUE", "center"), ("MEANING",)])
     for k, v in data.items():
-        _add(t, k, str(v))
+        if isinstance(v, dict):  # one entry per line instead of a wrapped dict literal
+            if not v:
+                shown = "(none)"
+            else:
+                width = max(len(str(n)) for n in v.values())
+                # a block, not a centred line each: keep the numbers in one column
+                shown = Text("\n".join(f"{n:>{width}}  {name}" for name, n in v.items()), justify="left")
+        else:
+            shown = str(v)
+        _add(t, k, shown, _SUMMARY_MEANING.get(k, ""))
     console.print(t)
 
 

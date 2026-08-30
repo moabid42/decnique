@@ -33,7 +33,7 @@ Formal question (single event): `∃ e : Reach_p(e) ∧ Log(e) ∧ ¬(⋁_R Obse
 | term | meaning |
 |---|---|
 | **detection** | a rule; single-event or correlation (windows, counts, joins) |
-| **candidate / technique** | what an attacker needs (`required` permissions) and the trace they leave (`footprint` steps, optionally with a `where` payload) |
+| **candidate / technique** | what an attacker needs (`required` permissions), the trace it leaves (`footprint` steps, optionally with a `where` payload), and optionally what it `gains` (permissions added on success — how `chains` advances) |
 | **Reach / Log / Observes** | account grants it / the method is audit-logged / rule R fires on event e |
 | **unknown(...)** | an atom a front-end could not translate; anything touching it is **approximate** |
 | **approximate vs exact** | a verdict is exact only if no `unknown` and no unverified assumption was involved |
@@ -51,15 +51,18 @@ decnique/
   dsl/          grammar.lark, parser, ast, format (round-trip), interpret (3-valued oracle), loader
   model/        event_fields (closed vocabulary), predicates (Pred tree, Unknown), trace (TraceSpec)
   frontends/    secops/ sigma elastic panther  -> DSL; untranslatable parts become unknown(...)
-  env/          catalog (method facts), model (Account: Reach/Log), ingest (account.json)
+  env/          catalog (method facts; catalog.gcp() from the iam-dataset), model (Account:
+                Reach/Log, grant-indexed), ingest (account.json), gcp_import (raw gcloud exports)
   eval/         trace_eval: fires(), matches_footprint()  <- THE ORACLE, arbiter of truth
-  smt/          atoms (abstraction + realizer), coverage (blindspots engine), encode_*/stealth (M3),
+  smt/          atoms (abstraction + realizer), coverage (blindspots engine; incremental atom
+                consistency), encode_*/stealth (M3), answers.py at repo top = engine-level JSON,
                 bucket (optional grouping), legacy_coverage (old engine, differential test only)
   graph/        chains: search over stealthy techniques
   checks.py     runs `check` blocks (one engine per check type, three-valued, replayed)
-  ui/           repl (command table + per-verb help), render (verbs), session, config (settings),
+  ui/           repl (commands, per-verb help, batch/CI main), render (verbs), session, config,
                 report (saved runs: md/json/yaml), words (opt-in wording)
-  catalogs/     UDM field map
+  catalogs/     UDM field map; gcp_methods/gcp_roles (built by catalogs/build_gcp.py), gcp_tags
+answers.py      engine-level JSON (blindspots/stealth/chains) for the argparse CLI
 examples/       account.json, candidates.decn
 tests/          pytest; synthetic suites + corpus tests (skipped when the corpus is absent)
 run.py          launcher for the interactive shell / one-shot commands
@@ -73,15 +76,33 @@ python -m venv .venv && .venv/bin/pip install -e .[test]
 python3 run.py                                           # shell
 python3 run.py blindspots resourcemanager.projects.setIamPolicy
 ```
-In the shell: `load [--all] [--deprecated] <rule dirs…> <candidates.decn>`, `account <json>`,
-`blindspots [perm…]`, `stealth [id]`, `chains`, `check [id… | file.decn…]`, `checks`, `config`,
-`reports`, `report <file>`, `clear`, `help [verb]`.
+In the shell: `load [--all] [--deprecated] <rule dirs…> <candidates.decn>`,
+`account <json | raw gcloud export> [resource]`, `blindspots [perm…]`, `stealth [id]`,
+`chains [goal] [--from p] [--start p1,p2]`, `check [id… | file.decn…]`, `checks`,
+`methods <perm>`, `suggest <perm…> [define]`, `export <file.json>`, `config`, `reports`,
+`report <file> | report diff <a> <b>`, `clear`, `help [verb]`.
 
 `help <verb>` (or `config <verb>`) explains one verb: its arguments, what every word on screen
 means, and its settings.  With `config report.save on`, every `blindspots` / `stealth` / `chains`
 / `check` run is written to `report.dir` as Markdown (default; the data is embedded as JSON at
-the end), JSON, or YAML (`report.format`); `reports` lists them and `report <file>` reopens one
-— for output too long to read on screen, or to come back to a run later.
+the end), JSON, or YAML (`report.format`); `reports` lists them, `report <file>` reopens one, and
+`report diff <a> <b>` shows what changed between two runs.  `export <file.json>` writes the last
+run's witnesses as Cloud Audit Log entries to replay in a SIEM; `suggest <perm> [define]` proposes
+DSL detections that would close a blind spot; `methods <perm>` is the catalog lookup for authoring.
+
+**Batch / CI mode.** `python3 run.py --rules DIR… --account a.json [--json] [--report DIR]
+[--fail-on finding|unknown] [-f script] <verb …>` runs one command (or a script of them) and
+exits: 0 clean · 2 a finding (gap / evasive / stealthy / failed check) · 3 input error · 4
+inconclusive (with `--fail-on unknown`).  In the interactive shell an error in a verb is reported
+and the session survives (`DECNIQUE_DEBUG=1` re-raises).
+
+**The account.** `account` takes the tool's own JSON *or* a raw export, converted on load:
+`gcloud projects get-iam-policy P --format=json` (bindings + Data Access `auditConfigs`) with a
+`resource` scope, or `gcloud asset search-all-iam-policies --format=json` (grants scoped per
+resource).  Predefined roles expand from the bundled catalog; conditional bindings are kept and
+listed as notes.  The method↔permission catalog is `Catalog.gcp()` — the whole GCP surface from
+the iam-dataset (generated method names are *unverified* until a loaded rule attests them); it
+falls back to the small hand-checked seed when the data files are absent.
 
 The prompt also accepts DSL directly, like a Python interpreter: a line starting with
 `detection`, `candidate`, `check`, or `ruleset` and containing `{` opens a block that is read
@@ -92,6 +113,13 @@ is a complete session without any file.  `examples/checks.decn` shows every impl
 Rule corpora are **not** in the repo. Point `load` at directories of native rules (YARA-L
 `.yaral`, Elastic `.toml`, Sigma `.yml`, Panther `.yml`+`.py`). The loader keeps GCP-relevant
 rules by default; `--all` loads every platform (only useful for scale tests).
+
+New in this iteration (all replay-verified, tests in `tests/`): a Python-AST evaluator for
+Panther `rule()` bodies (`frontends/panther_py.py` — control flow, reads, loops, helpers, the
+`event.udm` data model) instead of regex-scraping; an `unknown("…")` **condition** atom so a
+partly-translated correlation condition stays don't-know; the SIEM glob language (no `[]`
+classes, escaped wildcards) in `interpret.glob_match`; chain paths replayed whole (a correlation
+rule across hops is caught); stealth reports the rules that always catch a technique.
 
 ## 5. Invariants — do not break
 
@@ -112,7 +140,9 @@ rules by default; `--all` loads every platform (only useful for scale tests).
 
 - **New front-end idiom** → `decnique/frontends/<x>.py`; add a test in `tests/`; keep anything
   you cannot express as `unknown("<frontend>:<label>")`.
-- **New method / realism fact** → `decnique/env/catalog.py` (`_SEED`, `METHOD_EVENT_TYPE`,
+- **Regenerate the GCP catalog** → `python -m decnique.catalogs.build_gcp <iam-dataset>/gcp`
+  writes `catalogs/gcp_methods.json.gz` / `gcp_roles.json.gz` / `gcp_tags.json` (data, not code).
+- **New method / realism fact (seed)** → `decnique/env/catalog.py` (`_SEED`, `METHOD_EVENT_TYPE`,
   `POLICY_DELTA_FIELDS`, `EXAMPLE_VALUES`, `verified=`). Data, not code.
 - **New setting** → one `Setting(...)` in `decnique/ui/config.py` `REGISTRY`; read it via
   `session.settings.get(key)`.

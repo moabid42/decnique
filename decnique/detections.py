@@ -100,6 +100,29 @@ class DetectionLibrary:
         )
 
 
+def _epoch(ts: AnyT) -> int | None:
+    """A Cloud Audit Log ``timestamp`` (RFC 3339 string, or already epoch seconds) as epoch
+    seconds — the model's ``time`` field, which correlation windows/spans read.  Unparseable
+    → ``None`` (dropped), so a log without a usable time stays honestly time-less."""
+    if ts is None:
+        return None
+    if isinstance(ts, (int, float)):
+        return int(ts)
+    s = str(ts).strip()
+    if not s:
+        return None
+    try:
+        return int(float(s))  # a numeric epoch written as a string
+    except ValueError:
+        pass
+    from datetime import datetime
+
+    try:
+        return int(datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp())
+    except ValueError:
+        return None
+
+
 def event_from_audit_log(entry: Mapping[str, AnyT]) -> dict[str, AnyT]:
     """Project a Cloud Audit Log entry (``protoPayload`` form) onto the event model."""
     pp = entry.get("protoPayload") or entry
@@ -125,6 +148,7 @@ def event_from_audit_log(entry: Mapping[str, AnyT]) -> dict[str, AnyT]:
         "caller_ip": meta.get("callerIp"),
         "user_agent": meta.get("callerSuppliedUserAgent"),
         "granted": first.get("granted") if infos else None,
+        "time": _epoch(entry.get("timestamp") or pp.get("timestamp")),
         "log_name": entry.get("logName"),
         "udm": dict(entry.get("udm") or {}),
     }

@@ -117,12 +117,12 @@ def perms(s, args: list[str]) -> None:  # type: ignore[no-untyped-def]
         universe = [p for p in universe if p in tags[want[str(tag).lower()]]]
     if opts.get("reachable"):
         if s.account is None:
-            console.print("[warn]--reachable needs an account[/warn] — run: [key]account <file.json>[/key]")
+            console.print("[warn]--reachable needs an account[/warn] — run: [key]account load <file.json>[/key]")
             return
         universe = [p for p in universe if s.account.reachable(p)]
     if opts.get("unwatched"):
         if s.lib is None:
-            console.print("[warn]--unwatched needs rules[/warn] — run: [key]load <paths…>[/key]")
+            console.print("[warn]--unwatched needs rules[/warn] — run: [key]rules load <paths…>[/key]")
             return
         universe = [p for p in universe if not _rules_naming(s, cat.methods_for(p))]
 
@@ -176,7 +176,7 @@ def methods(s, args: list[str]) -> None:  # type: ignore[no-untyped-def]
     words, opts = _opts(args)
     cat = _catalog(s)
     if not words:
-        console.print("[muted]usage:[/muted] methods <permission | method> [--limit N]   "
+        console.print("[muted]usage:[/muted] catalog methods <permission | method> [--limit N]   "
                       "(e.g. methods iam.serviceAccountKeys.create)")
         return
     name = words[0]

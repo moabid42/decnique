@@ -33,7 +33,7 @@ def _session(tmp_path) -> Session:
     s.settings = Settings(tmp_path / "cfg.json")
     dispatch(s, f"config report.dir {tmp_path / 'out'}")
     dispatch(s, "config report.format json")
-    dispatch(s, "account examples/account.json")
+    dispatch(s, "account load examples/account.json")
     dispatch(s, 'detection keys { event method = "google.iam.admin.v1.CreateServiceAccountKey" }')
     role = _D % "role"
     dispatch(s, 'detection owner { event method = "SetIamPolicy" and udm("' + role + '") = "roles/owner" }')
@@ -42,25 +42,25 @@ def _session(tmp_path) -> Session:
 
 def test_export_suggest_define_and_diff(tmp_path):
     s = _session(tmp_path)
-    assert dispatch(s, "export x.json") is True  # nothing to export yet: a message, not an error
+    assert dispatch(s, "reports export x.json") is True  # nothing to export yet: a message, not an error
     dispatch(s, "config report.save on")
-    dispatch(s, "blindspots resourcemanager.projects.setIamPolicy")
+    dispatch(s, "ask blindspots resourcemanager.projects.setIamPolicy")
     before = list_reports(tmp_path / "out")[0]
     out = tmp_path / "witness.json"
-    assert dispatch(s, f"export {out}") is True
+    assert dispatch(s, f"reports export {out}") is True
     entries = json.loads(out.read_text())
     assert entries and entries[0]["protoPayload"]["methodName"] == "SetIamPolicy"
     assert entries[0]["_decnique"]["label"] == "resourcemanager.projects.setIamPolicy"
     # suggest rules and define them: the gap must close
-    assert dispatch(s, "suggest resourcemanager.projects.setIamPolicy define") is True
+    assert dispatch(s, "ask suggest resourcemanager.projects.setIamPolicy define") is True
     ids = [d.id for d in s.lib.detections]
     # the only atom the rules test on this permission (role = roles/owner) is watched, so no
     # targeted rule is needed; the catch-all closes the rest
     assert "watch_resourcemanager_projects_setIamPolicy" in ids
-    dispatch(s, "blindspots resourcemanager.projects.setIamPolicy")
+    dispatch(s, "ask blindspots resourcemanager.projects.setIamPolicy")
     assert s.last_report.items[0]["verdict"] == "all_covered"  # the gap is closed
     after = list_reports(tmp_path / "out")[0]
     assert after != before  # same-second runs get distinct files
     assert json.loads(after.read_text())["items"][0]["verdict"] == "all_covered"
-    assert dispatch(s, f"report diff {before.name} {after.name}") is True
-    assert dispatch(s, "suggest iam.serviceAccountKeys.create") is True  # covered: nothing to close
+    assert dispatch(s, f"reports diff {before.name} {after.name}") is True
+    assert dispatch(s, "ask suggest iam.serviceAccountKeys.create") is True  # covered: nothing to close

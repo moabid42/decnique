@@ -46,7 +46,7 @@ REGISTRY: dict[str, Setting] = {
             ("off", "on"),
             "off",
             "save every blindspots / stealth / chains / check run to a report file you can "
-            "reopen later with `report <file>` (useful when the output is too long to read)",
+            "reopen later with `reports show <file>` (useful when the output is too long to read)",
         ),
         Setting(
             "report.format",

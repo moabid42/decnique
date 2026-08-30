@@ -37,8 +37,8 @@ def test_asset_search_import_scopes_grants_per_resource():
 
 def test_account_verb_accepts_raw_exports_and_runs(tmp_path):
     s = Session()
-    assert dispatch(s, f"account {_POLICY} projects/demo") is True and s.account is not None
+    assert dispatch(s, f"account load {_POLICY} projects/demo") is True and s.account is not None
     assert s.account.reach("admin@demo.com", "resourcemanager.projects.setIamPolicy", "projects/demo")
     dispatch(s, 'detection keys { event method = "google.iam.admin.v1.CreateServiceAccountKey" }')
-    assert dispatch(s, "blindspots iam.serviceAccountKeys.create") is True
-    assert dispatch(s, f"account {_ASSETS}") is True and s.account.name == "gcloud_assets"
+    assert dispatch(s, "ask blindspots iam.serviceAccountKeys.create") is True
+    assert dispatch(s, f"account load {_ASSETS}") is True and s.account.name == "gcloud_assets"

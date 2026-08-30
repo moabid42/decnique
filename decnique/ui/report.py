@@ -81,7 +81,7 @@ def to_markdown(r: Report) -> str:
         lines.append("")
     if r.transcript:
         lines += ["## transcript", "", "```text", r.transcript.rstrip("\n"), "```", ""]
-    lines += ["## data", "", "<!-- the run as JSON, so `report <file>` can reload this Markdown -->",
+    lines += ["## data", "", "<!-- the run as JSON, so `reports show <file>` can reload this Markdown -->",
               _FENCE, json.dumps(d, indent=2, ensure_ascii=False), "```", ""]
     return "\n".join(lines)
 

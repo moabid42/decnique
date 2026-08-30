@@ -26,4 +26,4 @@ def test_define_merges_and_replaces_by_id(tmp_path):
     dispatch(s, 'candidate k { required { iam.serviceAccountKeys.create } footprint { a: "X" } }')
     dispatch(s, "check c { type candidate for k }")
     assert [c.id for c in s.lib.bundle.candidates] == ["k"]  # candidates survive a redefine
-    assert dispatch(s, "checks") is True and dispatch(s, "check c") is True  # no account → cannot run
+    assert dispatch(s, "checks list") is True and dispatch(s, "ask check c") is True  # no account → cannot run

@@ -1,6 +1,6 @@
 """The interactive shell: a prompt_toolkit input line over a rich-rendered body.
 
-The input line carries the affordances that make a REPL feel alive — command and path
+The input line carries the affordances that make a REPL feel alive — object / verb / path
 completion, history with ghost-text suggestions, and a bottom toolbar that always shows what
 the session is holding (rules / candidates / account / events).  All *output* is rendered by
 :mod:`decnique.ui.render` through the shared rich console, so the two layers stay cleanly split.
@@ -20,145 +20,12 @@ from pathlib import Path
 
 from decnique.dsl.parser import DslError
 
-from . import browse, render
+from .commands import OBJECTS, SHELL, Obj, Verb, settings_prefix
 from .session import Session
 from .theme import BULLET, console
 
 # --- command catalogue --------------------------------------------------------------------
-
-# verb -> (argument hint, one-line help).  Single source for completion, help, and dispatch.
-COMMANDS: dict[str, tuple[str, str]] = {
-    "load": ("[--all] [--deprecated] <paths…>", "load detections + candidates (default: GCP only, skips _deprecated)"),
-    "account": ("<file.json> [resource]", "load the account model, or a raw gcloud IAM policy / asset export"),
-    "events": ("<file.json>", "load an ordered event trace into the session"),
-    "rules": ("[~][substr]", "list loaded detections (~ = only approximate ones)"),
-    "candidates": ("", "list loaded techniques and their footprints"),
-    "show": ("<id>", "print canonical DSL for a detection or candidate"),
-    "admits": ("<method>", "which detections could involve a method"),
-    "summary": ("", "corpus statistics"),
-    "event": ("<file.json>", "single event: which detections observe it"),
-    "trace": ("[all]", "run every detection over the loaded trace (three-valued)"),
-    "footprint": ("[id]", "match candidate footprint(s) against the loaded trace"),
-    "checks": ("", "list loaded check blocks and the question each asks"),
-    "check": ("[id… | file.decn…]", "run check blocks (all loaded, by id, or from files)  (SMT)"),
-    "blindspots": ("[perm…]", "reachable+logged events no rule observes  (SMT · M2)"),
-    "stealth": ("[id]", "can a technique evade every rule?  (SMT · M3)"),
-    "chains": ("[goal] [--from p] [--start p1,p2]", "stealthy privilege-escalation paths  (graph+SMT · M4)"),
-    "config": ("[verb | key [value|reset]]", "show or change settings; `config <verb>` explains a verb and its settings"),
-    "reports": ("", "list saved report files (config report.save on)"),
-    "export": ("<file.json> [n]", "write the last run's witnesses as Cloud Audit Log JSON (replay in the SIEM)"),
-    "suggest": ("<perm…> [define]", "DSL detections that would close a permission's blind spot"),
-    "perms": ("[filter] [--tag T] [--reachable] [--unwatched] [--limit N|--all]", "browse permissions: by service, then by name"),
-    "methods": ("<permission | method> [--limit N]", "catalog: a permission's audit-log methods, or one method's facts"),
-    "roles": ("[filter | role [filter]] [--with perm] [--limit N]", "predefined roles: what a role grants, which roles grant a permission"),
-    "who": ("[permission | principal [filter]] [--limit N]", "the account: who holds a permission and where, or what a principal holds"),
-    "report": ("<file> | diff <a> <b>", "reopen a saved run: its summary and findings"),
-    "clear": ("", "clear the screen (session state is kept)"),
-    "help": ("[verb]", "show this command list, or everything about one verb"),
-    "quit": ("", "leave the shell"),
-}
-
-_PATH_CMDS = {"load", "account", "events", "event", "check", "report", "export"}
-_MATH_CMDS = {"blindspots", "stealth", "chains", "check"}
-
-# plain-language detail for `help <verb>` / `config <verb>`: arguments, sub-words, what to expect
-DETAILS: dict[str, str] = {
-    "load": "load [--all] [--deprecated] <path…>\n"
-            "  paths: directories or files of native rules (.yaral, .toml, .yml) or DSL (.decn)\n"
-            "  --all         keep every platform (default keeps only GCP-relevant rules)\n"
-            "  --deprecated  also load rules under _deprecated/\n"
-            "  What you get: detections, candidates (techniques) and checks, merged into the session.",
-    "account": "account <file.json> [resource]\n"
-               "  The GCP account model: who holds which permission on which resource (Reach), and\n"
-               "  which audit logs are on (Log). Optional `attack` block for `chains`.\n"
-               "  Also accepts a raw export, converted on load:\n"
-               "    gcloud projects get-iam-policy PROJECT --format=json > policy.json\n"
-               "      → account policy.json projects/PROJECT     (bindings + Data Access audit config)\n"
-               "    gcloud asset search-all-iam-policies --scope=projects/PROJECT --format=json > cai.json\n"
-               "      → account cai.json                          (grants scoped per resource)\n"
-               "  Predefined roles expand from the built-in catalog; conditional bindings are kept\n"
-               "  unconditionally and listed as notes.",
-    "events": "events <file.json>\n  An ordered trace of audit-log events (raw protoPayload or the flat event form).",
-    "rules": "rules [~][substr]\n"
-             "  List loaded detections; `~` in STATUS marks a rule with an untranslatable part (approximate).\n"
-             "  `rules ~` lists only those — the rules a verdict can lean on as don't-know; `show <id>` says why.",
-    "candidates": "candidates\n  List the loaded techniques: required permissions and the footprint they leave.",
-    "show": "show <id>\n  Print a detection, candidate, or check in canonical DSL, plus what could not be translated.",
-    "admits": "admits <method>\n  Which detections could involve an event with this method (a syntactic pre-filter).",
-    "summary": "summary\n  Corpus statistics: rules per platform, approximate rules, checks.",
-    "event": "event <file.json>\n  One concrete event: which detections observe it (yes / no / don't-know).",
-    "trace": "trace [all]\n  Run every detection over the loaded trace; `all` also lists the ones that do not fire.",
-    "footprint": "footprint [id]\n  Does the loaded trace realize a technique's footprint?",
-    "checks": "checks\n  List loaded `check` blocks and the question each asks.",
-    "check": "check [id… | file.decn…]\n"
-             "  Run check blocks: all loaded ones, the named ones, or those in the given files.\n"
-             "  Types: coverage, candidate, compare, dead_rules, redundant_rules, boundary,\n"
-             "         require_coverage, attempt_coverage, public_access.\n"
-             "  Every answer is pass / fail / unknown; a fail shows a witness replayed through the oracle.\n"
-             "  You can also type a block at the prompt:  check q { type candidate for <technique> }",
-    "blindspots": "blindspots [perm…]\n"
-                  "  QUESTION: for each permission, is there ANY logged action using it that no rule catches?\n"
-                  "  Per permission you see:\n"
-                  "    Reach        who can exercise it          Log   which methods are audit-logged\n"
-                  "    example      the simplest event nobody catches (replayed through the oracle)\n"
-                  "    watched:     a kind of change some rule catches — and by which rule\n"
-                  "    UNWATCHED:   a kind of change no rule catches — and the nearest rule's missing condition\n"
-                  "    the attack…  the verdict of `stealth` for techniques needing this permission\n"
-                  "  Verdicts: BLIND SPOT / covered (proof) / inconclusive (refinement bound).\n"
-                  "  exact vs ~approx: approx means an untranslatable rule part was involved.\n"
-                  "  Settings: blindspots.explain (rules | formula | both | words), blindspots.raw (off | on).",
-    "stealth": "stealth [id]\n"
-               "  QUESTION: can THIS technique be run so that no rule fires?\n"
-               "  Verdicts: evasive (a concrete schedule, replayed) / always_detected (proof) /\n"
-               "            not_feasible (no principal holds the permissions) / exhausted.",
-    "chains": "chains [goal] [--from <principal>] [--start <p1,p2,…>]\n"
-              "  Stealthy privilege-escalation paths: every hop is a technique that evades every rule,\n"
-              "  and the whole path is replayed so a correlation rule across hops still catches it.\n"
-              "  Techniques advance the chain via their `gains { … }` clause.  The start defaults to the\n"
-              "  account's most capable principal and what they already hold; override with the flags or\n"
-              "  an `attack` block (principal, initial_state, goal, effects) in the account file.",
-    "config": "config                      list every setting\n"
-              "config <verb>               this help page for a verb, with its settings\n"
-              "config <key>                show one value\n"
-              "config <key> <value>        set (persisted)      config <key> reset   back to default",
-    "reports": "reports\n  List the files in report.dir with the verb, time, and summary of each run.",
-    "report": "report <file>            reopen a saved run (md / json / yaml): loaded, summary, findings\n"
-              "report diff <a> <b>      what changed between two runs of the same verb: findings that\n"
-              "                         appeared (new), closed (gone) or changed verdict — the before/after\n"
-              "                         of a rule edit or a corpus update\n"
-              "  Settings: report.save (off | on), report.format (md | json | yaml), report.dir.",
-    "export": "export <file.json> [n]\n"
-              "  Write the last run's witness events (or only finding n) as Cloud Audit Log entries\n"
-              "  (protoPayload form, one list) — replay them in the SIEM to confirm the gap for real.\n"
-              "  Each entry carries `_decnique` (finding number, label, verdict).",
-    "perms": "perms [filter] [--tag PrivEsc|CredentialExposure|DataAccess] [--reachable] [--unwatched] [--limit N | --all]\n"
-             "  Browse the permission catalog without leaving the shell.\n"
-             "  No filter: one row per service (how many permissions, how many reachable / watched / tagged).\n"
-             "  A filter (substring or glob: `iam.`, `*.setIamPolicy`): one row per permission — its methods,\n"
-             "  how it is logged, how many rules name a method of it, who holds it, its attack tag.\n"
-             "  --reachable  only permissions someone in the account holds      --unwatched  only ones no rule names\n"
-             "  Listings stop at 20 rows and say how many were hidden (--limit N, --all).",
-    "methods": "methods <permission | method> [--limit N]\n"
-               "  A permission: the audit-log methods that exercise it, each with its service, whether it is\n"
-               "  logged in this account, whether the name is verified, how many rules name it, and the\n"
-               "  fields a real event carries — what you need for a candidate's footprint and `where`.\n"
-               "  A method: its facts on one card (service, log, permissions, pinned fields, rules naming it).",
-    "roles": "roles [filter | roles/x [filter]] [--with permission] [--limit N | --all]\n"
-             "  Predefined GCP roles.  `roles` / `roles storage` lists roles with how many tagged permissions\n"
-             "  each carries; `roles roles/owner iam.` lists a role's permissions; `roles --with p` lists the\n"
-             "  roles that grant p, smallest first (the tightest role that still gives the permission).",
-    "who": "who [permission | principal [filter]] [--limit N | --all]\n"
-           "  The loaded account.  `who` lists principals; `who <permission>` who holds it, through which\n"
-           "  grant, on which resource; `who <principal> [filter]` the grants that principal holds.",
-    "suggest": "suggest <permission> [permission …] [define]\n"
-               "  For a permission with a blind spot: DSL `detection` blocks that would close it — one per\n"
-               "  unwatched kind of change (built from the rules' own tests) and one catch-all over every\n"
-               "  logged method.  `define` adds them to the session; then `blindspots <permission>` or a\n"
-               "  `check` shows the gap closed.  Suggestions are starting points, not tuned rules.",
-    "clear": "clear\n  Clear the screen; nothing loaded is lost.",
-    "help": "help [verb]\n  The command list, or everything about one verb (same as `config <verb>`).",
-    "quit": "quit\n  Leave the shell.",
-}
+# The grammar is `<object> <verb> [args…]`; :mod:`commands` holds every object and verb.
 
 # a line starting with one of these opens a DSL block, read until its braces close
 DSL_KEYWORDS = ("detection", "candidate", "check", "ruleset")
@@ -204,6 +71,23 @@ def read_block(first: str, more) -> str:
 # --- dispatch -----------------------------------------------------------------------------
 
 
+def resolve(words: list[str]) -> tuple[Obj, Verb, list[str]] | str:
+    """`<object> [verb] [args…]` → (object, verb, args), or a message when it does not parse."""
+    obj = OBJECTS.get(words[0])
+    if obj is None:
+        return f"unknown command {words[0]!r} — type [key]help[/key]"
+    if len(words) == 1:
+        if obj.default is None:
+            return f"[key]{obj.name}[/key] needs a verb: " + ", ".join(obj.verbs) + f"   (help {obj.name})"
+        return obj, obj.verbs[obj.default], []
+    verb = obj.verb(words[1])
+    if verb is None:
+        if obj.default is not None:  # `rules ~foo` → the default verb with the rest as arguments
+            return obj, obj.verbs[obj.default], words[1:]
+        return f"[key]{obj.name}[/key] has no verb {words[1]!r}: " + ", ".join(obj.verbs) + f"   (help {obj.name})"
+    return obj, verb, words[2:]
+
+
 def dispatch(s: Session, line: str) -> bool:
     """Run one command line (or a whole DSL block). Returns False to exit the REPL."""
     if is_dsl(line):
@@ -224,67 +108,23 @@ def dispatch(s: Session, line: str) -> bool:
         if cmd in ("quit", "exit", "q"):
             return False
         elif cmd in ("help", "?"):
-            print_verb_help(s, args[0]) if args else print_help()
+            print_help(s, args)
         elif cmd == "config":
-            if args and args[0] in COMMANDS:
-                print_verb_help(s, args[0])
+            if args and (args[0] in OBJECTS or args[0] in SHELL):
+                print_help(s, args)
             else:
+                from . import render
+
                 render.config(s, args)
         elif cmd in ("clear", "cls"):
             console.clear()
-        elif cmd == "load":
-            s.load(args)
-        elif cmd == "account":
-            if args:
-                s.account_load(args[0], args[1] if len(args) > 1 else "*")
-            else:
-                console.print("[muted]usage:[/muted] account <file.json> [resource]")
-        elif cmd == "events":
-            s.events_load(args[0]) if args else console.print("[muted]usage:[/muted] events <file.json>")
-        elif cmd == "rules":
-            render.rules(s, args[0] if args else None)
-        elif cmd == "candidates":
-            render.candidates(s)
-        elif cmd == "show":
-            render.show(s, args[0] if args else None)
-        elif cmd == "admits":
-            render.admits(s, args[0] if args else None)
-        elif cmd == "summary":
-            render.summary(s)
-        elif cmd == "event":
-            render.event(s, args[0] if args else None)
-        elif cmd == "trace":
-            render.trace(s, show_all=bool(args) and args[0] == "all")
-        elif cmd == "footprint":
-            render.footprint(s, args[0] if args else None)
-        elif cmd == "checks":
-            render.checks(s)
-        elif cmd == "reports":
-            render.reports(s)
-        elif cmd == "report":
-            render.report(s, args[0] if args else None, *args[1:])
-        elif cmd == "export":
-            render.export(s, args)
-        elif cmd == "suggest":
-            render.suggest(s, args)
-        elif cmd == "methods":
-            browse.methods(s, args)
-        elif cmd == "perms":
-            browse.perms(s, args)
-        elif cmd == "roles":
-            browse.roles(s, args)
-        elif cmd == "who":
-            browse.who(s, args)
-        elif cmd == "check":
-            render.check(s, args)
-        elif cmd == "blindspots":
-            render.blindspots(s, args)
-        elif cmd == "stealth":
-            render.stealth(s, args[0] if args else None)
-        elif cmd == "chains":
-            render.chains(s, args)
         else:
-            console.print(f"[warn]unknown command {cmd!r}[/warn] — type [key]help[/key]")
+            hit = resolve(parts)
+            if isinstance(hit, str):
+                console.print(f"[warn]{hit}[/warn]")
+            else:
+                obj, verb, rest = hit
+                verb.run(s, rest)
     except (OSError, json.JSONDecodeError, ValueError) as e:  # ValueError: bad account / schema
         console.print(f"[err]input error:[/err] {e}")
     except DslError as e:
@@ -322,11 +162,11 @@ def print_banner() -> None:
     body.append("? don't-know", style="unknown")
     body.append("  — never a forced verdict.\n\n", style="muted")
     body.append("start:  ", style="muted")
-    body.append("load <rules/>", style="key")
+    body.append("rules load <rules/>", style="key")
     body.append("  →  ", style="muted")
-    body.append("account <a.json>", style="key")
+    body.append("account load <a.json>", style="key")
     body.append("  →  ", style="muted")
-    body.append("blindspots", style="key")
+    body.append("ask blindspots", style="key")
     body.append("      ·  ", style="muted")
     body.append("help", style="key")
     body.append(" for everything", style="muted")
@@ -336,53 +176,80 @@ def print_banner() -> None:
     )
 
 
-def print_help() -> None:
+def _rows(pairs, style_first: str = "key"):  # type: ignore[no-untyped-def]
     from rich.table import Table
+
+    t = Table(box=None, padding=(0, 2, 0, 0), show_header=False, pad_edge=False)
+    t.add_column(style=style_first, no_wrap=True)
+    t.add_column(style="muted", no_wrap=True)
+    t.add_column()
     from rich.text import Text
 
-    groups = [
-        ("load state", ["load", "account", "events"]),
-        ("inspect", ["rules", "candidates", "show", "admits", "summary", "methods"]),
-        ("run over a trace", ["event", "trace", "footprint"]),
-        ("coverage — the math", ["blindspots", "stealth", "chains", "check", "checks", "suggest"]),
-        ("saved runs", ["reports", "report", "export"]),
-        ("shell", ["config", "clear", "help", "quit"]),
-    ]
-    for heading, verbs in groups:
-        t = Table(box=None, padding=(0, 2, 0, 0), show_header=False, pad_edge=False)
-        t.add_column(style="key", no_wrap=True)
-        t.add_column(style="muted", no_wrap=True)
-        t.add_column()
-        for v in verbs:
-            hint, desc = COMMANDS[v]
-            t.add_row(v, hint, desc)
-        console.print(Text(f"{BULLET} {heading}", style="title"))
-        console.print(t)
+    for row in pairs:
+        t.add_row(*(Text(c) for c in row))  # Text: a hint like `[~][substr]` is not markup
+    return t
 
 
-def print_verb_help(s: Session, verb: str) -> None:
-    """Everything about one verb: usage, what each word on screen means, and its settings."""
-    from rich.panel import Panel
-    from rich.table import Table
+def print_help(s: Session, args: list[str] | None = None) -> None:
+    """`help` — objects and their verbs; `help <object>` — one object; `help <object> <verb>`."""
     from rich.text import Text
 
-    if verb not in COMMANDS:
-        console.print(f"[warn]unknown verb {verb!r}[/warn] — type [key]help[/key]")
+    args = args or []
+    if not args:
+        console.print(Text(f"{BULLET} objects — `<object> <verb> [args…]`; `help <object>` for its verbs", style="title"))
+        console.print(_rows((o.name, " · ".join(o.verbs), o.help) for o in OBJECTS.values()))
+        console.print(Text(f"{BULLET} shell", style="title"))
+        console.print(_rows((name, hint, one) for name, (hint, one, _) in SHELL.items()))
+        console.print("[muted]a line like `detection d { … }` / `candidate c { … }` / `check q { … }` defines a block in place[/muted]")
         return
-    hint, desc = COMMANDS[verb]
-    body = Text(desc + "\n\n", style="muted")
-    body.append(DETAILS.get(verb, f"{verb} {hint}"))
-    console.print(Panel(body, title=Text(verb, style="brand"), title_align="left", border_style="rule", padding=(0, 1)))
-    prefix = "report." if verb in ("reports", "report") else f"{verb}."
+    name = args[0]
+    if name in SHELL:
+        hint, one, detail = SHELL[name]
+        _panel(name, one, detail)
+        return
+    obj = OBJECTS.get(name)
+    if obj is None:
+        console.print(f"[warn]unknown object {name!r}[/warn] — type [key]help[/key]")
+        return
+    if len(args) == 1:
+        console.print(Text(f"{BULLET} {obj.name} — {obj.help}", style="title"))
+        console.print(_rows((f"{obj.name} {v.name}", v.hint, v.help) for v in obj.verbs.values()))
+        if obj.default:
+            console.print(f"[muted]`{obj.name}` alone runs `{obj.name} {obj.default}`  ·  help {obj.name} <verb> for detail[/muted]")
+        _settings(s, settings_prefix(obj, None))
+        return
+    verb = obj.verb(args[1])
+    if verb is None:
+        console.print(f"[warn]{obj.name} has no verb {args[1]!r}[/warn] — " + ", ".join(obj.verbs))
+        return
+    _panel(f"{obj.name} {verb.name}", verb.help, verb.detail or f"{obj.name} {verb.name} {verb.hint}")
+    _settings(s, settings_prefix(obj, verb))
+
+
+def _panel(title: str, one: str, detail: str) -> None:
+    from rich.panel import Panel
+    from rich.text import Text
+
+    body = Text(one + "\n\n", style="muted")
+    body.append(detail)
+    console.print(Panel(body, title=Text(title, style="brand"), title_align="left", border_style="rule", padding=(0, 1)))
+
+
+def _settings(s: Session, prefix: str) -> None:
+    from rich.table import Table
+
+    if not prefix:
+        return
     rows = [r for r in s.settings.rows() if r[0].startswith(prefix)]
-    if rows:
-        t = Table(box=None, padding=(0, 2, 0, 0), show_header=True, pad_edge=False, header_style="muted")
-        for col in ("SETTING", "VALUE", "ALLOWED", "WHAT IT DOES"):
-            t.add_column(col, style="key" if col == "SETTING" else "")
-        for key, val, allowed, help_ in rows:
-            t.add_row(key, val, allowed, help_)
-        console.print(t)
-        console.print(f"[muted]change one with: config <key> <value>[/muted]")
+    if not rows:
+        return
+    t = Table(box=None, padding=(0, 2, 0, 0), show_header=True, pad_edge=False, header_style="muted")
+    for col in ("SETTING", "VALUE", "ALLOWED", "WHAT IT DOES"):
+        t.add_column(col, style="key" if col == "SETTING" else "")
+    for key, val, allowed, help_ in rows:
+        t.add_row(key, val, allowed, help_)
+    console.print(t)
+    console.print("[muted]change one with: config <key> <value>[/muted]")
 
 
 # --- prompt_toolkit front (with a plain fallback) -----------------------------------------
@@ -399,7 +266,7 @@ def _esc(text: str) -> str:
 
 
 def _status_chips(s: Session) -> str:
-    """The `rules · candidates · account · events` chips for the bottom status line."""
+    """The `rules · candidates · checks · account · events` chips for the bottom status line."""
 
     def chip(label: str, value: str, on: bool) -> str:
         cls = "tb.on" if on else "tb.off"
@@ -407,11 +274,13 @@ def _status_chips(s: Session) -> str:
 
     rules = str(len(s.lib.detections)) if s.lib is not None else "—"
     cands = str(len(s.lib.bundle.candidates)) if s.lib is not None else "—"
+    checks = str(len(s.lib.bundle.checks)) if s.lib is not None else "—"
     acct = s.account.name if s.account else "—"
     evs = str(len(s.events)) if s.events else "—"
     return "   ·   ".join([
         chip("rules", rules, bool(s.lib)),
         chip("candidates", cands, bool(s.lib)),
+        chip("checks", checks, bool(s.lib)),
         chip("account", acct, bool(s.account)),
         chip("events", evs, bool(s.events)),
     ])
@@ -426,16 +295,32 @@ def _make_completer():
     class DecCompleter(Completer):
         def get_completions(self, document, complete_event):
             text = document.text_before_cursor
-            stripped = text.lstrip()
-            if " " not in stripped:  # completing the verb
-                word = document.get_word_before_cursor(WORD=True)
-                for name, (hint, desc) in COMMANDS.items():
+            words = text.split()
+            at_word = bool(words) and not text.endswith(" ")
+            n = len(words) - (1 if at_word else 0)  # words already complete before the cursor
+            word = words[-1] if at_word else ""
+            if n == 0:  # the object (or a shell word)
+                for name, o in OBJECTS.items():
                     if name.startswith(word):
-                        yield Completion(name, start_position=-len(word),
-                                         display=name, display_meta=desc)
+                        yield Completion(name, start_position=-len(word), display=name, display_meta=o.help)
+                for name, (_, one, _) in SHELL.items():
+                    if name.startswith(word):
+                        yield Completion(name, start_position=-len(word), display=name, display_meta=one)
                 return
-            cmd = stripped.split()[0]
-            if cmd in _PATH_CMDS:  # completing a filesystem path
+            obj = OBJECTS.get(words[0])
+            if obj is None:
+                if words[0] in ("help", "config"):
+                    for name in OBJECTS:
+                        if name.startswith(word):
+                            yield Completion(name, start_position=-len(word), display=name)
+                return
+            if n == 1:  # the verb
+                for name, v in obj.verbs.items():
+                    if name.startswith(word):
+                        yield Completion(name, start_position=-len(word), display=name, display_meta=v.help)
+                return
+            verb = obj.verb(words[1])
+            if verb is not None and verb.paths:  # a filesystem path
                 token = text[text.rfind(" ") + 1:]
                 sub = Document(token, len(token))
                 yield from path_completer.get_completions(sub, complete_event)
@@ -483,7 +368,7 @@ def _repl_ptk(s: Session) -> int:
         message=message,
         rprompt=rprompt,
         bottom_toolbar=bottom_toolbar,
-        placeholder=HTML('<placeholder>type a command — try "blindspots", "rules", or "help"</placeholder>'),
+        placeholder=HTML('<placeholder>type a command — try "ask blindspots", "rules list", or "help"</placeholder>'),
         history=FileHistory(history_path),
         auto_suggest=AutoSuggestFromHistory(),
         completer=_make_completer(),
@@ -566,8 +451,8 @@ EXIT_CLEAN, EXIT_FINDING, EXIT_INPUT, EXIT_INCONCLUSIVE = 0, 2, 3, 4
 def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="decnique",
-        description="decnique — no arguments: the interactive shell.  With a verb: run it once and exit "
-                    "(batch / CI mode).  A script (`-f file`, or `-f -` for stdin) runs one shell line per "
+        description="decnique — no arguments: the interactive shell.  With a command (`ask blindspots …`): "
+                    "run it once and exit (batch / CI mode).  A script (`-f file`, or `-f -` for stdin) runs one shell line per "
                     "line.",
         epilog="exit codes: 0 clean · 2 a finding (gap / evasive / stealthy path / failed check) with "
                "--fail-on · 3 input error · 4 inconclusive with --fail-on unknown",
@@ -581,7 +466,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--format", choices=("md", "json", "yaml"), help="report format (default md)")
     p.add_argument("--fail-on", choices=("finding", "unknown"), help="exit 2 on a finding; 4 on inconclusive too")
     p.add_argument("--file", "-f", metavar="SCRIPT", help="run shell lines from a file (`-` = stdin)")
-    p.add_argument("verb", nargs="*", help="a shell command and its arguments")
+    p.add_argument("verb", nargs="*", help="a shell command: <object> <verb> [args…]")
     return p
 
 

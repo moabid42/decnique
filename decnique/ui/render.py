@@ -105,7 +105,7 @@ def candidates(s: Session) -> None:
         f"candidates — {len(cands)} techniques",
         [("ID",), ("REQUIRES",), ("FOOTPRINT",), ("ORDER",), ("SPAN", "right")],
         caption="REQUIRES permissions the actor must hold · FOOTPRINT step×repeat (guards) · "
-                "full detail: show <id>",
+                "full detail: candidates inspect <id>",
     )
     for c in cands:
         fp = c.footprint
@@ -120,7 +120,7 @@ def candidates(s: Session) -> None:
 
 def show(s: Session, ident: str | None) -> None:
     if not s.need_lib() or not ident:
-        console.print("[muted]usage:[/muted] show <detection-or-candidate-id>")
+        console.print("[muted]usage:[/muted] rules inspect <id>  ·  candidates inspect <id>  ·  checks inspect <id>")
         return
     for d in s.lib.detections:
         if d.id == ident:
@@ -154,7 +154,8 @@ def _print_source(kind: str, ident: str, text: str, *, approximate: bool = False
             body,
             title=tag,
             title_align="left",
-            subtitle=Text("what decnique translated this rule to (canonical DSL)", style="muted"),
+            subtitle=Text("what decnique translated this rule to (canonical DSL)" if kind == "detection"
+                          else "canonical DSL", style="muted"),
             subtitle_align="left",
             border_style="rule",
             padding=(0, 1),
@@ -222,7 +223,7 @@ def unknown_summary(lib, ids) -> str:  # type: ignore[no-untyped-def]
         reasons[rows[0][0] if rows else "unknown atom"] += 1
     parts = ", ".join(f"{k} ×{n}" for k, n in reasons.most_common(4))
     more = "" if len(reasons) <= 4 else f", +{len(reasons) - 4} more"
-    return f"{len(ids)} rule(s) answered don't-know — {parts}{more}  (`rules ~` lists them, `show <id>` says why)"
+    return f"{len(ids)} rule(s) answered don't-know — {parts}{more}  (`rules list ~` lists them, `rules inspect <id>` says why)"
 
 
 def _print_untranslated(d) -> None:
@@ -247,7 +248,7 @@ def _print_untranslated(d) -> None:
 
 def admits(s: Session, method: str | None) -> None:
     if not s.need_lib() or not method:
-        console.print("[muted]usage:[/muted] admits <method>")
+        console.print("[muted]usage:[/muted] rules admits <method>")
         return
     hits = list(s.lib.admitting(method))
     if not hits:
@@ -295,7 +296,7 @@ def summary(s: Session) -> None:
 
 def event(s: Session, file: str | None) -> None:
     if not s.need_lib() or not file:
-        console.print("[muted]usage:[/muted] event <file.json>   (a single audit-log entry or event dict)")
+        console.print("[muted]usage:[/muted] events observe <file.json>   (a single audit-log entry or event dict)")
         return
     import json
     from pathlib import Path
@@ -327,7 +328,7 @@ def trace(s: Session, show_all: bool) -> None:
     console.print(f"[title]trace over {len(s.events)} events[/title] — "
                   f"[yes]{fired} fire[/yes], [unknown]{unk} unknown[/unknown]")
     if not rows:
-        console.print("[muted]no detection fires or is uncertain (use `trace all` to see every rule)[/muted]")
+        console.print("[muted]no detection fires or is uncertain (use `events trace all` to see every rule)[/muted]")
         return
     table = _table("", [("ID",), ("FIRES",), ("TYPE",), ("STATUS",)])
     for r in rows:
@@ -640,10 +641,10 @@ def export(s: Session, args: list[str]) -> None:
 
     rep = s.last_report
     if rep is None:
-        console.print("[warn]nothing to export[/warn] — run blindspots / stealth / chains / check first")
+        console.print("[warn]nothing to export[/warn] — run an `ask` verb first (ask blindspots / stealth / chains / check)")
         return
     if not args:
-        console.print("[muted]usage:[/muted] export <file.json> [n]   (n = only the n-th finding)")
+        console.print("[muted]usage:[/muted] reports export <file.json> [n]   (n = only the n-th finding)")
         return
     events: list[dict] = []
     for i, it in enumerate(rep.items, 1):
@@ -674,7 +675,7 @@ def suggest(s: Session, args: list[str]) -> None:
     define = "define" in args
     perms = [a for a in args if a != "define"]
     if not perms:
-        console.print("[muted]usage:[/muted] suggest <permission> [permission …] [define]")
+        console.print("[muted]usage:[/muted] ask suggest <permission> [permission …] [define]")
         return
     lib, account = s.lib, s.account
     ctx = CoverageContext(lib)
@@ -1024,7 +1025,7 @@ def checks(s: Session) -> None:
                       "[key]check c { type coverage permission iam.serviceAccountKeys.create }[/key][/muted]")
         return
     t = _table("checks", [("ID",), ("TYPE",), ("OPTIONS",), ("QUESTION",)],
-               caption="run with: check [id…]  ·  every answer is pass / fail / unknown")
+               caption="run with: ask check [id…]  ·  every answer is pass / fail / unknown")
     for c in items:
         q = _CHECK_QUESTION.get(c.type, "no engine yet — answers unknown")
         _add(t, c.id, (c.type, "key" if c.type in IMPLEMENTED else "muted"), _check_params(c), q)
@@ -1032,27 +1033,25 @@ def checks(s: Session) -> None:
 
 
 def check(s: Session, args: list[str]) -> None:
-    """Run check blocks: all loaded ones, the named ones, or those in the given .decn files."""
+    """Run loaded check blocks: all of them, or the named ones (`checks load` loads a file)."""
     from pathlib import Path
 
-    from decnique.checks import CheckError, run_checks
-
-    if not s.need_lib() and not any(Path(a).is_file() for a in args):
+    if not s.need_lib():
         return
     wanted: list = []
     for a in args:
-        if Path(a).is_file():  # a file: define its items, then run the checks it holds
-            wanted.extend(s.define(Path(a).read_text(encoding="utf-8"), a).checks)
-        else:
-            hit = [c for c in (s.lib.bundle.checks if s.lib is not None else ()) if c.id == a]
-            if not hit:
-                console.print(f"[warn]no check named {a!r}[/warn] — see [key]checks[/key]")
-                return
-            wanted.extend(hit)
+        hit = [c for c in s.lib.bundle.checks if c.id == a]
+        if not hit:
+            if Path(a).is_file():
+                console.print(f"[warn]{a} is a file[/warn] — load it first: [key]checks load {a}[/key], then [key]ask check[/key]")
+            else:
+                console.print(f"[warn]no check named {a!r}[/warn] — see [key]checks list[/key]")
+            return
+        wanted.extend(hit)
     if not args:
-        wanted = list(s.lib.bundle.checks) if s.lib is not None else []
+        wanted = list(s.lib.bundle.checks)
     if not wanted:
-        console.print("[muted]no checks to run — type one at the prompt or pass a .decn file[/muted]")
+        console.print("[muted]no checks to run — [key]checks load <file.decn>[/key] or type a block at the prompt[/muted]")
         return
 
     lib, account = s.lib, s.account
@@ -1134,7 +1133,7 @@ def reports(s: Session) -> None:
         console.print(f"[muted]no reports in {d}/ — turn saving on with [key]config report.save on[/key][/muted]")
         return
     t = _table(f"reports in {d}/", [("FILE",), ("VERB",), ("WHEN",), ("SUMMARY",)],
-               caption="reopen one with: report <file>")
+               caption="reopen one with: reports show <file>")
     for p in files:
         try:
             doc = load(p)
@@ -1148,7 +1147,7 @@ def reports(s: Session) -> None:
 def report(s: Session, file: str | None, *more: str) -> None:
     if file == "diff":
         if len(more) != 2:
-            console.print("[muted]usage:[/muted] report diff <a> <b>")
+            console.print("[muted]usage:[/muted] reports diff <a> <b>")
             return
         report_diff(s, more[0], more[1])
         return
@@ -1162,7 +1161,7 @@ def _report_one(s: Session, file: str | None) -> None:
     from .report import list_reports, load
 
     if not file:
-        console.print("[muted]usage:[/muted] report <file>   (see [key]reports[/key])")
+        console.print("[muted]usage:[/muted] reports show <file>   (see [key]reports list[/key])")
         return
     path = Path(file)
     if not path.is_file():  # allow a bare name from the reports folder
@@ -1194,3 +1193,149 @@ def _report_one(s: Session, file: str | None) -> None:
             if isinstance(sched, list) and sched:
                 console.print(f"    [muted]{it.get('label')}:[/muted] {len(sched)} event(s), first {event_brief(sched[0])}")
     console.print(f"[muted]transcript: {len(doc.get('transcript', '') or '')} chars — open the file to read it[/muted]")
+
+
+# --- per-object inspection (rules / candidates / checks / events / account) -----------------
+
+
+def _find(s: Session, kind: str, ident: str | None):  # type: ignore[no-untyped-def]
+    """The loaded detection / candidate / check with this id, or None (with a message)."""
+    if not s.need_lib():
+        return None
+    obj = {"detection": "rules", "candidate": "candidates", "check": "checks"}[kind]
+    if not ident:
+        console.print(f"[muted]usage:[/muted] {obj} inspect <id> | {obj} dsl <id>   (see [key]{obj} list[/key])")
+        return None
+    items = {"detection": s.lib.detections, "candidate": s.lib.bundle.candidates,
+             "check": s.lib.bundle.checks}[kind]
+    for it in items:
+        if it.id == ident:
+            return it
+    console.print(f"[warn]no {kind} named {ident!r}[/warn] — see [key]{obj} list[/key]")
+    return None
+
+
+def _dsl_text(kind: str, item) -> str:  # type: ignore[no-untyped-def]
+    return {"detection": fmt.detection, "candidate": fmt.candidate, "check": fmt.check}[kind](item)
+
+
+def dsl(s: Session, kind: str, ident: str | None) -> None:
+    """Only the canonical DSL, as plain text — for copying into a .decn file."""
+    item = _find(s, kind, ident)
+    if item is not None:
+        console.print(_dsl_text(kind, item), markup=False, highlight=False)
+
+
+def rule_inspect(s: Session, ident: str | None) -> None:
+    """A detection: its DSL, where it came from, and what could not be translated."""
+    d = _find(s, "detection", ident)
+    if d is None:
+        return
+    src = d.source
+    origin = f"{src.frontend}: {src.file}" + (f":{src.line}" if src.line else "") if src else None
+    _print_source("detection", d.id, fmt.detection(d), approximate=d.approximate, origin=origin)
+    t = _table("", [("FIELD",), ("VALUE",)])
+    _add(t, "type", d.paradigm)
+    _add(t, "events", str(len(d.spec.events)))
+    _add(t, "window", window_str(d.spec))
+    _add(t, "condition", cond_str(d.spec.condition))
+    _add(t, "status", approx_word(d.approximate))
+    console.print(t)
+    _print_untranslated(d)
+
+
+def candidate_inspect(s: Session, ident: str | None) -> None:
+    """A technique: its DSL, then what it needs, the steps it leaves, and what it gains."""
+    c = _find(s, "candidate", ident)
+    if c is None:
+        return
+    _print_source("candidate", c.id, fmt.candidate(c))
+    t = _table("", [("FIELD",), ("VALUE",), ("MEANING",)])
+    _add(t, "required", ", ".join(r.permission for r in c.required) or "—", "permissions the actor must hold")
+    fp = c.footprint
+    if fp:
+        for st in fp.steps:
+            extra = (f" ×{st.repeat}" if st.repeat != 1 else "") + (f"  within {st.within_seconds}s" if st.within_seconds is not None else "")
+            _add(t, f"step {st.id}", st.method + extra + ("  (where …)" if st.where is not None else ""),
+                 "one audit-log event the technique leaves")
+        _add(t, "order", " < ".join(fp.order) or "—", "steps that must happen in this order")
+        _add(t, "span", f"{fp.span_seconds}s" if fp.span_seconds is not None else "—", "all steps within this time")
+    _add(t, "gains", ", ".join(c.gains) or "—", "permissions held after success (how `ask chains` advances)")
+    if c.meta:
+        _add(t, "meta", ", ".join(f"{k}={v}" for k, v in c.meta.items()), "")
+    console.print(t)
+
+
+def check_inspect(s: Session, ident: str | None) -> None:
+    """A check block: its DSL, the question it asks, and its options."""
+    from decnique.checks import IMPLEMENTED
+
+    c = _find(s, "check", ident)
+    if c is None:
+        return
+    _print_source("check", c.id, fmt.check(c))
+    t = _table("", [("FIELD",), ("VALUE",)])
+    _add(t, "type", (c.type, "key" if c.type in IMPLEMENTED else "muted"))
+    _add(t, "question", _CHECK_QUESTION.get(c.type, "no engine yet — answers unknown"))
+    _add(t, "options", _check_params(c))
+    _add(t, "run with", f"ask check {c.id}")
+    console.print(t)
+
+
+def events_list(s: Session) -> None:
+    """The loaded trace, one row per event, in order."""
+    if not s.need_events():
+        return
+    t = _table(f"events — {len(s.events)} from {s.events_src}",
+               [("#", "right"), ("TIME",), ("METHOD",), ("PRINCIPAL",), ("RESOURCE",)],
+               caption="full event: events inspect <n>")
+    for i, ev in enumerate(s.events, 1):
+        _add(t, str(i), str(ev.get("time", "—")), str(ev.get("method", "—")),
+             str(ev.get("principal", "—")), str(ev.get("resource", "—")))
+    console.print(t)
+
+
+def event_inspect(s: Session, which: str | None) -> None:
+    """One event of the loaded trace, every field, and which rules observe it alone."""
+    import json
+
+    if not s.need_events():
+        return
+    try:
+        n = int(which or "")
+        ev = s.events[n - 1]
+        if n < 1:
+            raise IndexError
+    except (ValueError, IndexError):
+        console.print(f"[muted]usage:[/muted] events inspect <n>   (1 … {len(s.events)})")
+        return
+    console.print(Panel(Text(json.dumps(ev, indent=2, sort_keys=True, default=str)),
+                        title=Text(f"event {n}", style="brand"), title_align="left",
+                        border_style="rule", padding=(0, 1)))
+    if s.lib is not None:
+        obs = s.lib.observing(ev)
+        console.print("[muted]observed by:[/muted] " + (", ".join(obs.observed_by) or "(none)")
+                      + (f"   [unknown]don't-know: {', '.join(obs.unknown)}[/unknown]" if obs.unknown else ""))
+
+
+def account_show(s: Session) -> None:
+    """The loaded account in one card: principals, grants, logging, deny rules."""
+    if not s.need_account():
+        return
+    a = s.account
+    grants = sum(len(g) for g in a.bindings.values())
+    lg = a.logging
+    t = _table(f"account — {a.name}", [("FIELD",), ("VALUE",), ("MEANING",)],
+               caption="who holds what: account who [permission | principal]")
+    _add(t, "principals", str(len(a.bindings)), "users / service accounts with grants")
+    _add(t, "grants", str(grants), "permission × resource pairs (Reach)")
+    _add(t, "admin activity log", "on" if lg.admin_activity else "off", "Admin Activity audit log")
+    _add(t, "data access log", ", ".join(sorted(lg.data_access_services)) or "off", "services with Data Access logging (Log)")
+    _add(t, "disabled methods", ", ".join(sorted(lg.disabled_methods)) or "—", "methods exempted from logging")
+    _add(t, "deny rules", str(len(a.deny)), "deny policies that beat a grant")
+    _add(t, "resources", ", ".join(sorted(a.hierarchy)) or "—", "known resource hierarchy")
+    if s.account_doc.get("attack"):
+        _add(t, "attack", ", ".join(f"{k}={v}" for k, v in s.account_doc["attack"].items() if not isinstance(v, (list, dict))), "start / goal for `ask chains`")
+    console.print(t)
+    for note in s.account_doc.get("notes", []):
+        console.print(f"    [warn]note[/warn] {note}")

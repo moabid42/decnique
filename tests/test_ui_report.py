@@ -6,7 +6,8 @@ import pytest
 
 from decnique.ui.config import Settings
 from decnique.ui.report import Report, list_reports, load, save
-from decnique.ui.repl import COMMANDS, DETAILS, dispatch
+from decnique.ui.commands import OBJECTS, SHELL
+from decnique.ui.repl import dispatch
 from decnique.ui.session import Session
 
 
@@ -45,26 +46,32 @@ def test_verbs_save_reports_when_enabled(tmp_path, monkeypatch):
     s.settings = Settings(tmp_path / "cfg.json")
     dispatch(s, f"config report.dir {tmp_path / 'out'}")
     dispatch(s, "config report.format json")
-    dispatch(s, "account examples/account.json")
+    dispatch(s, "account load examples/account.json")
     dispatch(s, 'detection d { event method = "google.iam.admin.v1.CreateServiceAccountKey" }')
     dispatch(s, "check c { type coverage permission iam.serviceAccountKeys.create }")
-    dispatch(s, "check c")
+    dispatch(s, "ask check c")
     assert list_reports(tmp_path / "out") == []  # saving is off by default
     dispatch(s, "config report.save on")
-    dispatch(s, "check c")
+    dispatch(s, "ask check c")
     files = list_reports(tmp_path / "out")
     assert len(files) == 1 and files[0].suffix == ".json"
     doc = load(files[0])
     assert doc["verb"] == "check" and doc["summary"]["pass"] == 1 and doc["library"]["rules"] == 1
     assert "PASS" in doc["transcript"]
-    assert dispatch(s, f"report {files[0].name}") is True and dispatch(s, "reports") is True
+    assert dispatch(s, f"reports show {files[0].name}") is True and dispatch(s, "reports list") is True
 
 
 def test_help_covers_every_verb(tmp_path):
-    assert set(DETAILS) == set(COMMANDS)
     s = Session()
     s.settings = Settings(tmp_path / "cfg.json")
-    for verb in COMMANDS:
-        assert dispatch(s, f"help {verb}") is True
-    assert dispatch(s, "config blindspots") is True  # verb help, not a setting lookup
+    assert dispatch(s, "help") is True
+    for obj in OBJECTS.values():
+        assert dispatch(s, f"help {obj.name}") is True
+        for verb in obj.verbs.values():
+            assert verb.detail, f"{obj.name} {verb.name} has no help page"
+            assert dispatch(s, f"help {obj.name} {verb.name}") is True
+    for word in SHELL:
+        assert dispatch(s, f"help {word}") is True
+    assert dispatch(s, "config ask blindspots") is True  # verb help, not a setting lookup
+    assert dispatch(s, "help nope") is True and dispatch(s, "rules nope") is True and dispatch(s, "nope") is True
     assert dispatch(s, "config report.format") is True

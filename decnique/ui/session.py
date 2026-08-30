@@ -54,13 +54,17 @@ class Session:
 
     # -- loading ---------------------------------------------------------------------------
 
-    def load(self, paths: list[str]) -> None:
+    def load(self, paths: list[str], want: str = "detections") -> None:
+        """Load rule dirs / .decn files into the library (additive).  ``want`` is the object the
+        user asked for (``detections`` / ``candidates`` / ``checks``) — only the usage line and a
+        hint when the load brought none of that kind depend on it."""
         # flags mirror the CLI: --all (every platform, not just GCP), --deprecated
         flags = {a for a in paths if a.startswith("--")}
         paths = [a for a in paths if not a.startswith("--")]
         if not paths:
+            obj = {"detections": "rules", "candidates": "candidates", "checks": "checks"}[want]
             console.print(
-                "[muted]usage:[/muted] load [--all] [--deprecated] <path> [path …]   "
+                f"[muted]usage:[/muted] {obj} load [--all] [--deprecated] <path> [path …]   "
                 "(dirs or .decn/native rule files; default = GCP rules only, _deprecated skipped)"
             )
             return
@@ -82,11 +86,13 @@ class Session:
         errs = [i for i in this.issues if i.severity == "error"]
         console.print(
             f"[ok]{CHECK}[/ok] loaded [title]{len(b.detections)}[/title] detections, "
-            f"[title]{len(b.candidates)}[/title] candidates"
+            f"[title]{len(b.candidates)}[/title] candidates, [title]{len(b.checks)}[/title] checks"
             + (f"  [err]{len(errs)} errors[/err]" if errs else "")
         )
         for i in errs:
             console.print(f"    [err]error[/err] {i.file}: {i.message}")
+        if not getattr(this, want) and not errs:
+            console.print(f"    [warn]note[/warn] these paths brought no {want}")
 
     def define(self, text: str, file: str = "<repl>") -> Bundle:
         """Parse DSL typed at the prompt (or read from a file) and merge it into the library.
@@ -166,7 +172,7 @@ class Session:
                 console.record = False
                 try:
                     path = save(rep, self.settings.get("report.dir"), self.settings.get("report.format"))
-                    console.print(f"[muted]saved report → [key]{path}[/key]  (reopen: report {path})[/muted]")
+                    console.print(f"[muted]saved report → [key]{path}[/key]  (reopen: reports show {path})[/muted]")
                 except OSError as e:
                     console.print(f"[err]could not save report:[/err] {e}")
 
@@ -174,18 +180,18 @@ class Session:
 
     def need_lib(self) -> bool:
         if self.lib is None:
-            console.print("[warn]no rules loaded[/warn] — run: [key]load <paths…>[/key]")
+            console.print("[warn]no rules loaded[/warn] — run: [key]rules load <paths…>[/key]")
             return False
         return True
 
     def need_events(self) -> bool:
         if not self.events:
-            console.print("[warn]no events loaded[/warn] — run: [key]events <file.json>[/key]")
+            console.print("[warn]no events loaded[/warn] — run: [key]events load <file.json>[/key]")
             return False
         return True
 
     def need_account(self) -> bool:
         if self.account is None:
-            console.print("[warn]no account loaded[/warn] — run: [key]account <file.json>[/key]")
+            console.print("[warn]no account loaded[/warn] — run: [key]account load <file.json>[/key]")
             return False
         return True

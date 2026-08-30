@@ -35,14 +35,14 @@ def _session(tmp_path) -> Session:
     dispatch(s, f"config report.dir {tmp_path / 'out'}")
     dispatch(s, "config report.format json")
     dispatch(s, "config report.save on")
-    dispatch(s, "load examples/candidates.decn")
-    dispatch(s, "account examples/account.json")
+    dispatch(s, "rules load examples/candidates.decn")
+    dispatch(s, "account load examples/account.json")
     return s
 
 
 def test_chains_plans_from_flags_and_exports(tmp_path):
     s = _session(tmp_path)
-    ok = dispatch(s, "chains resourcemanager.projects.setIamPolicy "
+    ok = dispatch(s, "ask chains resourcemanager.projects.setIamPolicy "
                      "--from attacker@demo.iam.gserviceaccount.com --start iam.serviceAccountKeys.create")
     assert ok is True
     doc = load(list_reports(tmp_path / "out")[0])  # newest first
@@ -51,7 +51,7 @@ def test_chains_plans_from_flags_and_exports(tmp_path):
     assert "t (s)" in " ".join(doc["transcript"].split())  # the timed schedule table
     # export the plan
     out = tmp_path / "plan.json"
-    assert dispatch(s, f"export {out}") is True
+    assert dispatch(s, f"reports export {out}") is True
     entries = json.loads(out.read_text())
     assert {e["protoPayload"]["methodName"] for e in entries} == {_KEY, _TOKEN}
     assert all("_decnique" in e for e in entries)
@@ -59,15 +59,15 @@ def test_chains_plans_from_flags_and_exports(tmp_path):
 
 def test_chains_without_a_goal_explains(tmp_path):
     s = _session(tmp_path)
-    assert dispatch(s, "chains") is True  # no goal → a helpful message, not a crash
+    assert dispatch(s, "ask chains") is True  # no goal → a helpful message, not a crash
 
 
 def test_chains_needs_a_technique_with_gains(tmp_path):
     s = Session()
     s.settings = Settings(tmp_path / "cfg.json")
     dispatch(s, 'candidate x { required { iam.serviceAccountKeys.create } footprint { a: "m" } }')
-    dispatch(s, "account examples/account.json")
-    assert dispatch(s, "chains resourcemanager.projects.setIamPolicy") is True  # message: no gains
+    dispatch(s, "account load examples/account.json")
+    assert dispatch(s, "ask chains resourcemanager.projects.setIamPolicy") is True  # message: no gains
 
 
 def test_always_detected_names_the_catching_rules(tmp_path):
@@ -84,12 +84,12 @@ def test_always_detected_names_the_catching_rules(tmp_path):
     s = Session()
     from decnique.ui.config import Settings
     s.settings = Settings(tmp_path / "cfg.json")
-    dispatch(s, f"load {rules}")
-    dispatch(s, f"account {acct}")
-    dispatch(s, "stealth use")
+    dispatch(s, f"rules load {rules}")
+    dispatch(s, f"account load {acct}")
+    dispatch(s, "ask stealth use")
     assert s.last_report.items[0]["verdict"] == "always_detected"
     assert s.last_report.items[0]["caught_by"] == ["watch"]
-    dispatch(s, "check c")
+    dispatch(s, "ask check c")
     assert "caught by watch" in s.last_report.items[0]["detail"]
 
 
@@ -97,7 +97,7 @@ def test_methods_verb(tmp_path):
     s = Session()
     from decnique.ui.config import Settings
     s.settings = Settings(tmp_path / "cfg.json")
-    assert dispatch(s, "methods iam.serviceAccountKeys.create") is True  # no account: guard message
-    dispatch(s, "account examples/account.json")
-    assert dispatch(s, "methods iam.serviceAccountKeys.create") is True
-    assert dispatch(s, "methods no.such.permission") is True
+    assert dispatch(s, "catalog methods iam.serviceAccountKeys.create") is True  # no account: guard message
+    dispatch(s, "account load examples/account.json")
+    assert dispatch(s, "catalog methods iam.serviceAccountKeys.create") is True
+    assert dispatch(s, "catalog methods no.such.permission") is True

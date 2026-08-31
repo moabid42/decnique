@@ -286,21 +286,33 @@ def _compare(e: y.Compare, var: str, st: _State, udm: UdmMap) -> Pred:
         left, right = right, left
         flip = {"<": ">", ">": "<", "<=": ">=", ">=": "<="}
         e = y.Compare(left, flip.get(e.op, e.op), right, e.nocase, e.quant)
-    # placeholder binding: $e.f = $x
+    # placeholder binding: $e.f = $x  (a case-folded field, strings.to_lower($e.f) = $x, binds too)
     if isinstance(right, y.Placeholder):
-        if isinstance(left, y.FieldRef) and e.op == "=":
-            st.bindings[right.name].append(udm.qfield(left.var, left.path))
+        folded_left, _ = _unwrap_case(left)
+        if isinstance(folded_left, y.FieldRef) and e.op == "=":
+            st.bindings[right.name].append(udm.qfield(folded_left.var, folded_left.path))
             return Const(value=True)
         if isinstance(left, y.Placeholder):
             return _unk(st, "secops:placeholder_compare", _render(e))
         return _unk(st, "secops:placeholder_op", _render(e))
     if isinstance(left, y.Placeholder):
+        # $x = $e.field: placeholder assignment (YARA-L writes the alias on the left). Bind the
+        # placeholder to the field, exactly as the mirror form `$e.field = $x` above; the join
+        # detection in lower_rule turns a placeholder bound across two events into a Join.
+        if isinstance(right, y.FieldRef) and e.op == "=":
+            st.bindings[left.name].append(udm.qfield(right.var, right.path))
+            return Const(value=True)
         # $x = "value": constrain every field the placeholder is bound to so far
         fields = st.bindings.get(left.name, [])
         if fields and isinstance(right, y.Str | y.Num | y.Bool):
             return all_of(
                 [Cmp(field=f, op=e.op, value=_val(right), nocase=e.nocase) for f in fields]
             )  # type: ignore[arg-type]
+        # $x = /regex/ : mirror of the literal case, one Regex per bound field ($x != /rx/ negates)
+        if fields and isinstance(right, y.Rx) and e.op in {"=", "!="}:
+            rxs = [Regex(field=f, pattern=right.pattern, nocase=e.nocase) for f in fields]
+            pred = all_of(rxs)  # type: ignore[arg-type]
+            return pred if e.op == "=" else Not(child=pred)
         return _unk(st, "secops:placeholder_literal", _render(e))
     nocase = e.nocase
     f: QField | None

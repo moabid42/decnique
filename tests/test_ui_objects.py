@@ -45,9 +45,12 @@ def test_rules_inspect_and_dsl(tmp_path):
     assert "no rules loaded" in _capture(s, "rules inspect d")
     dispatch(s, 'detection d { event method = "SetIamPolicy" and unknown("secops:unsupported") }')
     out = _capture(s, "rules inspect d")
-    assert "SetIamPolicy" in out and "approx" in out and "could not be translated" in out.lower() or "unknown" in out
+    # inspect shows what was read + why it is approximate, but NOT the DSL body
+    assert "~approx" in out and "what decnique read" in out and "not translated" in out
+    assert "methods named" in out and "fields tested" in out
+    assert "detection d {" not in out  # the DSL body lives under `rules dsl`, not `inspect`
     out = _capture(s, "rules dsl d")
-    assert out.strip().startswith("detection d {") and "╭" not in out  # plain text, no frame
+    assert out.strip().startswith("detection d {") and "what decnique read" not in out  # only the DSL
     assert "no detection named" in _capture(s, "rules dsl zzz")
     assert "usage" in _capture(s, "rules dsl")
 
@@ -59,12 +62,14 @@ def test_candidates_and_checks_inspect(tmp_path):
     cid = s.lib.bundle.candidates[0].id
     out = _capture(s, f"candidates inspect {cid}")
     assert "required" in out and "step " in out and "gains" in out
+    assert f"candidate {cid} {{" not in out  # inspect never dumps the DSL
+    assert f"candidates dsl {cid}" in out    # it points at `dsl` for that
     assert _capture(s, f"candidates dsl {cid}").strip().startswith(f"candidate {cid} {{")
     dispatch(s, "checks load examples/checks.decn")
     assert s.lib.bundle.checks
     ck = s.lib.bundle.checks[0].id
     out = _capture(s, f"checks inspect {ck}")
-    assert "question" in out and f"ask check {ck}" in out
+    assert "question" in out and f"ask check {ck}" in out and f"check {ck} {{" not in out
     assert _capture(s, f"checks dsl {ck}").strip().startswith(f"check {ck} {{")
     assert "load it first" in _capture(s, "ask check examples/checks.decn")  # running never loads
 

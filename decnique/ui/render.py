@@ -118,51 +118,6 @@ def candidates(s: Session) -> None:
     console.print(t)
 
 
-def show(s: Session, ident: str | None) -> None:
-    if not s.need_lib() or not ident:
-        console.print("[muted]usage:[/muted] rules inspect <id>  ·  candidates inspect <id>  ·  checks inspect <id>")
-        return
-    for d in s.lib.detections:
-        if d.id == ident:
-            src = d.source
-            origin = f"{src.frontend}: {src.file}" + (f":{src.line}" if src.line else "") if src else None
-            _print_source("detection", d.id, fmt.detection(d), approximate=d.approximate, origin=origin)
-            _print_untranslated(d)
-            return
-    for c in s.lib.bundle.candidates:
-        if c.id == ident:
-            _print_source("candidate", c.id, fmt.candidate(c))
-            return
-    for c in s.lib.bundle.checks:
-        if c.id == ident:
-            _print_source("check", c.id, fmt.check(c))
-            return
-    console.print(f"[warn]no detection, candidate, or check named {ident!r}[/warn]")
-
-
-def _print_source(kind: str, ident: str, text: str, *, approximate: bool = False, origin: str | None = None) -> None:
-    tag = Text()
-    tag.append(f"{kind}  ", style="muted")
-    tag.append(ident, style="brand")
-    if approximate:
-        tag.append("   ~approx", style="approx")
-    body = Text(text)
-    if origin:  # the original rule's file, so the engineer can open it
-        body.append(f"\n\n# source: {origin}", style="muted")
-    console.print(
-        Panel(
-            body,
-            title=tag,
-            title_align="left",
-            subtitle=Text("what decnique translated this rule to (canonical DSL)" if kind == "detection"
-                          else "canonical DSL", style="muted"),
-            subtitle_align="left",
-            border_style="rule",
-            padding=(0, 1),
-        )
-    )
-
-
 # Human-readable reasons a construct could not be translated, keyed by label prefix.
 _UNTRANSLATED_WHY: dict[str, str] = {
     "events:unparsed": "the event predicate could not be parsed into the model",
@@ -591,10 +546,10 @@ def _blindspots(s, lib, account, single, ctx, permissions, explain, show_raw, re
         for c in techs:
             sv = stealth_feasible(c, lib, account)
             if isinstance(sv, Evasive):
-                r.no(f"the attack `{c.id}` you defined: NOT caught ({approx_word(sv.approximate)}) — see `stealth {c.id}`")
+                r.no(f"the attack `{c.id}` you defined: NOT caught ({approx_word(sv.approximate)}) — see `ask stealth {c.id}`")
             elif sv.verdict == "always_detected":
                 detected_techs.append(c.id)
-                r.ok(f"the attack `{c.id}` you defined: caught by a rule (proof) — see `stealth {c.id}`")
+                r.ok(f"the attack `{c.id}` you defined: caught by a rule (proof) — see `ask stealth {c.id}`")
             else:
                 r.note(f"the attack `{c.id}` you defined: {sv.verdict}")
         n_unwatched = sum(1 for v in verdicts if isinstance(v.result, Gap) and not _redundant_single(v, verdicts))
@@ -1226,31 +1181,71 @@ def dsl(s: Session, kind: str, ident: str | None) -> None:
         console.print(_dsl_text(kind, item), markup=False, highlight=False)
 
 
+def _inspect_head(kind: str, ident: str, *, origin: str | None = None,
+                  approximate: bool | None = None, run_hint: str = "") -> None:
+    """One header line for `inspect`: what it is, where it came from, exact/approx — but never
+    the DSL body (that is what `<obj> dsl <id>` prints).  ``approximate`` is None for hand-
+    written items (candidates, checks), where exact-vs-approx does not apply."""
+    tag = Text()
+    tag.append(f"{kind}  ", style="muted")
+    tag.append(ident, style="brand")
+    if approximate is not None:  # only a translated detection can be approximate
+        tag.append("   ~approx" if approximate else "   exact", style="approx" if approximate else "safe")
+    console.print(tag)
+    if origin:
+        console.print(f"[muted]source:[/muted] {origin}")
+    hint = run_hint or f"{ {'detection': 'rules', 'candidate': 'candidates', 'check': 'checks'}[kind] } dsl {ident}"
+    console.print(f"[muted]full DSL:[/muted] [key]{hint}[/key]")
+
+
+def _oneline(v) -> str:  # type: ignore[no-untyped-def]
+    """A meta value on one line, truncated — a long free-text description never breaks a table."""
+    text = " ".join(str(v).split())
+    return text if len(text) <= 100 else text[:99] + "…"
+
+
+def _meta_rows(t, meta) -> None:  # type: ignore[no-untyped-def]
+    """Add the notable meta keys (title / description / severity …) as their own rows."""
+    order = ["title", "name", "description", "status", "level", "severity", "author", "date"]
+    keys = [k for k in order if k in meta] + [k for k in meta if k not in order]
+    for k in keys:
+        _add(t, k, _oneline(meta[k]), "")
+
+
 def rule_inspect(s: Session, ident: str | None) -> None:
-    """A detection: its DSL, where it came from, and what could not be translated."""
+    """A detection: what decnique read from it, and what it could NOT translate — not the DSL."""
     d = _find(s, "detection", ident)
     if d is None:
         return
+    from decnique.dsl.interpret import spec_methods_literal
+    from decnique.model.predicates import referenced_fields
+
     src = d.source
     origin = f"{src.frontend}: {src.file}" + (f":{src.line}" if src.line else "") if src else None
-    _print_source("detection", d.id, fmt.detection(d), approximate=d.approximate, origin=origin)
-    t = _table("", [("FIELD",), ("VALUE",)])
-    _add(t, "type", d.paradigm)
-    _add(t, "events", str(len(d.spec.events)))
-    _add(t, "window", window_str(d.spec))
-    _add(t, "condition", cond_str(d.spec.condition))
-    _add(t, "status", approx_word(d.approximate))
+    _inspect_head("detection", d.id, origin=origin, approximate=d.approximate)
+    methods = sorted(spec_methods_literal(d.spec))
+    fields = sorted({f[1] for e in d.spec.events for f in referenced_fields(e.pred)})
+    t = _table("what decnique read", [("FIELD",), ("VALUE",), ("MEANING",)])
+    _meta_rows(t, d.meta)
+    _add(t, "type", d.paradigm, "single-event rule, or a multi-event correlation")
+    _add(t, "event vars", ", ".join(e.name for e in d.spec.events) or "—", "the events it correlates")
+    _add(t, "window", window_str(d.spec), "time span a correlation must fall inside")
+    _add(t, "condition", cond_str(d.spec.condition), "how many of each event must occur to fire")
+    _add(t, "methods named", ", ".join(methods) or "—", "audit-log methods the rule tests literally")
+    _add(t, "fields tested", ", ".join(fields) or "—", "event fields the rule reads")
     console.print(t)
     _print_untranslated(d)
 
 
 def candidate_inspect(s: Session, ident: str | None) -> None:
-    """A technique: its DSL, then what it needs, the steps it leaves, and what it gains."""
+    """A technique: what it needs, the steps it leaves, and what it gains — not the DSL."""
     c = _find(s, "candidate", ident)
     if c is None:
         return
-    _print_source("candidate", c.id, fmt.candidate(c))
-    t = _table("", [("FIELD",), ("VALUE",), ("MEANING",)])
+    _inspect_head("candidate", c.id)
+    t = _table("what the technique does", [("FIELD",), ("VALUE",), ("MEANING",)])
+    if c.meta:
+        _meta_rows(t, c.meta)
     _add(t, "required", ", ".join(r.permission for r in c.required) or "—", "permissions the actor must hold")
     fp = c.footprint
     if fp:
@@ -1261,24 +1256,23 @@ def candidate_inspect(s: Session, ident: str | None) -> None:
         _add(t, "order", " < ".join(fp.order) or "—", "steps that must happen in this order")
         _add(t, "span", f"{fp.span_seconds}s" if fp.span_seconds is not None else "—", "all steps within this time")
     _add(t, "gains", ", ".join(c.gains) or "—", "permissions held after success (how `ask chains` advances)")
-    if c.meta:
-        _add(t, "meta", ", ".join(f"{k}={v}" for k, v in c.meta.items()), "")
     console.print(t)
 
 
 def check_inspect(s: Session, ident: str | None) -> None:
-    """A check block: its DSL, the question it asks, and its options."""
+    """A check block: the question it asks and its options — not the DSL."""
     from decnique.checks import IMPLEMENTED
 
     c = _find(s, "check", ident)
     if c is None:
         return
-    _print_source("check", c.id, fmt.check(c))
-    t = _table("", [("FIELD",), ("VALUE",)])
-    _add(t, "type", (c.type, "key" if c.type in IMPLEMENTED else "muted"))
-    _add(t, "question", _CHECK_QUESTION.get(c.type, "no engine yet — answers unknown"))
-    _add(t, "options", _check_params(c))
-    _add(t, "run with", f"ask check {c.id}")
+    _inspect_head("check", c.id)
+    t = _table("what the check asks", [("FIELD",), ("VALUE",), ("MEANING",)])
+    _add(t, "type", (c.type, "key" if c.type in IMPLEMENTED else "muted"),
+         "the engine that answers it" + ("" if c.type in IMPLEMENTED else " — none yet, so it answers unknown"))
+    _add(t, "question", _CHECK_QUESTION.get(c.type, "no engine yet — answers unknown"), "what a pass would prove")
+    _add(t, "options", _check_params(c), "the parameters this block sets")
+    _add(t, "run with", f"ask check {c.id}", "")
     console.print(t)
 
 

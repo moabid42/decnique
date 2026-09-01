@@ -115,10 +115,12 @@ class Session:
 
     def account_load(self, file: str, resource: str = "*") -> None:
         """``file`` is the tool's own account JSON, or a raw gcloud export (IAM policy /
-        asset search) converted on the fly; ``resource`` scopes a plain IAM policy."""
-        from decnique.env import account_from_dict, normalize_account_doc
+        asset search) or Terraform (state/plan/`*.tf.json`) converted on the fly;
+        ``resource`` scopes a plain IAM policy."""
+        from decnique.env import account_from_dict, looks_like_terraform, normalize_account_doc
 
         raw = json.loads(Path(file).read_text(encoding="utf-8"))
+        source = "Terraform" if looks_like_terraform(raw) else "gcloud export"
         self.account_doc = normalize_account_doc(raw, resource=resource, name=Path(file).stem)
         converted = self.account_doc is not raw
         self.account = account_from_dict(self.account_doc)
@@ -126,7 +128,7 @@ class Session:
         n = len(self.account.bindings)
         console.print(
             f"[ok]{CHECK}[/ok] loaded account [key]{self.account.name}[/key]: "
-            f"[title]{n}[/title] principals" + ("  (converted from a gcloud export)" if converted else "")
+            f"[title]{n}[/title] principals" + (f"  (converted from {source})" if converted else "")
         )
         if converted:
             da = self.account_doc["logging"]["data_access_services"]

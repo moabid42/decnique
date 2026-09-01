@@ -1,0 +1,63 @@
+{
+  "//": "Native Terraform JSON config mirroring main.tf, with references resolved to the values apply would produce. Load with:  account load examples/accounts/infra/infra.tf.json",
+  "resource": {
+    "google_service_account": {
+      "app": {
+        "project": "acme-prod",
+        "account_id": "app-runtime",
+        "display_name": "App runtime"
+      }
+    },
+    "google_project_iam_custom_role": {
+      "deployer": {
+        "project": "acme-prod",
+        "role_id": "deployer",
+        "title": "Deployer",
+        "permissions": [
+          "compute.instances.create",
+          "compute.instances.delete",
+          "compute.instances.get"
+        ]
+      }
+    },
+    "google_project_iam_member": {
+      "owner": {
+        "project": "acme-prod",
+        "role": "roles/owner",
+        "member": "user:alice@acme.com"
+      },
+      "deployer_binding": {
+        "project": "acme-prod",
+        "role": "projects/acme-prod/roles/deployer",
+        "member": "serviceAccount:app-runtime@acme-prod.iam.gserviceaccount.com"
+      }
+    },
+    "google_project_iam_binding": {
+      "key_admins": {
+        "project": "acme-prod",
+        "role": "roles/iam.serviceAccountKeyAdmin",
+        "members": [
+          "user:bob@acme.com",
+          "group:platform@acme.com"
+        ]
+      }
+    },
+    "google_storage_bucket_iam_member": {
+      "public_read": {
+        "bucket": "acme-prod-public-assets",
+        "role": "roles/storage.objectViewer",
+        "member": "allUsers"
+      }
+    },
+    "google_project_iam_audit_config": {
+      "storage_data_access": {
+        "project": "acme-prod",
+        "service": "storage.googleapis.com",
+        "audit_log_config": [
+          {"log_type": "DATA_READ"},
+          {"log_type": "DATA_WRITE"}
+        ]
+      }
+    }
+  }
+}

@@ -8,7 +8,7 @@ import pytest
 
 from decnique.env.ingest import load_account
 
-ACCOUNTS = sorted(glob.glob("examples/accounts/*.json"))
+ACCOUNTS = sorted(glob.glob("examples/accounts/custom/*.json"))
 SECRET_METHOD = "google.cloud.secretmanager.v1.SecretManagerService.AccessSecretVersion"
 
 
@@ -24,21 +24,21 @@ def test_account_is_valid_json_and_loads(path):
 
 
 def test_data_access_off_makes_secret_read_unlogged():
-    off = load_account("examples/accounts/03_data_access_off.json")
-    on = load_account("examples/accounts/04_data_access_on.json")
+    off = load_account("examples/accounts/custom/03_data_access_off.json")
+    on = load_account("examples/accounts/custom/04_data_access_on.json")
     assert off.logged(SECRET_METHOD) is False
     assert on.logged(SECRET_METHOD) is True
 
 
 def test_scoped_grant_is_scoped():
-    a = load_account("examples/accounts/06_scoped_grant.json")
+    a = load_account("examples/accounts/custom/06_scoped_grant.json")
     p = "scoped-admin@demo.com"
     assert a.reach(p, "resourcemanager.projects.setIamPolicy", "projects/demo") is True
     assert a.reach(p, "resourcemanager.projects.setIamPolicy", "projects/other") is False
 
 
 def test_deny_and_exemption():
-    a = load_account("examples/accounts/07_deny_and_exemption.json")
+    a = load_account("examples/accounts/custom/07_deny_and_exemption.json")
     p = "breaker@demo.com"
     # deny wins on the locked project, grant stands elsewhere
     assert a.reach(p, "resourcemanager.projects.setIamPolicy", "projects/locked") is False

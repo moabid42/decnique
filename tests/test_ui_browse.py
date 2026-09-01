@@ -31,7 +31,7 @@ def test_perms_without_account_or_rules(tmp_path, capsys):
 
 def test_perms_with_account_and_tag(tmp_path, capsys):
     s = _session(tmp_path)
-    dispatch(s, "account load examples/account.json")
+    dispatch(s, "account load examples/accounts/custom/account.json")
     capsys.readouterr()
     assert dispatch(s, "catalog perms --reachable") is True
     out = capsys.readouterr().out
@@ -69,7 +69,7 @@ def test_who(tmp_path, capsys):
     s = _session(tmp_path)
     assert dispatch(s, "account who") is True  # no account: guard
     assert "no account" in capsys.readouterr().out
-    dispatch(s, "account load examples/account.json")
+    dispatch(s, "account load examples/accounts/custom/account.json")
     capsys.readouterr()
     assert dispatch(s, "account who") is True
     assert "admin@demo.com" in capsys.readouterr().out

@@ -65,7 +65,7 @@ decnique/
                 session, config, report (saved runs: md/json/yaml), words (opt-in wording)
   catalogs/     UDM field map; gcp_methods/gcp_roles (built by catalogs/build_gcp.py), gcp_tags
 answers.py      engine-level JSON (blindspots/stealth/chains) for the argparse CLI
-examples/       account.json, candidates.decn
+examples/       accounts/ (json + custom/ scenarios + infra/ terraform), candidates/ checks/ events/
 tests/          pytest; synthetic suites + corpus tests (skipped when the corpus is absent)
 run.py          launcher for the interactive shell / one-shot commands
 ```
@@ -134,7 +134,7 @@ The prompt also accepts DSL directly, like a Python interpreter: a line starting
 `detection`, `candidate`, `check`, or `ruleset` and containing `{` opens a block that is read
 until its braces close, then parsed and merged into the loaded library (same id = replaced).
 So `detection d { … }` → `candidate c { … }` → `check q { type candidate for c }` → `ask check q`
-is a complete session without any file.  `examples/checks.decn` shows every implemented type.
+is a complete session without any file.  `examples/checks/checks.decn` shows every implemented type.
 
 Rule corpora are **not** in the repo. Point `rules load` at directories of native rules (YARA-L
 `.yaral`, Elastic `.toml`, Sigma `.yml`, Panther `.yml`+`.py`). The loader keeps GCP-relevant

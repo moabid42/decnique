@@ -94,7 +94,7 @@ def test_corpus_gcp_witnesses_sound_and_fast():
 
     dirs = ("gsecops-detection-rules", "elastic-detection-rules", "sigma-rules", "panther-analysis-rules")
     lib = DetectionLibrary.load(*[str(_DATA / d) for d in dirs])
-    acct = load_account(Path(__file__).resolve().parent.parent / "examples" / "account.json")
+    acct = load_account(Path(__file__).resolve().parent.parent / "examples" / "accounts" / "custom" / "account.json")
     ctx = CoverageContext(lib)
     perms = sorted(p for p in acct.catalog.all_permissions() if acct.reachable(p))
     t = time.time()

@@ -17,7 +17,7 @@ def _session(tmp_path) -> Session:
     dispatch(s, f"config report.dir {tmp_path / 'out'}")
     dispatch(s, "config report.format json")
     dispatch(s, "config report.save on")
-    dispatch(s, "account load examples/account.json")
+    dispatch(s, "account load examples/accounts/custom/account.json")
     return s
 
 
@@ -73,8 +73,8 @@ def test_stealth_reports_unlogged_step_and_always_detected(tmp_path):
 
 def test_chains_replays_the_whole_path(tmp_path):
     s = _session(tmp_path)
-    dispatch(s, "rules load examples/candidates.decn")
-    dispatch(s, "account load examples/account.json")
+    dispatch(s, "rules load examples/candidates/candidates.decn")
+    dispatch(s, "account load examples/accounts/custom/account.json")
     dispatch(s, 'detection key_then_token { events { k: method = "google.iam.admin.v1.CreateServiceAccountKey"'
                 '  t: method = "iam.serviceAccounts.getAccessToken" } join { k.principal = t.principal }'
                 ' window 1h condition #k >= 1 and #t >= 1 }')

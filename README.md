@@ -69,11 +69,11 @@ obs = lib.observing(ev)      # Observes(R, e): which rules fire, which are "unkn
 Every command reads `<object> <verb> [args…]`.  Objects hold state; `ask` runs the math.
 
 ```
-rules load <rules/> examples/candidates.decn     # detections (+ candidates / checks in the same files)
+rules load <rules/> examples/candidates/candidates.decn     # detections (+ candidates / checks in the same files)
 rules list ~                                     # only the approximate rules
 rules inspect <id>   ·   rules dsl <id>          # one rule with context / just its DSL
-candidates inspect <id>   ·   checks load examples/checks.decn
-account load examples/account.json               # or a raw gcloud export
+candidates inspect <id>   ·   checks load examples/checks/checks.decn
+account load examples/accounts/custom/account.json               # or a raw gcloud export
 ask blindspots resourcemanager.projects.setIamPolicy
 ask stealth escalate_project_iam   ·   ask chains   ·   ask check
 reports list   ·   reports show <file>   ·   reports diff <a> <b>
@@ -95,8 +95,8 @@ Reason about rules that need *several* events
 thresholds (`N in a window`), value aggregates, and joins — instead of stepping around them.
 - [x] **A richer technique library.**  
 Wired-together GCP techniques for `ask chains` / `ask stealth`, plus replayable event traces to test against  
-(`examples/candidates_medium.decn`, `examples/candidates_advanced.decn`,  
-`examples/events.json`).
+(`examples/candidates/candidates_medium.decn`, `examples/candidates/candidates_advanced.decn`,  
+`examples/events/events.json`).
 
 - [ ] **Evaluate IAM Conditions.**  
 A conditional binding is currently kept *unconditionally*,  

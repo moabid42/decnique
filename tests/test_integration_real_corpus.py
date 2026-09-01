@@ -31,12 +31,12 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture(scope="module")
 def lib() -> DetectionLibrary:
-    return DetectionLibrary.load(str(_GSECOPS), str(_EXAMPLES / "candidates.decn"))
+    return DetectionLibrary.load(str(_GSECOPS), str(_EXAMPLES / "candidates" / "candidates.decn"))
 
 
 @pytest.fixture(scope="module")
 def account():
-    return load_account(_EXAMPLES / "account.json")
+    return load_account(_EXAMPLES / "accounts" / "custom" / "account.json")
 
 
 def test_corpus_loads(lib):
@@ -81,7 +81,7 @@ def test_stealthy_chain_is_valid_hop_by_hop(lib, account):
 
     from decnique.smt.stealth import Evasive, stealth_feasible
 
-    attack = json.loads((_EXAMPLES / "account.json").read_text())["attack"]
+    attack = json.loads((_EXAMPLES / "accounts" / "custom" / "account.json").read_text())["attack"]
     rep = chains_report(lib, account, attack)
 
     # soundness: every hop of any returned path is unobserved by all rules

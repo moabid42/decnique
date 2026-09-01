@@ -33,7 +33,7 @@ def _session(tmp_path) -> Session:
     s.settings = Settings(tmp_path / "cfg.json")
     dispatch(s, f"config report.dir {tmp_path / 'out'}")
     dispatch(s, "config report.format json")
-    dispatch(s, "account load examples/account.json")
+    dispatch(s, "account load examples/accounts/custom/account.json")
     dispatch(s, 'detection keys { event method = "google.iam.admin.v1.CreateServiceAccountKey" }')
     role = _D % "role"
     dispatch(s, 'detection owner { event method = "SetIamPolicy" and udm("' + role + '") = "roles/owner" }')

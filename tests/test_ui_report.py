@@ -46,7 +46,7 @@ def test_verbs_save_reports_when_enabled(tmp_path, monkeypatch):
     s.settings = Settings(tmp_path / "cfg.json")
     dispatch(s, f"config report.dir {tmp_path / 'out'}")
     dispatch(s, "config report.format json")
-    dispatch(s, "account load examples/account.json")
+    dispatch(s, "account load examples/accounts/custom/account.json")
     dispatch(s, 'detection d { event method = "google.iam.admin.v1.CreateServiceAccountKey" }')
     dispatch(s, "check c { type coverage permission iam.serviceAccountKeys.create }")
     dispatch(s, "ask check c")

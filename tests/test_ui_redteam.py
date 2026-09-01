@@ -35,8 +35,8 @@ def _session(tmp_path) -> Session:
     dispatch(s, f"config report.dir {tmp_path / 'out'}")
     dispatch(s, "config report.format json")
     dispatch(s, "config report.save on")
-    dispatch(s, "rules load examples/candidates.decn")
-    dispatch(s, "account load examples/account.json")
+    dispatch(s, "rules load examples/candidates/candidates.decn")
+    dispatch(s, "account load examples/accounts/custom/account.json")
     return s
 
 
@@ -66,7 +66,7 @@ def test_chains_needs_a_technique_with_gains(tmp_path):
     s = Session()
     s.settings = Settings(tmp_path / "cfg.json")
     dispatch(s, 'candidate x { required { iam.serviceAccountKeys.create } footprint { a: "m" } }')
-    dispatch(s, "account load examples/account.json")
+    dispatch(s, "account load examples/accounts/custom/account.json")
     assert dispatch(s, "ask chains resourcemanager.projects.setIamPolicy") is True  # message: no gains
 
 
@@ -98,6 +98,6 @@ def test_methods_verb(tmp_path):
     from decnique.ui.config import Settings
     s.settings = Settings(tmp_path / "cfg.json")
     assert dispatch(s, "catalog methods iam.serviceAccountKeys.create") is True  # no account: guard message
-    dispatch(s, "account load examples/account.json")
+    dispatch(s, "account load examples/accounts/custom/account.json")
     assert dispatch(s, "catalog methods iam.serviceAccountKeys.create") is True
     assert dispatch(s, "catalog methods no.such.permission") is True

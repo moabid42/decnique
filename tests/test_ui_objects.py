@@ -57,7 +57,7 @@ def test_rules_inspect_and_dsl(tmp_path):
 
 def test_candidates_and_checks_inspect(tmp_path):
     s = _session(tmp_path)
-    dispatch(s, "candidates load examples/candidates_advanced.decn")
+    dispatch(s, "candidates load examples/candidates/candidates_advanced.decn")
     assert s.lib is not None and s.lib.bundle.candidates
     cid = s.lib.bundle.candidates[0].id
     out = _capture(s, f"candidates inspect {cid}")
@@ -65,34 +65,34 @@ def test_candidates_and_checks_inspect(tmp_path):
     assert f"candidate {cid} {{" not in out  # inspect never dumps the DSL
     assert f"candidates dsl {cid}" in out    # it points at `dsl` for that
     assert _capture(s, f"candidates dsl {cid}").strip().startswith(f"candidate {cid} {{")
-    dispatch(s, "checks load examples/checks.decn")
+    dispatch(s, "checks load examples/checks/checks.decn")
     assert s.lib.bundle.checks
     ck = s.lib.bundle.checks[0].id
     out = _capture(s, f"checks inspect {ck}")
     assert "question" in out and f"ask check {ck}" in out and f"check {ck} {{" not in out
     assert _capture(s, f"checks dsl {ck}").strip().startswith(f"check {ck} {{")
-    assert "load it first" in _capture(s, "ask check examples/checks.decn")  # running never loads
+    assert "load it first" in _capture(s, "ask check examples/checks/checks.decn")  # running never loads
 
 
 def test_events_list_inspect_and_account_show(tmp_path):
     s = _session(tmp_path)
     assert "no events loaded" in _capture(s, "events list")
-    dispatch(s, "events load examples/events.json")
+    dispatch(s, "events load examples/events/events.json")
     out = _capture(s, "events")
     assert "events — 7" in out and "SetIamPolicy" in out
     out = _capture(s, "events inspect 4")
     assert '"method": "SetIamPolicy"' in out
     assert "usage" in _capture(s, "events inspect 99") and "usage" in _capture(s, "events inspect x")
     assert "no account loaded" in _capture(s, "account")
-    dispatch(s, "account load examples/account.json")
+    dispatch(s, "account load examples/accounts/custom/account.json")
     out = _capture(s, "account show")
     assert "demo-prod" in out and "principals" in out and "data access log" in out
 
 
 def test_load_says_when_the_object_was_not_in_the_files(tmp_path):
     s = _session(tmp_path)
-    out = _capture(s, "rules load examples/candidates.decn")
+    out = _capture(s, "rules load examples/candidates/candidates.decn")
     assert "brought no detections" in out
-    out = _capture(s, "checks load examples/candidates.decn")
+    out = _capture(s, "checks load examples/candidates/candidates.decn")
     assert "brought no checks" in out
     assert "usage" in _capture(s, "candidates load")

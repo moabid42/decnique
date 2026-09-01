@@ -21,7 +21,7 @@ def test_batch_check_exit_codes_and_json(tmp_path, capsys):
     rules.write_text('detection keys { event method = "google.iam.admin.v1.CreateServiceAccountKey" }\n'
                      'check ok { type coverage permission iam.serviceAccountKeys.create }\n'
                      'check bad { type coverage permission resourcemanager.projects.setIamPolicy }\n')
-    base = ["--rules", str(rules), "--account", "examples/account.json"]
+    base = ["--rules", str(rules), "--account", "examples/accounts/custom/account.json"]
     assert main(base + ["ask", "check", "ok"]) == EXIT_CLEAN
     assert main(base + ["ask", "check", "bad"]) == EXIT_CLEAN  # no --fail-on: findings are reported, not fatal
     assert main(base + ["--fail-on", "finding", "ask", "check", "bad"]) == EXIT_FINDING
@@ -38,12 +38,12 @@ def test_batch_blindspots_report_and_script(tmp_path):
     rules.write_text('detection keys { event method = "google.iam.admin.v1.CreateServiceAccountKey" }\n')
     script = tmp_path / "run.txt"
     script.write_text("# a comment\nask blindspots iam.serviceAccountKeys.create\nask stealth\n")
-    code = main(["--rules", str(rules), "examples/candidates.decn", "--account", "examples/account.json", "--report", str(tmp_path / "out"),
+    code = main(["--rules", str(rules), "examples/candidates/candidates.decn", "--account", "examples/accounts/custom/account.json", "--report", str(tmp_path / "out"),
                  "--format", "json", "--fail-on", "finding", "-f", str(script)])
     assert code == EXIT_FINDING  # `escalate_project_iam` is evasive: nothing watches SetIamPolicy here
     files = sorted((tmp_path / "out").glob("*.json"))
     assert [f.name.split("-")[0] for f in files] == ["blindspots", "stealth"]
-    gap = main(["--rules", str(rules), "--account", "examples/account.json", "--fail-on", "finding",
+    gap = main(["--rules", str(rules), "--account", "examples/accounts/custom/account.json", "--fail-on", "finding",
                 "ask", "blindspots", "resourcemanager.projects.setIamPolicy"])
     assert gap == EXIT_FINDING
 
@@ -62,7 +62,7 @@ def test_inconclusive_exit_code(tmp_path, monkeypatch):
     monkeypatch.setattr(cov, "find_gap", lambda p, lib, account, ctx=None: cov.NoGap(p, "exhausted"))
     rules = tmp_path / "r.decn"
     rules.write_text('detection keys { event method = "google.iam.admin.v1.CreateServiceAccountKey" }\n')
-    base = ["--rules", str(rules), "--account", "examples/account.json", "ask", "blindspots", "iam.serviceAccountKeys.create"]
+    base = ["--rules", str(rules), "--account", "examples/accounts/custom/account.json", "ask", "blindspots", "iam.serviceAccountKeys.create"]
     assert main(["--fail-on", "finding"] + base) == EXIT_CLEAN
     assert main(["--fail-on", "unknown"] + base) == EXIT_INCONCLUSIVE
 
@@ -72,7 +72,7 @@ def test_errors_keep_the_session_alive(tmp_path):
     bad = tmp_path / "bad.json"
     bad.write_text('{"version": 2}')
     assert dispatch(s, f"account load {bad}") is True and s.account is None  # schema error, reported
-    dispatch(s, "account load examples/account.json")
+    dispatch(s, "account load examples/accounts/custom/account.json")
     import decnique.ui.render as render
 
     def boom(*a, **k):

@@ -227,25 +227,40 @@ def _ruleset_dir(bundle: Bundle, rs: Ruleset) -> Path | None:
 
 
 def _dedupe_ids(bundle: Bundle) -> Bundle:
-    seen: dict[str, Detection] = {}
-    kept: list[Detection] = []
+    """Collapse repeats within a single load, for every id'd kind (detections, candidates,
+    checks, rulesets).  An id that repeats with *identical* content — the same item reached
+    twice, e.g. a file named directly and also under a directory — is silently collapsed to
+    one.  An id that repeats with *different* content is a real clash: the first is kept and
+    an error is recorded.  Provenance (which file a rule came from) is ignored when deciding
+    "identical", so the same rule vendored in two places collapses instead of clashing."""
     issues = list(bundle.issues)
-    for d in bundle.detections:
-        if d.id in seen:
-            prev = seen[d.id]
-            issues.append(
-                LoadIssue(
-                    "error",
-                    d.source.file if d.source else "<unknown>",
-                    f"duplicate detection id {d.id} "
-                    f"(first seen in {prev.source.file if prev.source else '<unknown>'})",
-                    d.id,
+
+    def dedupe(items: tuple, kind: str, content) -> tuple:
+        seen: dict[str, object] = {}
+        kept: list = []
+        for it in items:
+            prev = seen.get(it.id)
+            if prev is None:
+                seen[it.id] = it
+                kept.append(it)
+            elif content(prev) == content(it):
+                continue  # same item loaded twice — collapse silently
+            else:
+                here = getattr(getattr(it, "source", None), "file", None) or "<unknown>"
+                first = getattr(getattr(prev, "source", None), "file", None) or "<unknown>"
+                issues.append(
+                    LoadIssue("error", here, f"duplicate {kind} id {it.id} (first seen in {first})", it.id)
                 )
-            )
-            continue
-        seen[d.id] = d
-        kept.append(d)
-    return replace(bundle, detections=tuple(kept), issues=tuple(issues))
+        return tuple(kept)
+
+    return replace(
+        bundle,
+        detections=dedupe(bundle.detections, "detection", lambda d: replace(d, source=None)),
+        candidates=dedupe(bundle.candidates, "candidate", lambda c: c),
+        checks=dedupe(bundle.checks, "check", lambda c: c),
+        rulesets=dedupe(bundle.rulesets, "ruleset", lambda r: r),
+        issues=tuple(issues),
+    )
 
 
 def select(

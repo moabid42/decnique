@@ -37,7 +37,15 @@ def _merge_bundles(old: Bundle, new: Bundle) -> Bundle:
 
 def _events_from(raw: object) -> list[dict]:
     entries = raw if isinstance(raw, list) else [raw]
-    return [event_from_audit_log(e) if "protoPayload" in e else e for e in entries]
+    events = [event_from_audit_log(e) if "protoPayload" in e else e for e in entries]
+    seen: set[str] = set()
+    out: list[dict] = []
+    for e in events:  # collapse identical events — the same event loaded twice is one event
+        key = json.dumps(e, sort_keys=True, default=str)
+        if key not in seen:
+            seen.add(key)
+            out.append(e)
+    return out
 
 
 class Session:
@@ -109,9 +117,12 @@ class Session:
 
     def events_load(self, file: str) -> None:
         raw = json.loads(Path(file).read_text(encoding="utf-8"))
+        total = len(raw) if isinstance(raw, list) else 1
         self.events = _events_from(raw)
         self.events_src = file
-        console.print(f"[ok]{CHECK}[/ok] loaded [title]{len(self.events)}[/title] events from {file}")
+        dropped = total - len(self.events)
+        skipped = f"  ({dropped} duplicate{'s' if dropped != 1 else ''} skipped)" if dropped else ""
+        console.print(f"[ok]{CHECK}[/ok] loaded [title]{len(self.events)}[/title] events from {file}{skipped}")
 
     def account_load(self, file: str, resource: str = "*") -> None:
         """``file`` is the tool's own account JSON, or a raw gcloud export (IAM policy /

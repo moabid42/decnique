@@ -100,9 +100,13 @@ def account_from_dict(doc: Mapping[str, Any], *, catalog: Catalog | None = None)
 
 def normalize_account_doc(doc: Any, *, resource: str = "*", name: str | None = None) -> dict:
     """Accept the tool's own document as is, or convert a raw ``gcloud`` export
-    (:mod:`decnique.env.gcp_import`) into one.  ``resource`` scopes a plain IAM policy."""
+    (:mod:`decnique.env.gcp_import`) or a Terraform state/config
+    (:mod:`decnique.env.terraform_import`) into one.  ``resource`` scopes a plain IAM policy."""
     from decnique.env.gcp_import import account_doc_from_gcp, looks_like_asset_search, looks_like_iam_policy
+    from decnique.env.terraform_import import account_doc_from_terraform, looks_like_terraform
 
+    if looks_like_terraform(doc):
+        return account_doc_from_terraform(doc, name=name or "terraform")
     if looks_like_iam_policy(doc) or looks_like_asset_search(doc):
         return account_doc_from_gcp(doc, resource=resource, name=name or "gcp")
     if not isinstance(doc, dict):

@@ -245,13 +245,16 @@ def _account_who(s: Session, a: list[str]) -> None:
 
 
 ACCOUNT = Obj("account", "the GCP account model: who can do what (Reach) and what is logged (Log)", {
-    "load": Verb("load", "<file.json> [resource]", "load the account model, or a raw gcloud export", _account_load,
+    "load": Verb("load", "<file.json> [resource]", "load the account model, or a raw gcloud / terraform export", _account_load,
                  "account load <file.json> [resource]\n"
                  "  The tool's own account JSON, or a raw export converted on load:\n"
                  "    gcloud projects get-iam-policy PROJECT --format=json > policy.json\n"
                  "      → account load policy.json projects/PROJECT   (bindings + Data Access audit config)\n"
                  "    gcloud asset search-all-iam-policies --scope=projects/PROJECT --format=json > cai.json\n"
                  "      → account load cai.json                        (grants scoped per resource)\n"
+                 "    terraform show -json > infra.json               (resolved state / plan — vars & modules expanded)\n"
+                 "      → account load infra.json                      (google_*_iam_* grants, custom roles, audit configs)\n"
+                 "      a native *.tf.json config also loads (unresolved ${...} refs kept and noted).\n"
                  "  Predefined roles expand from the built-in catalog; conditional bindings are kept\n"
                  "  unconditionally and listed as notes.", paths=True),
     "show": Verb("show", "", "the loaded account on one card", _account_show,

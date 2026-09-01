@@ -119,8 +119,14 @@ and the session survives (`DECNIQUE_DEBUG=1` re-raises).
 **The account.** `account load` takes the tool's own JSON *or* a raw export, converted on load:
 `gcloud projects get-iam-policy P --format=json` (bindings + Data Access `auditConfigs`) with a
 `resource` scope, or `gcloud asset search-all-iam-policies --format=json` (grants scoped per
-resource).  Predefined roles expand from the bundled catalog; conditional bindings are kept and
-listed as notes.  The method↔permission catalog is `Catalog.gcp()` — the whole GCP surface from
+resource), or **Terraform** (`env/terraform_import.py`): `terraform show -json` of state or a
+plan (vars/modules/`for_each` resolved) or a native `*.tf.json` config.  Terraform IAM resources
+map by suffix — `google_*_iam_member`/`_binding`/`_policy` → grants scoped to their resource,
+`google_*_iam_custom_role` → the role catalog, `google_*_iam_audit_config` → Data Access logging;
+data sources are ignored and unresolved `${…}` values are kept and noted approximate.  Terraform
+describes only the *account*, not detections (a `google_chronicle_rule` just wraps YARA-L the
+`secops` front-end already reads), so rules keep loading through `rules load`.  Predefined roles
+expand from the bundled catalog; conditional bindings are kept and listed as notes.  The method↔permission catalog is `Catalog.gcp()` — the whole GCP surface from
 the iam-dataset (generated method names are *unverified* until a loaded rule attests them); it
 falls back to the small hand-checked seed when the data files are absent.
 

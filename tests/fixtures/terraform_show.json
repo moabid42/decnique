@@ -1,0 +1,85 @@
+{
+  "format_version": "1.0",
+  "terraform_version": "1.7.0",
+  "values": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "google_project_iam_member.admin",
+          "mode": "managed",
+          "type": "google_project_iam_member",
+          "name": "admin",
+          "values": {"project": "demo", "role": "roles/owner", "member": "user:admin@demo.com"}
+        },
+        {
+          "address": "google_project_iam_binding.keyadmins",
+          "mode": "managed",
+          "type": "google_project_iam_binding",
+          "name": "keyadmins",
+          "values": {
+            "project": "demo",
+            "role": "roles/iam.serviceAccountKeyAdmin",
+            "members": ["serviceAccount:ci@demo.iam.gserviceaccount.com", "group:sec@demo.com"]
+          }
+        },
+        {
+          "address": "google_project_iam_custom_role.deployer",
+          "mode": "managed",
+          "type": "google_project_iam_custom_role",
+          "name": "deployer",
+          "values": {
+            "project": "demo",
+            "role_id": "deployer",
+            "permissions": ["compute.instances.create", "compute.instances.delete"]
+          }
+        },
+        {
+          "address": "google_project_iam_member.bob_custom",
+          "mode": "managed",
+          "type": "google_project_iam_member",
+          "name": "bob_custom",
+          "values": {"project": "demo", "role": "projects/demo/roles/deployer", "member": "user:bob@demo.com"}
+        },
+        {
+          "address": "google_project_iam_audit_config.da",
+          "mode": "managed",
+          "type": "google_project_iam_audit_config",
+          "name": "da",
+          "values": {
+            "project": "demo",
+            "service": "storage.googleapis.com",
+            "audit_log_config": [
+              {"log_type": "DATA_READ", "exempted_members": ["user:ci@demo.com"]},
+              {"log_type": "DATA_WRITE", "exempted_members": []}
+            ]
+          }
+        },
+        {
+          "address": "data.google_iam_policy.ignored",
+          "mode": "data",
+          "type": "google_iam_policy",
+          "name": "ignored",
+          "values": {"policy_data": "{\"bindings\":[{\"role\":\"roles/owner\",\"members\":[\"user:ghost@demo.com\"]}]}"}
+        }
+      ],
+      "child_modules": [
+        {
+          "address": "module.storage",
+          "resources": [
+            {
+              "address": "module.storage.google_storage_bucket_iam_member.reader",
+              "mode": "managed",
+              "type": "google_storage_bucket_iam_member",
+              "name": "reader",
+              "values": {
+                "bucket": "//storage.googleapis.com/projects/_/buckets/secrets",
+                "role": "roles/storage.objectViewer",
+                "member": "serviceAccount:reader@demo.iam.gserviceaccount.com"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -11,6 +11,7 @@ from __future__ import annotations
 from decnique.env.catalog import Catalog, MethodInfo
 from decnique.env.ingest import AccountSchemaError, account_from_dict, load_account, normalize_account_doc
 from decnique.env.model import Account, Deny, Grant, LogConfig
+from decnique.env.terraform_import import account_doc_from_terraform, looks_like_terraform
 
 __all__ = [
     "Account",
@@ -20,7 +21,9 @@ __all__ = [
     "Grant",
     "LogConfig",
     "MethodInfo",
+    "account_doc_from_terraform",
     "account_from_dict",
     "load_account",
+    "looks_like_terraform",
     "normalize_account_doc",
 ]

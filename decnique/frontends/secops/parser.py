@@ -227,38 +227,98 @@ _TOKEN_RE = re.compile(
 )
 _RX_RE = re.compile(r"/((?:[^/\\\n]|\\.)+)/")
 _RX_PREV = {"=", "!=", "(", ",", "and", "or", "not", "in"}
+# Significant code char that, immediately before a ``/``, marks it as a regex-literal start
+# rather than division.  Regexes only ever follow a comparison operator or an operand opener.
+_RX_BEFORE = {"=", "(", ",", "<", ">"}
+
+
+def _spans(text: str):
+    """Classify ``text`` into (kind, start, end) spans, kind in
+    ``code str bt rx lc bc`` (string, backtick, regex literal; line / block comment).
+
+    A ``/`` is a regex literal only in operand position (previous significant code char in
+    :data:`_RX_BEFORE`); ``//`` and ``/*`` are always comments; every other ``/`` is division.
+    Literals and comments are skipped as a unit, so quotes / colons / braces *inside* a regex or
+    string never desync the structural scanners that consume these spans."""
+    i, n = 0, len(text)
+    prev: str | None = None  # last significant (non-space) code char
+    while i < n:
+        c = text[i]
+        if c == '"':
+            j = i + 1
+            while j < n and text[j] != "\n":
+                if text[j] == "\\":
+                    j += 2
+                    continue
+                if text[j] == '"':
+                    j += 1
+                    break
+                j += 1
+            yield ("str", i, j)
+            prev, i = '"', j
+            continue
+        if c == "`":
+            j = text.find("`", i + 1)
+            j = n if j < 0 else j + 1
+            yield ("bt", i, j)
+            prev, i = "`", j
+            continue
+        if c == "/" and i + 1 < n and text[i + 1] == "/":
+            j = text.find("\n", i)
+            j = n if j < 0 else j
+            yield ("lc", i, j)
+            i = j  # prev unchanged: a comment is not significant
+            continue
+        if c == "/" and i + 1 < n and text[i + 1] == "*":
+            j = text.find("*/", i + 2)
+            j = n if j < 0 else j + 2
+            yield ("bc", i, j)
+            i = j
+            continue
+        if c == "/" and prev in _RX_BEFORE:
+            j = i + 1
+            closed = False
+            while j < n and text[j] != "\n":
+                if text[j] == "\\":
+                    j += 2
+                    continue
+                if text[j] == "/":
+                    j += 1
+                    closed = True
+                    break
+                j += 1
+            if closed:
+                yield ("rx", i, j)
+                prev, i = "/", j
+                continue
+            # unterminated on this line -> not a regex; fall through and treat as division
+        yield ("code", i, i + 1)
+        if not c.isspace():
+            prev = c
+        i += 1
 
 
 def strip_comments(text: str) -> str:
-    text = re.sub(r"/\*.*?\*/", lambda m: "\n" * m.group(0).count("\n"), text, flags=re.S)
-    # `//` comments, but not inside strings or backticks
+    """Remove line/block comments, preserving literals and line numbers."""
     out: list[str] = []
-    i, n = 0, len(text)
-    quote: str | None = None
-    while i < n:
-        c = text[i]
-        if quote:
-            out.append(c)
-            if c == "\\" and quote == '"' and i + 1 < n:
-                out.append(text[i + 1])
-                i += 2
-                continue
-            if c == quote:
-                quote = None
-            i += 1
-            continue
-        if c in {'"', "`"}:
-            quote = c
-            out.append(c)
-            i += 1
-            continue
-        if text.startswith("//", i):
-            j = text.find("\n", i)
-            i = n if j < 0 else j
-            continue
-        out.append(c)
-        i += 1
+    for kind, s, e in _spans(text):
+        seg = text[s:e]
+        out.append("\n" * seg.count("\n") if kind in ("lc", "bc") else seg)
     return "".join(out)
+
+
+def _mask_literals(text: str) -> str:
+    """Same length as ``text`` with string / backtick / regex interiors and comments blanked to
+    spaces (newlines kept), so ``{`` ``}`` ``:`` ``"`` inside them are invisible to the
+    rule-brace and section-header scanners."""
+    buf = list(text)
+    for kind, s, e in _spans(text):
+        if kind == "code":
+            continue
+        for k in range(s, e):
+            if buf[k] != "\n":
+                buf[k] = " "
+    return "".join(buf)
 
 
 def tokenize(text: str) -> list[Tok]:
@@ -293,30 +353,32 @@ _STRING_RE = re.compile(r'"(?:\\.|[^"\\])*"|`[^`]*`')
 
 
 def _blank_strings(text: str) -> str:
-    """Same length as ``text`` with every string literal replaced by spaces (keeps offsets)."""
-    return _STRING_RE.sub(lambda m: " " * len(m.group(0)), text)
+    """Same length as ``text`` with string / backtick / regex literals and comments blanked to
+    spaces (keeps offsets)."""
+    return _mask_literals(text)
 
 
 def split_rules(text: str) -> list[tuple[str, str, int]]:
     """(name, body, line) for every rule in a file."""
     clean = strip_comments(text)
+    mask = _mask_literals(clean)  # braces inside literals must not count toward rule bounds
     out: list[tuple[str, str, int]] = []
-    for m in _RULE_RE.finditer(clean):
+    for m in _RULE_RE.finditer(mask):
         depth, i = 1, m.end()
-        while i < len(clean) and depth:
-            if clean[i] == "{":
+        while i < len(mask) and depth:
+            if mask[i] == "{":
                 depth += 1
-            elif clean[i] == "}":
+            elif mask[i] == "}":
                 depth -= 1
             i += 1
         body = clean[m.end() : i - 1]
-        out.append((m.group(1), body, clean.count("\n", 0, m.start()) + 1))
+        out.append((m.group(1), body, mask.count("\n", 0, m.start()) + 1))
     return out
 
 
 def split_sections(body: str) -> dict[str, str]:
     sections: dict[str, str] = {}
-    matches = list(_SECTION_RE.finditer(_blank_strings(body)))
+    matches = list(_SECTION_RE.finditer(_mask_literals(body)))
     for k, m in enumerate(matches):
         end = matches[k + 1].start() if k + 1 < len(matches) else len(body)
         sections[m.group(1).lower()] = body[m.end() : end]

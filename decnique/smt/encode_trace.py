@@ -17,7 +17,7 @@ which is gated by ``window`` (``around``: every pair within ``W``) and only then
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import z3
 
@@ -78,7 +78,6 @@ def footprint_constraints(trace: SymTrace, fp, catalog=None) -> list[z3.BoolRef]
                 cons.append(occ.ev.present(path))
             cons.append(occ.ev.term("granted") == z3.BoolVal(True))
 
-    steps = {s.id: s for s in fp.steps}
     for step in fp.steps:
         group = trace.of_step(step.id)
         if step.within_seconds is not None:
@@ -100,7 +99,7 @@ def footprint_constraints(trace: SymTrace, fp, catalog=None) -> list[z3.BoolRef]
                     cons.append(group[a].ev.term(path) != group[b].ev.term(path))
 
     # order: for consecutive named steps a < b, some occurrence of a precedes some of b
-    for a_id, b_id in zip(fp.order, fp.order[1:]):
+    for a_id, b_id in zip(fp.order, fp.order[1:], strict=False):  # consecutive pairs
         a_occs, b_occs = trace.of_step(a_id), trace.of_step(b_id)
         if a_occs and b_occs:
             cons.append(z3.Or(*[oa.time < ob.time for oa in a_occs for ob in b_occs]))

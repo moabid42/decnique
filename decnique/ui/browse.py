@@ -85,7 +85,7 @@ def _rules_naming(s, methods) -> list[str]:  # type: ignore[no-untyped-def]
         _LITERALS.clear()
         lits = _LITERALS[id(s.lib)] = {d.id: frozenset(spec_methods_literal(d.spec)) for d in s.lib.detections}
     ms = set(methods)
-    return [rid for rid, l in lits.items() if l and not l.isdisjoint(ms)]
+    return [rid for rid, lit in lits.items() if lit and not lit.isdisjoint(ms)]
 
 
 def _log_word(cat: Catalog, s, methods) -> str:  # type: ignore[no-untyped-def]

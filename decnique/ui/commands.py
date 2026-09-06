@@ -12,8 +12,8 @@ walked by all three, so a verb added here is documented and completable at once.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 
 from . import browse, render
 from .session import Session

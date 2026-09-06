@@ -123,7 +123,7 @@ def dispatch(s: Session, line: str) -> bool:
             if isinstance(hit, str):
                 console.print(f"[warn]{hit}[/warn]")
             else:
-                obj, verb, rest = hit
+                _obj, verb, rest = hit
                 verb.run(s, rest)
     except (OSError, json.JSONDecodeError, ValueError) as e:  # ValueError: bad account / schema
         console.print(f"[err]input error:[/err] {e}")
@@ -133,7 +133,7 @@ def dispatch(s: Session, line: str) -> bool:
         console.print(f"[err]not found:[/err] {e}")
     except KeyboardInterrupt:
         console.print("[warn]interrupted[/warn] — the session is intact")
-    except Exception as e:  # noqa: BLE001 — a bug in a verb must not take the session with it
+    except Exception as e:
         console.print(f"[err]{type(e).__name__}:[/err] {e}   (the session is intact; please report this)")
         if os.environ.get("DECNIQUE_DEBUG"):
             raise
@@ -204,7 +204,7 @@ def print_help(s: Session, args: list[str] | None = None) -> None:
         return
     name = args[0]
     if name in SHELL:
-        hint, one, detail = SHELL[name]
+        _hint, one, detail = SHELL[name]
         _panel(name, one, detail)
         return
     obj = OBJECTS.get(name)

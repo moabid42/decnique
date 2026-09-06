@@ -193,11 +193,11 @@ class Catalog:
     by_method: Mapping[str, MethodInfo] = field(default_factory=dict)
 
     @classmethod
-    def seed(cls) -> "Catalog":
+    def seed(cls) -> Catalog:
         return cls(by_method={m.method: m for m in _SEED})
 
     @classmethod
-    def gcp(cls) -> "Catalog":
+    def gcp(cls) -> Catalog:
         """The seed plus every method of the iam-dataset (``catalogs/gcp_methods.json.gz``,
         built by ``catalogs/build_gcp.py``).  Generated entries are *unverified*: each API
         method contributes several candidate audit-log spellings, and a blind spot reached only
@@ -205,11 +205,11 @@ class Catalog:
         return _gcp_catalog()
 
     @classmethod
-    def default(cls) -> "Catalog":
+    def default(cls) -> Catalog:
         """The GCP catalog when its data file is present, else the seed."""
         return cls.gcp() if (_DATA / "gcp_methods.json.gz").is_file() else cls.seed()
 
-    def attest(self, names: Iterable[str]) -> "Catalog":
+    def attest(self, names: Iterable[str]) -> Catalog:
         """A copy in which the methods in ``names`` are verified — used for names that loaded
         rules test literally: a rule author writes what the audit log really carries."""
         merged = dict(self.by_method)
@@ -220,7 +220,7 @@ class Catalog:
         return Catalog(by_method=merged)
 
     @classmethod
-    def load(cls, path: str | Path) -> "Catalog":
+    def load(cls, path: str | Path) -> Catalog:
         """Load/extend the seed from a JSON file ``{method: {permissions, service, data_access}}``."""
         raw = json.loads(Path(path).read_text(encoding="utf-8"))
         merged = {m.method: m for m in _SEED}
@@ -325,7 +325,7 @@ def _gcp_catalog() -> Catalog:
         return Catalog(by_method=merged)
     with gzip.open(path, "rt", encoding="utf-8") as fh:
         data = json.load(fh)
-    for mid, m in data.items():
+    for m in data.values():
         if not m["permissions"] and not m["low_confidence"]:
             continue  # nothing an account could grant: no question to ask
         for name in m["names"]:

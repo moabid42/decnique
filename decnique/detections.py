@@ -49,9 +49,9 @@ class DetectionLibrary:
     def load(
         cls,
         *paths: Path | str,
-        options: "LoadOptions | None" = None,
+        options: LoadOptions | None = None,
         ref_lists: RefLists | None = None,
-    ) -> "DetectionLibrary":
+    ) -> DetectionLibrary:
         from decnique.dsl.loader import load_paths
 
         return cls(load_paths(paths, options), ref_lists)

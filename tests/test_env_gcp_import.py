@@ -3,12 +3,19 @@ Data Access logging comes from auditConfigs, and everything not modelled is a no
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from decnique.env import load_account, normalize_account_doc
 from decnique.ui.repl import dispatch
 from decnique.ui.session import Session
 
 _POLICY = "tests/fixtures/gcloud_policy.json"
 _ASSETS = "tests/fixtures/gcloud_assets.json"
+
+
+def _read_json(path):
+    return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
 def test_iam_policy_import():
@@ -20,7 +27,7 @@ def test_iam_policy_import():
     assert acct.reach("temp@demo.com", "resourcemanager.projects.get")  # conditional binding kept (noted)
     assert "gone@demo.com" not in acct.bindings and "domain:demo.com" in acct.bindings
     assert acct.logged("storage.objects.get") and not acct.logged("iam.serviceAccounts.getAccessToken")
-    doc = normalize_account_doc(__import__("json").load(open(_POLICY)), resource="projects/demo")
+    doc = normalize_account_doc(_read_json(_POLICY), resource="projects/demo")
     notes = " ".join(doc["notes"])
     assert "conditional binding" in notes and "exempted" in notes and "domain:demo.com" in notes
 

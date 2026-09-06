@@ -385,9 +385,8 @@ def blindspots(s: Session, perms: list[str]) -> None:
     if not s.need_lib() or not s.need_account():
         return
     from decnique.smt.coverage import (
-        CoverageContext, Gap, blind_region, dodged_conditions, find_gap, probe_atoms, rules_naming,
+        CoverageContext,
     )
-    from decnique.smt.stealth import Evasive, stealth_feasible
 
     explain = s.settings.get("blindspots.explain")
     show_raw = s.settings.get("blindspots.raw") == "on"
@@ -405,7 +404,14 @@ def blindspots(s: Session, perms: list[str]) -> None:
 
 
 def _blindspots(s, lib, account, single, ctx, permissions, explain, show_raw, rep) -> None:  # type: ignore[no-untyped-def]
-    from decnique.smt.coverage import Gap, blind_region, dodged_conditions, find_gap, probe_atoms, rules_naming
+    from decnique.smt.coverage import (
+        Gap,
+        blind_region,
+        dodged_conditions,
+        find_gap,
+        probe_atoms,
+        rules_naming,
+    )
     from decnique.smt.stealth import Evasive, stealth_feasible
 
     r = Reasoner()
@@ -730,7 +736,6 @@ def _service_summary(rep) -> None:  # type: ignore[no-untyped-def]
 def stealth(s: Session, ident: str | None) -> None:
     if not s.need_lib() or not s.need_account():
         return
-    from decnique.smt.stealth import Evasive, feasible, stealth_feasible
 
     lib, account = s.lib, s.account
     cands = [c for c in lib.bundle.candidates if not ident or c.id == ident]
@@ -854,8 +859,8 @@ def chains(s: Session, args: list[str]) -> None:
 
 
 def _chains(lib, account, attack, report) -> None:  # type: ignore[no-untyped-def]
-    from decnique.graph.search import price_transitions
     from decnique.answers import chains_report, techniques_for
+    from decnique.graph.search import price_transitions
 
     r = Reasoner()
     r.header(
@@ -1113,7 +1118,7 @@ def _report_one(s: Session, file: str | None) -> None:
     """Re-render a saved run: what was loaded, the summary, and every finding."""
     from pathlib import Path
 
-    from .report import list_reports, load
+    from .report import load
 
     if not file:
         console.print("[muted]usage:[/muted] reports show <file>   (see [key]reports list[/key])")

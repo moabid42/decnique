@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from decnique.env import Catalog, account_from_dict, load_account
-from decnique.env.model import Account, Deny, Grant, LogConfig
+from decnique.env.model import Account
 
 _DOC = {
     "version": 1,

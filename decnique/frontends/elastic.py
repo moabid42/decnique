@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any as AnyT
 
 from decnique.dsl.ast import Bundle, Detection, LoadIssue, Provenance
+from decnique.dsl.interpret import glob_has_wildcard, glob_unescape
 from decnique.model import event_fields as ef
 from decnique.model.predicates import (
     Cmp,
@@ -27,7 +28,6 @@ from decnique.model.predicates import (
     all_of,
     any_of,
 )
-from decnique.dsl.interpret import glob_has_wildcard, glob_unescape
 from decnique.model.trace import RuleOptions, single_event
 
 # Sigma / KQL have no zero-value rule: a test on an absent field is simply false, and a negated
@@ -311,7 +311,7 @@ class _Kql:
 
 
 def _unescape(t: str) -> str:
-    """Drop the quotes and KQL escapes, but keep ``\*`` / ``\?`` escaped: the glob matcher reads
+    r"""Drop the quotes and KQL escapes, but keep ``\*`` / ``\?`` escaped: the glob matcher reads
     them as literal characters (a quoted value has no wildcards at all)."""
     if t.startswith('"') and t.endswith('"') and len(t) >= 2:
         return re.sub(r"\\(.)", lambda m: "\\" + m.group(1) if m.group(1) in "*?" else m.group(1), t[1:-1])

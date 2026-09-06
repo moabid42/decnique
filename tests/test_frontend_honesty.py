@@ -3,10 +3,10 @@ becomes a don't-know (an `unknown(...)` atom or an `unknown("...")` condition pa
 
 from __future__ import annotations
 
+from decnique.dsl.ast import Bundle
 from decnique.dsl.format import bundle as fmt_bundle
 from decnique.dsl.parser import parse_text
 from decnique.eval import fires
-from decnique.dsl.ast import Bundle
 from decnique.frontends.panther import lower_panther
 from decnique.frontends.secops import load_yaral_text
 from decnique.model.trace import CAnd, CUnknown

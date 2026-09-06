@@ -12,7 +12,7 @@ from __future__ import annotations
 import fnmatch
 import re
 from collections.abc import Iterable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from decnique.dsl.ast import Bundle, Detection, LoadIssue, Ruleset
@@ -41,7 +41,7 @@ class LoadOptions:
     gcp_only: bool = True
     include_deprecated: bool = False
     frontends: tuple[str, ...] = FRONTENDS
-    parse: ParseOptions = ParseOptions()
+    parse: ParseOptions = field(default_factory=ParseOptions)
     max_file_bytes: int = 2_000_000
 
 

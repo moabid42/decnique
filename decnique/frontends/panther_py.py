@@ -33,6 +33,7 @@ Field mapping (raw Cloud Audit Log entry → event model)::
 from __future__ import annotations
 
 import ast
+import contextlib
 from dataclasses import dataclass, field
 
 from decnique.model import event_fields as ef
@@ -168,10 +169,8 @@ class _Eval:
             if isinstance(node, ast.FunctionDef):
                 self.funcs[node.name] = node
             elif isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
-                try:
+                with contextlib.suppress(Unsupported):  # a constant we cannot read is simply unknown
                     self.consts[node.targets[0].id] = self.expr(node.value, {})
-                except Unsupported:
-                    pass
             elif isinstance(node, ast.ImportFrom | ast.Import):
                 for a in node.names:
                     self.imported.add(a.asname or a.name)
@@ -359,7 +358,7 @@ class _Eval:
         """A helper defined in the same file: evaluate its body as a predicate (one level)."""
         if len(fn.args.args) != len(args):
             raise Unsupported(f"helper:{fn.name}:arity")
-        inner = {a.arg: self.expr(v, env) for a, v in zip(fn.args.args, args)}
+        inner = {a.arg: self.expr(v, env) for a, v in zip(fn.args.args, args, strict=True)}
         r, _ = self.block(fn.body, inner, depth=1)
         return r
 

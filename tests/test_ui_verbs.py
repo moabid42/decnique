@@ -6,8 +6,8 @@ from __future__ import annotations
 import json
 
 from decnique.ui.config import Settings
-from decnique.ui.report import list_reports, load
 from decnique.ui.repl import dispatch
+from decnique.ui.report import list_reports, load
 from decnique.ui.session import Session
 
 

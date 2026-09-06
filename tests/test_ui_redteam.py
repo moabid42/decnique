@@ -5,11 +5,11 @@ from __future__ import annotations
 
 import json
 
-from decnique.dsl.parser import parse_text
 from decnique.answers import techniques_for
+from decnique.dsl.parser import parse_text
 from decnique.ui.config import Settings
-from decnique.ui.report import list_reports, load
 from decnique.ui.repl import dispatch
+from decnique.ui.report import list_reports, load
 from decnique.ui.session import Session
 
 _KEY = "google.iam.admin.v1.CreateServiceAccountKey"
@@ -71,7 +71,6 @@ def test_chains_needs_a_technique_with_gains(tmp_path):
 
 
 def test_always_detected_names_the_catching_rules(tmp_path):
-    from decnique.ui.repl import EXIT_CLEAN, main
 
     rules = tmp_path / "r.decn"
     T = "iam.serviceAccounts.getAccessToken"

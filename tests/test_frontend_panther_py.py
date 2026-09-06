@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from decnique.dsl.interpret import evaluate
 from decnique.frontends.panther_py import rule_predicate
-from decnique.model.predicates import Unknown, unknowns
+from decnique.model.predicates import unknowns
 
 _D = "target.resource.attribute.labels[ser_binding_deltas_%s]"  # bare path under event["udm"]
 

@@ -7,8 +7,8 @@ import json
 
 from decnique.detections import event_from_audit_log, to_audit_log
 from decnique.ui.config import Settings
-from decnique.ui.report import list_reports
 from decnique.ui.repl import dispatch
+from decnique.ui.report import list_reports
 from decnique.ui.session import Session
 
 _D = "target.resource.attribute.labels[ser_binding_deltas_%s]"

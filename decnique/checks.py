@@ -47,7 +47,7 @@ from decnique.dsl.ast import Bundle, Check, Detection
 from decnique.env.model import Account
 from decnique.eval import fires
 from decnique.model.predicates import Cmp, Like, referenced_fields
-from decnique.smt.coverage import CoverageContext, Gap, NoGap, find_gap
+from decnique.smt.coverage import CoverageContext, Gap, find_gap
 from decnique.smt.stealth import AlwaysDetected, Evasive, NotFeasible, stealth_feasible
 
 Verdict = Literal["pass", "fail", "unknown"]

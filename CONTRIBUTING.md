@@ -5,14 +5,17 @@ the five invariants. Nothing below repeats it; this file is only *how to run the
 
 ## Set up
 
+With [uv](https://docs.astral.sh/uv/) — what CI uses, and it resolves this dependency set in
+about a second:
+
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"          # runtime + pytest + hypothesis + ruff + build
-npm install                      # installs the git hooks (husky) — see below
+uv venv && source .venv/bin/activate
+uv pip install -e ".[dev]"       # runtime + pytest + hypothesis + ruff + pre-commit + build
+pre-commit install               # the git hooks — see below
 ```
 
-`npm install` exists only for the hooks; nothing in the package imports JavaScript. Skip it and
-you simply lose the local checks — CI runs the same ones.
+Plain pip works exactly the same (`python -m venv .venv`, `pip install -e ".[dev]"`); uv is
+faster, not required. Nothing in the toolchain is outside the Python ecosystem.
 
 ## The checks, in the order CI runs them
 
@@ -42,49 +45,56 @@ file, so no test can read or overwrite your own shell settings.
 
 ## The git hooks
 
-`npm install` puts three husky hooks in place. Each one is a few lines of shell in `.husky/`, and
-each says how to skip it:
+`pre-commit install` sets up all three hook types at once (`.pre-commit-config.yaml` says so):
 
 | hook | what it runs | roughly |
 |---|---|---|
-| `pre-commit` | `ruff check --fix` on the **staged** `.py` files (lint-staged) | under a second |
-| `commit-msg` | `commitlint` against `commitlint.config.js` | instant |
+| `pre-commit` | `ruff check --fix` on the **staged** files, plus whitespace / YAML / TOML / JSON checks | under a second |
+| `commit-msg` | `python tools/commit_msg.py` | instant |
 | `pre-push` | `pytest -m "not e2e"` | ~20 s |
 
+`pre-commit run --all-files` runs them over the whole tree by hand.
 `git commit --no-verify` / `git push --no-verify` skips them for one command — fine on a branch of
 your own, and CI checks the same things anyway.
+
+The `pre-push` hook shells out to whichever `python` is on your `PATH`, so run `git push` from the
+activated venv (or `--no-verify` and let CI do it).
 
 ## The commit convention
 
 `AGENTS.md` §8: **one line**, `type(scope): what and why`, atomic, **no trailers**.
-`commitlint.config.js` turns that into rules — Conventional Commits for the shape, plus three of
-this project's own: the type list it actually uses (`feat` `fix` `docs` `test` `refactor` `perf`
-`chore` `ci` `build` `revert`), `body-empty` (that is what "one line" means), and a local
-`no-trailers` rule that rejects `Co-authored-by:`, `Signed-off-by:` and friends. `revert:` commits
-are exempt, because `git revert` writes its own message.
+`tools/commit_msg.py` is that paragraph as a program — 60 lines of standard library, no
+dependency, and `tests/test_commit_msg.py` covers it. It checks the type against the list this
+repository actually uses (`feat` `fix` `docs` `test` `refactor` `perf` `chore` `ci` `build`
+`revert`), a lower-case subject with no full stop, a header under 100 characters, one line only,
+and no `Co-authored-by:` / `Signed-off-by:` style trailers. Merges, reverts and `fixup!`/`squash!`
+commits pass untouched, and the `#` comments and diff that `git commit -v` puts in the file are
+not mistaken for a body.
 
 ```
 test: cover the CLI, yaml_io and the predicate model          ✓
 fix(yaml_io): tag AST nodes under node so InList reads back   ✓
-added stuff                                                   ✗  type may not be empty
-wip: something                                                ✗  type must be one of […]
-feat: Adds a thing.                                           ✗  subject-case, subject-full-stop
+added stuff                                                   ✗  the header must read `type(scope): what and why`
+wip: something                                                ✗  type 'wip' is not one of: feat, fix, …
+feat: Adds a thing.                                           ✗  the subject starts lower case / no full stop
+feat: x  +  Co-authored-by: …                                 ✗  commits carry no trailers
 ```
 
-CI re-runs `commitlint` over every commit in a pull request, since a local hook can be skipped.
+Check a range yourself with `python tools/commit_msg.py --range origin/dev..HEAD` — that is
+exactly what CI runs over a pull request, since a local hook can be skipped.
 
 ## What CI does
 
-`.github/workflows/ci.yml`, five jobs:
+`.github/workflows/ci.yml`, five jobs. Installs go through `uv`:
 
-1. **commits** — `commitlint` over the pull request's commits.
-2. **lint** — `ruff check`.
+1. **commits** — `tools/commit_msg.py --range` over the pull request's commits.
+2. **lint** — `ruff check`, at the version pinned in the `dev` extra.
 3. **test** — the unit suite on Python 3.11, 3.12 and 3.13, with the coverage floor.
 4. **e2e** — installs the package (not editable) and runs the `e2e`-marked tests, so the
    console script and the packaged data files (`grammar.lark`, the GCP catalogs) are exercised
    the way a user meets them.
-5. **package** — builds the sdist and wheel, runs `twine check`, installs the wheel into a fresh
-   virtualenv and parses a rule with it.
+5. **package** — `uv build`, `twine check`, then installs the wheel into a fresh virtualenv and
+   parses a rule with it.
 
 ## Writing a change
 
@@ -92,7 +102,7 @@ The conventions in `AGENTS.md` §8 hold. In particular:
 
 - **No new runtime dependencies.** `lark`, `pyyaml`, `z3-solver`, `rich`, `prompt_toolkit` — that
   is the list. Test and lint tooling lives in the `test` / `dev` extras and is never imported by
-  the package; the npm packages are hooks only.
+  the package.
 - **A test for every behaviour change.** Corpus-dependent tests must skip cleanly without the corpus.
 
 ### What a good test looks like here

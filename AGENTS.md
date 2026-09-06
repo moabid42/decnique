@@ -71,22 +71,22 @@ tests/          pytest; synthetic suites + corpus tests (skipped when the corpus
                 entry points run as real processes)
 run.py          launcher for the interactive shell / one-shot commands
 .github/        CI: commit messages · lint · unit suite on 3.11-3.13 · e2e installed · packaging
-.husky/         git hooks (lint staged Python, check the commit message, test before a push)
+tools/          commit_msg.py: the commit convention as a program (hook + CI use the same one)
 ```
 
 ## 4. Running
 
 ```bash
-python -m venv .venv && .venv/bin/pip install -e .[dev]  # [test] for pytest only
-npm install                                              # git hooks only (husky); optional
-.venv/bin/python -m pytest -q                            # ~35 s, must stay green
-.venv/bin/python -m pytest -q -m "not e2e"               # ~20 s, the fast loop
-.venv/bin/ruff check .                                   # the same lint gate CI runs
-python3 run.py                                           # shell
+uv venv && uv pip install -e .[dev]        # or python -m venv .venv && pip install …
+.venv/bin/pre-commit install               # git hooks; optional
+.venv/bin/python -m pytest -q              # ~35 s, must stay green
+.venv/bin/python -m pytest -q -m "not e2e" # ~20 s, the fast loop
+.venv/bin/ruff check .                     # the same lint gate CI runs
+python3 run.py                             # shell
 python3 run.py ask blindspots resourcemanager.projects.setIamPolicy
 ```
-The hooks (`.husky/`) lint the staged Python on commit, check the commit message, and run the
-fast test suite on push; `--no-verify` skips one.  Nothing in the package imports JavaScript.
+The hooks lint the staged files on commit, check the commit message against
+`tools/commit_msg.py`, and run the fast test suite on push; `--no-verify` skips one.
 `tests/conftest.py` puts every test at the repository root and points `$DECNIQUE_CONFIG` at a
 temporary file, so `pytest` behaves the same wherever it is started and never touches your own
 settings.  Two markers: `e2e` (runs an entry point in a subprocess) and `corpus` (needs a rule
@@ -222,8 +222,8 @@ rule across hops is caught); stealth reports the rules that always catch a techn
 ## 8. Conventions
 
 - Commits: one line, `type(scope): what and why`; atomic; no trailers.  Enforced by
-  `commitlint.config.js` — at the `commit-msg` hook (`npm install` puts it in place) and again
-  over every pull request in CI.
+  `tools/commit_msg.py` — at the `commit-msg` hook (`pre-commit install`) and again over every
+  pull request in CI.  It is tested (`tests/test_commit_msg.py`); change the rule there.
 - No new *runtime* dependencies (lark, pyyaml, z3-solver, rich, prompt_toolkit).  Test and lint
   tooling lives in the `test` / `dev` extras and is never imported by the package.
 - Tests for every behaviour change; corpus-dependent tests must skip cleanly without the corpus.

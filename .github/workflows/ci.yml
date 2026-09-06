@@ -1,11 +1,13 @@
 name: CI
 
 # Five gates, in the order a failure is cheapest to read:
-#   commits  — the message convention (AGENTS.md §8); the same check .husky/commit-msg runs
+#   commits  — the message convention (AGENTS.md §8); the same check the commit-msg hook runs
 #   lint     — style and dead code, seconds, no install
 #   test     — the unit suite on every Python the package claims to support, with a coverage floor
 #   e2e      — the entry points as real processes, against the *installed* package
 #   package  — the sdist and wheel build, pass twine, and give a working `decnique` command
+#
+# Installs go through `uv`, which resolves this project's dependency set in about a second.
 on:
   push:
     branches: [main, dev]
@@ -20,11 +22,12 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PIP_DISABLE_PIP_VERSION_CHECK: "1"
   FORCE_COLOR: "1"
+  UV_SYSTEM_PYTHON: "1"   # install into the runner's Python, no venv to activate
 
 jobs:
   # A local hook can be skipped with --no-verify, so the convention is checked here too.
+  # Same script, so the two can never disagree.
   commits:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -32,16 +35,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-python@v5
         with:
-          node-version: "20"
-          cache: npm
-      - run: npm ci
-      - name: commitlint
+          python-version: "3.12"
+      - name: commit messages follow AGENTS.md §8
         run: >
-          npx commitlint --verbose
-          --from ${{ github.event.pull_request.base.sha }}
-          --to ${{ github.event.pull_request.head.sha }}
+          python tools/commit_msg.py --range
+          ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
 
   lint:
     runs-on: ubuntu-latest
@@ -50,11 +50,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pyproject.toml
-      - run: pip install ruff
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
       - name: ruff
-        run: ruff check --output-format=github .
+        # the version pinned in the dev extra, so CI and the pre-commit hook agree
+        run: uv tool run ruff@0.16.6 check --output-format=github .
 
   test:
     needs: lint
@@ -68,9 +69,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
-          cache-dependency-path: pyproject.toml
-      - run: pip install -e .[test]
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv pip install -e ".[test]"
       - name: pytest (unit)
         run: >
           pytest -m "not e2e"
@@ -92,10 +94,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pyproject.toml
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
       # a real install, not editable: the e2e suite also checks the console script
-      - run: pip install .[test]
+      - run: uv pip install ".[test]"
       - name: pytest (end to end)
         run: pytest -m e2e -v
 
@@ -107,15 +110,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pyproject.toml
-      - run: pip install build twine
-      - run: python -m build
-      - run: twine check dist/*
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv build
+      - run: uv tool run twine check dist/*
       - name: the wheel installs and runs on its own
         run: |
-          python -m venv /tmp/fresh
-          /tmp/fresh/bin/pip install dist/*.whl
+          uv venv /tmp/fresh
+          uv pip install --python /tmp/fresh/bin/python dist/*.whl
           /tmp/fresh/bin/decnique --help
           # the grammar and the GCP catalogs must be packaged, not just present in the repo
           /tmp/fresh/bin/python -c "

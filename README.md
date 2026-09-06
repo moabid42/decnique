@@ -48,7 +48,8 @@ makes them comparable.
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install -e .
+pip install -e .              # add [dev] for the test suite and the linter
+pytest                        # ~35 s; -m "not e2e" for the fast loop — see CONTRIBUTING.md
 ```
 
 ```python

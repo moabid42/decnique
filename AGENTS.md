@@ -66,18 +66,29 @@ decnique/
   catalogs/     UDM field map; gcp_methods/gcp_roles (built by catalogs/build_gcp.py), gcp_tags
 answers.py      engine-level JSON (blindspots/stealth/chains) for the argparse CLI
 examples/       accounts/ (json + custom/ scenarios + infra/ terraform), candidates/ checks/ events/
-tests/          pytest; synthetic suites + corpus tests (skipped when the corpus is absent)
+tests/          pytest; synthetic suites + corpus tests (skipped when the corpus is absent);
+                conftest.py (repo-root cwd, isolated config, subprocess runner), e2e/ (the
+                entry points run as real processes)
 run.py          launcher for the interactive shell / one-shot commands
+.github/        CI: lint · unit suite on 3.11-3.13 · e2e against an installed package · packaging
 ```
 
 ## 4. Running
 
 ```bash
-python -m venv .venv && .venv/bin/pip install -e .[test]
-.venv/bin/python -m pytest -q tests                      # ~10 s, must stay green
+python -m venv .venv && .venv/bin/pip install -e .[dev]  # [test] for pytest only
+.venv/bin/python -m pytest -q                            # ~35 s, must stay green
+.venv/bin/python -m pytest -q -m "not e2e"               # ~20 s, the fast loop
+.venv/bin/ruff check .                                   # the same lint gate CI runs
 python3 run.py                                           # shell
 python3 run.py ask blindspots resourcemanager.projects.setIamPolicy
 ```
+`tests/conftest.py` puts every test at the repository root and points `$DECNIQUE_CONFIG` at a
+temporary file, so `pytest` behaves the same wherever it is started and never touches your own
+settings.  Two markers: `e2e` (runs an entry point in a subprocess) and `corpus` (needs a rule
+corpus that is not in the repo).  CI (`.github/workflows/ci.yml`) runs lint, the unit suite on
+3.11–3.13 with an 80 % coverage floor, the `e2e` tests against an *installed* package, and a
+packaging job that builds the wheel and parses a rule with it.  `CONTRIBUTING.md` has the detail.
 Every shell command reads **`<object> <verb> [args…]`**.  The objects are the things the
 session holds; their verbs only load or look at state.  The math lives under one object, `ask`.
 
@@ -207,6 +218,10 @@ rule across hops is caught); stealth reports the rules that always catch a techn
 ## 8. Conventions
 
 - Commits: one line, `type(scope): what and why`; atomic; no trailers.
-- No new dependencies (lark, pyyaml, z3-solver, rich, prompt_toolkit).
+- No new *runtime* dependencies (lark, pyyaml, z3-solver, rich, prompt_toolkit).  Test and lint
+  tooling lives in the `test` / `dev` extras and is never imported by the package.
 - Tests for every behaviour change; corpus-dependent tests must skip cleanly without the corpus.
+  A test's docstring says what breaks in the product when it fails, not what the code does.
+- `ruff check .` must be clean; its configuration (and what is deliberately ignored, such as the
+  shell's `×`/`→`/`✓`) is in `pyproject.toml`.
 - UI text says the *question* a verb answers, in plain words.

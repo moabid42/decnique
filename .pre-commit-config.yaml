@@ -1,0 +1,46 @@
+# The same gates CI runs, before the push instead of after.
+#
+#     uv tool install pre-commit        (or: pip install -e '.[dev]')
+#     pre-commit install                installs all three hook types listed below
+#     pre-commit run --all-files        run everything once, by hand
+#
+# `git commit --no-verify` / `git push --no-verify` skips them for one command.
+default_install_hook_types: [pre-commit, commit-msg, pre-push]
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.6
+    hooks:
+      - id: ruff-check
+        args: [--fix, --exit-non-zero-on-fix]
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        # two trailing spaces are a hard line break in Markdown — the README's roadmap
+        # depends on them, so strip whitespace everywhere *except* there
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      # the example accounts carry `_comment` keys rather than comments — still strict JSON
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=2048]  # the bundled GCP catalogs are ~1 MB gzipped
+
+  - repo: local
+    hooks:
+      - id: commit-convention
+        name: commit message follows AGENTS.md §8
+        entry: python tools/commit_msg.py
+        language: system
+        stages: [commit-msg]
+
+      - id: pytest-fast
+        name: pytest (unit suite; the e2e tests run in CI)
+        entry: python -m pytest -q -m "not e2e"
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

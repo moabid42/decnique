@@ -25,7 +25,8 @@ test = [
 # tooling the CI pipeline runs; never imported by the package itself
 dev = [
     "decnique[test]",
-    "ruff>=0.6",
+    "ruff~=0.16.6",   # pinned: a new ruff release must not turn CI red on its own
+    "pre-commit>=4",
     "build>=1.2",
     "twine>=5",
 ]

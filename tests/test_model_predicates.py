@@ -231,16 +231,29 @@ def test_normalize_leaves_no_negation_above_a_connective(p):
     check(normalize(p))
 
 
-@given(p=_PREDS)
-def test_normalize_keeps_every_unknown(p):
-    """Honesty invariant #1: normalisation must not quietly drop the atoms that make a rule
-    approximate."""
-    if unknowns(p):
-        assert is_approximate(normalize(p)) or normalize(p) in (TRUE, FALSE)
+@given(p=_PREDS, event=_EVENTS)
+def test_normalize_never_turns_a_dont_know_into_an_answer(p, event):
+    """Honesty invariant #1 as the property that actually matters: wherever the predicate
+    answers *don't-know*, the normalised one must too.  (Stronger than "every ``Unknown`` node
+    survives", which is false — and rightly so: see the two cases below.)"""
+    if evaluate(p, event) is None:
+        assert evaluate(normalize(p), event) is None
 
 
-def test_an_unknown_absorbed_by_a_constant_is_not_a_lost_unknown():
-    """``unknown(...) or true`` really is true — dropping the atom there is sound, and the
-    property above allows exactly that case."""
+def test_an_unknown_a_constant_absorbs_is_soundly_dropped():
+    """``unknown(...) or true`` really is true, and ``unknown(...) and false`` really is false,
+    so losing the atom in those two places costs no honesty — the result is not don't-know."""
     assert normalize(Any(children=(Unknown(label="u"), TRUE))) == TRUE
+    assert normalize(All(children=(Unknown(label="u"), FALSE))) == FALSE
     assert is_approximate(TRUE) is False
+
+
+def test_the_absorption_can_happen_deeper_in_the_tree():
+    """``(unknown and false) or method = "m"`` is exactly ``method = "m"``: the whole branch the
+    ``Unknown`` sat in is false, so the rule is not approximate any more.  A property test found
+    this case; it is worth pinning, because it is the one shape where a rule legitimately loses
+    its `approximate` flag under normalisation."""
+    p = Any(children=(All(children=(Unknown(label="u"), FALSE)), M))
+    assert is_approximate(p) is True
+    assert normalize(p) == M
+    assert is_approximate(normalize(p)) is False

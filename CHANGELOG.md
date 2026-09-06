@@ -44,9 +44,11 @@ translation work below.
   `ui/format.py` (29 → 100 %), and the Terraform importer's untaken branches. Overall 79 → 83 %
   with branch coverage on; 204 → 396 tests.
 - **Property test for the NNF normaliser** (hypothesis): `normalize` may never change what a
-  predicate *means*, checked against the interpreter in three-valued logic, plus idempotence and
-  "no negation above a connective". The encoders assume NNF, so a De Morgan slip there would make
-  the solver answer a different question from the oracle.
+  predicate *means*, checked against the interpreter in three-valued logic; it may never turn a
+  don't-know into an answer; it is idempotent; and it leaves no negation above a connective. The
+  encoders assume NNF, so a De Morgan slip there would make the solver answer a different question
+  from the oracle. (Note that an `unknown` a constant absorbs — `unknown(…) and false` — *is*
+  soundly dropped, so "every `Unknown` node survives" would be the wrong thing to assert.)
 - **`tests/conftest.py`**: every test runs from the repository root and against a temporary
   `$DECNIQUE_CONFIG`, so the suite is start-directory independent and cannot read or overwrite a
   developer's own shell settings. `run_cli` runs an entry point in a subprocess.

@@ -1,4 +1,10 @@
-"""AST <-> plain dicts (YAML / JSON) for tooling and golden tests (plan §5.10)."""
+"""AST <-> plain dicts (YAML / JSON) for tooling and golden tests (plan §5.10).
+
+Every node is tagged with its class name under ``node``.  The tag is deliberately *not*
+called ``kind``: :class:`~decnique.model.predicates.InList` has a field of that name
+(``string`` / ``regex`` / ``cidr``), and it used to overwrite the tag, so a reference-list
+predicate could be written but never read back.  ``kind`` is still accepted when reading,
+so documents written by the older code still load."""
 
 from __future__ import annotations
 
@@ -43,8 +49,13 @@ def _qf_in(v: AnyT) -> P.QField:
     return (v[0], v[1])
 
 
+def _node(d: dict[str, AnyT]) -> str:
+    """The node's class name.  ``kind`` is the pre-``node`` spelling of the same tag."""
+    return str(d["node"] if "node" in d else d["kind"])
+
+
 def pred_to_dict(p: P.Pred) -> dict[str, AnyT]:
-    d: dict[str, AnyT] = {"kind": type(p).__name__}
+    d: dict[str, AnyT] = {"node": type(p).__name__}
     for f in dataclasses.fields(p):
         v = getattr(p, f.name)
         if f.name == "field":
@@ -63,7 +74,7 @@ def pred_to_dict(p: P.Pred) -> dict[str, AnyT]:
 
 
 def pred_from_dict(d: dict[str, AnyT]) -> P.Pred:
-    cls = _PRED_TYPES[d["kind"]]
+    cls = _PRED_TYPES[_node(d)]
     kw: dict[str, AnyT] = {}
     for f in dataclasses.fields(cls):
         if f.name not in d:
@@ -86,20 +97,20 @@ def pred_from_dict(d: dict[str, AnyT]) -> P.Pred:
 
 def agg_to_dict(a: T.AggExpr) -> dict[str, AnyT]:
     if isinstance(a, T.AggCall):
-        return {"kind": "AggCall", "fn": a.fn, "arg": _qf(a.arg) if a.arg else None}
+        return {"node": "AggCall", "fn": a.fn, "arg": _qf(a.arg) if a.arg else None}
     if isinstance(a, T.AggConst):
-        return {"kind": "AggConst", "value": a.value}
+        return {"node": "AggConst", "value": a.value}
     if isinstance(a, T.AggRef):
-        return {"kind": "AggRef", "name": a.name}
+        return {"node": "AggRef", "name": a.name}
     if isinstance(a, T.AggIf):
         return {
-            "kind": "AggIf",
+            "node": "AggIf",
             "cond": pred_to_dict(a.cond),
             "then": agg_to_dict(a.then),
             "else": agg_to_dict(a.else_),
         }
     return {
-        "kind": "AggBin",
+        "node": "AggBin",
         "op": a.op,
         "left": agg_to_dict(a.left),
         "right": agg_to_dict(a.right),
@@ -107,7 +118,7 @@ def agg_to_dict(a: T.AggExpr) -> dict[str, AnyT]:
 
 
 def agg_from_dict(d: dict[str, AnyT]) -> T.AggExpr:
-    k = d["kind"]
+    k = _node(d)
     if k == "AggCall":
         return T.AggCall(d["fn"], _qf_in(d["arg"]) if d.get("arg") else None)
     if k == "AggConst":
@@ -123,20 +134,20 @@ def agg_from_dict(d: dict[str, AnyT]) -> T.AggExpr:
 
 def cond_to_dict(c: T.CondExpr) -> dict[str, AnyT]:
     if isinstance(c, T.Count):
-        return {"kind": "Count", "var": c.var, "op": c.op, "n": c.n}
+        return {"node": "Count", "var": c.var, "op": c.op, "n": c.n}
     if isinstance(c, T.AggCmp):
-        return {"kind": "AggCmp", "name": c.name, "op": c.op, "n": c.n}
+        return {"node": "AggCmp", "name": c.name, "op": c.op, "n": c.n}
     if isinstance(c, T.CNot):
-        return {"kind": "CNot", "child": cond_to_dict(c.child)}
+        return {"node": "CNot", "child": cond_to_dict(c.child)}
     if isinstance(c, T.CAnd | T.COr):
-        return {"kind": type(c).__name__, "children": [cond_to_dict(x) for x in c.children]}
+        return {"node": type(c).__name__, "children": [cond_to_dict(x) for x in c.children]}
     if isinstance(c, T.CUnknown):
-        return {"kind": "CUnknown", "label": c.label}
-    return {"kind": "CTrue"}
+        return {"node": "CUnknown", "label": c.label}
+    return {"node": "CTrue"}
 
 
 def cond_from_dict(d: dict[str, AnyT]) -> T.CondExpr:
-    k = d["kind"]
+    k = _node(d)
     if k == "Count":
         return T.Count(d["var"], d["op"], int(d["n"]))
     if k == "AggCmp":
@@ -296,7 +307,7 @@ def check_to_dict(c: A.Check) -> dict[str, AnyT]:
 def check_from_dict(d: dict[str, AnyT]) -> A.Check:
     params: dict[str, object] = {}
     for k, v in (d.get("params") or {}).items():
-        if isinstance(v, dict) and "kind" in v:
+        if isinstance(v, dict) and ("node" in v or "kind" in v):
             params[k] = pred_from_dict(v)
         elif isinstance(v, list):
             params[k] = tuple(v)

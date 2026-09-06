@@ -57,8 +57,10 @@ file, so no test can read or overwrite your own shell settings.
 `git commit --no-verify` / `git push --no-verify` skips them for one command — fine on a branch of
 your own, and CI checks the same things anyway.
 
-The `pre-push` hook shells out to whichever `python` is on your `PATH`, so run `git push` from the
-activated venv (or `--no-verify` and let CI do it).
+A git hook inherits your *login* environment, not the shell you typed the command in, so the venv
+is usually not active when one runs. Both local hooks handle that themselves: the commit checker
+is standard-library-only, and `tools/run_fast_tests.sh` looks for `$VIRTUAL_ENV`, then `.venv/`,
+before falling back to the system interpreter.
 
 ## The commit convention
 

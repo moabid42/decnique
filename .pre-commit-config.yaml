@@ -35,15 +35,18 @@ repos:
 
   - repo: local
     hooks:
+      # standard library only, so any interpreter on PATH can run it
       - id: commit-convention
         name: commit message follows AGENTS.md §8
-        entry: python tools/commit_msg.py
+        entry: python3 tools/commit_msg.py
         language: system
         stages: [commit-msg]
 
+      # a script, not `python -m pytest`: a hook inherits your login PATH, where the venv is
+      # usually not active — tools/run_fast_tests.sh finds the right interpreter itself
       - id: pytest-fast
         name: pytest (unit suite; the e2e tests run in CI)
-        entry: python -m pytest -q -m "not e2e"
-        language: system
+        entry: tools/run_fast_tests.sh
+        language: script
         pass_filenames: false
         stages: [pre-push]

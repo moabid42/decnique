@@ -1,0 +1,111 @@
+name: CI
+
+# Four gates, in the order a failure is cheapest to read:
+#   lint     — style and dead code, seconds, no install
+#   test     — the unit suite on every Python the package claims to support, with a coverage floor
+#   e2e      — the entry points as real processes, against the *installed* package
+#   package  — the sdist and wheel build, pass twine, and give a working `decnique` command
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  FORCE_COLOR: "1"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install ruff
+      - name: ruff
+        run: ruff check --output-format=github .
+
+  test:
+    needs: lint
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e .[test]
+      - name: pytest (unit)
+        run: >
+          pytest -m "not e2e"
+          --cov=decnique --cov-report=term-missing --cov-report=xml
+          --cov-fail-under=80
+      - name: upload coverage
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: error
+
+  e2e:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      # a real install, not editable: the e2e suite also checks the console script
+      - run: pip install .[test]
+      - name: pytest (end to end)
+        run: pytest -m e2e -v
+
+  package:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install build twine
+      - run: python -m build
+      - run: twine check dist/*
+      - name: the wheel installs and runs on its own
+        run: |
+          python -m venv /tmp/fresh
+          /tmp/fresh/bin/pip install dist/*.whl
+          /tmp/fresh/bin/decnique --help
+          # the grammar and the GCP catalogs must be packaged, not just present in the repo
+          /tmp/fresh/bin/python -c "
+          from decnique.dsl.parser import parse_text
+          from decnique.env import Catalog
+          print(parse_text('detection d { event method = \"X\" }', 'd.decn').detections[0].id)
+          print(len(Catalog.gcp().all_permissions()), 'permissions in the bundled catalog')
+          "
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error

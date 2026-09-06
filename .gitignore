@@ -10,3 +10,12 @@ CLAUDE.md
 
 # saved verb runs (default report.dir)
 reports/
+
+# test / lint tooling
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/

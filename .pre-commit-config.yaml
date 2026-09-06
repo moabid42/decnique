@@ -1,0 +1,31 @@
+# Optional, but it runs the same lint gate as CI before the commit rather than after the push.
+#   pip install pre-commit && pre-commit install
+# Run over everything once with:  pre-commit run --all-files
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.2
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+        # the example accounts carry `_comment` keys, not comments — still strict JSON
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=2048]  # the bundled GCP catalogs are ~1 MB gzipped
+
+  - repo: local
+    hooks:
+      - id: pytest-fast
+        name: pytest (unit suite, no subprocess tests)
+        entry: python -m pytest -q -m "not e2e"
+        language: system
+        pass_filenames: false
+        types: [python]

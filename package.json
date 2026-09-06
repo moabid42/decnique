@@ -1,0 +1,21 @@
+{
+  "name": "decnique-hooks",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Git hooks for decnique: the lint gate before a commit, the commit-message convention, the test suite before a push. The project itself is Python — nothing here is imported by it.",
+  "scripts": {
+    "prepare": "husky || true",
+    "lint": "ruff check .",
+    "test": "python -m pytest -q -m \"not e2e\"",
+    "commitlint": "commitlint --from origin/dev --to HEAD --verbose"
+  },
+  "lint-staged": {
+    "*.py": "ruff check --force-exclude --fix"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.6.0",
+    "@commitlint/config-conventional": "^19.6.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.2.11"
+  }
+}

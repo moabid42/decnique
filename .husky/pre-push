@@ -1,0 +1,15 @@
+# The fast half of CI, before anyone else has to look at it.
+# The `e2e` tests are deselected here — they spawn subprocesses; CI runs them on every push.
+# To skip once:  git push --no-verify
+
+. "$(dirname -- "$0")/common.sh"
+
+need python3 "install Python 3.11 or newer" || exit 1
+
+if ! python3 -c "import pytest" >/dev/null 2>&1; then
+  echo "pre-push: pytest not found."
+  echo "  pip install -e '.[dev]'  (in the project venv)"
+  exit 1
+fi
+
+python3 -m pytest -q -m "not e2e"

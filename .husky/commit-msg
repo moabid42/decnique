@@ -1,0 +1,10 @@
+# The message convention from AGENTS.md §8, checked by commitlint.config.js:
+#   type(scope): what and why   —   one line, no trailers.
+# To skip once:  git commit --no-verify
+
+if [ ! -x ./node_modules/.bin/commitlint ]; then
+  echo "commit-msg: commitlint not found — run:  npm install"
+  exit 1
+fi
+
+./node_modules/.bin/commitlint --edit "$1"

@@ -11,6 +11,9 @@ CLAUDE.md
 # saved verb runs (default report.dir)
 reports/
 
+# the git hooks (husky) — only package.json and .husky/* are tracked
+node_modules/
+
 # test / lint tooling
 .pytest_cache/
 .ruff_cache/

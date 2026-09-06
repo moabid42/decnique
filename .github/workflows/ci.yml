@@ -1,6 +1,7 @@
 name: CI
 
-# Four gates, in the order a failure is cheapest to read:
+# Five gates, in the order a failure is cheapest to read:
+#   commits  — the message convention (AGENTS.md §8); the same check .husky/commit-msg runs
 #   lint     — style and dead code, seconds, no install
 #   test     — the unit suite on every Python the package claims to support, with a coverage floor
 #   e2e      — the entry points as real processes, against the *installed* package
@@ -23,6 +24,25 @@ env:
   FORCE_COLOR: "1"
 
 jobs:
+  # A local hook can be skipped with --no-verify, so the convention is checked here too.
+  commits:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - name: commitlint
+        run: >
+          npx commitlint --verbose
+          --from ${{ github.event.pull_request.base.sha }}
+          --to ${{ github.event.pull_request.head.sha }}
+
   lint:
     runs-on: ubuntu-latest
     steps:

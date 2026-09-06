@@ -1,0 +1,14 @@
+# Lint the staged Python, and nothing else — a commit has to stay fast.
+# The test suite runs on push (.husky/pre-push) and again in CI.
+# To skip once (a WIP commit on a branch of your own):  git commit --no-verify
+
+. "$(dirname -- "$0")/common.sh"
+
+need ruff "pip install -e '.[dev]'  (in the project venv)" || exit 1
+
+if [ ! -x ./node_modules/.bin/lint-staged ]; then
+  echo "pre-commit: lint-staged not found — run:  npm install"
+  exit 1
+fi
+
+./node_modules/.bin/lint-staged

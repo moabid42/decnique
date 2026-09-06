@@ -8,8 +8,11 @@ the five invariants. Nothing below repeats it; this file is only *how to run the
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"          # runtime + pytest + hypothesis + ruff + build
-pre-commit install               # optional: runs the lint gate before each commit
+npm install                      # installs the git hooks (husky) — see below
 ```
+
+`npm install` exists only for the hooks; nothing in the package imports JavaScript. Skip it and
+you simply lose the local checks — CI runs the same ones.
 
 ## The checks, in the order CI runs them
 
@@ -37,26 +40,59 @@ The whole test suite assumes the **repository root is the working directory** �
 enforces that, so `pytest` works from anywhere. It also points `$DECNIQUE_CONFIG` at a temporary
 file, so no test can read or overwrite your own shell settings.
 
+## The git hooks
+
+`npm install` puts three husky hooks in place. Each one is a few lines of shell in `.husky/`, and
+each says how to skip it:
+
+| hook | what it runs | roughly |
+|---|---|---|
+| `pre-commit` | `ruff check --fix` on the **staged** `.py` files (lint-staged) | under a second |
+| `commit-msg` | `commitlint` against `commitlint.config.js` | instant |
+| `pre-push` | `pytest -m "not e2e"` | ~20 s |
+
+`git commit --no-verify` / `git push --no-verify` skips them for one command — fine on a branch of
+your own, and CI checks the same things anyway.
+
+## The commit convention
+
+`AGENTS.md` §8: **one line**, `type(scope): what and why`, atomic, **no trailers**.
+`commitlint.config.js` turns that into rules — Conventional Commits for the shape, plus three of
+this project's own: the type list it actually uses (`feat` `fix` `docs` `test` `refactor` `perf`
+`chore` `ci` `build` `revert`), `body-empty` (that is what "one line" means), and a local
+`no-trailers` rule that rejects `Co-authored-by:`, `Signed-off-by:` and friends. `revert:` commits
+are exempt, because `git revert` writes its own message.
+
+```
+test: cover the CLI, yaml_io and the predicate model          ✓
+fix(yaml_io): tag AST nodes under node so InList reads back   ✓
+added stuff                                                   ✗  type may not be empty
+wip: something                                                ✗  type must be one of […]
+feat: Adds a thing.                                           ✗  subject-case, subject-full-stop
+```
+
+CI re-runs `commitlint` over every commit in a pull request, since a local hook can be skipped.
+
 ## What CI does
 
-`.github/workflows/ci.yml`, four jobs:
+`.github/workflows/ci.yml`, five jobs:
 
-1. **lint** — `ruff check`.
-2. **test** — the unit suite on Python 3.11, 3.12 and 3.13, with the coverage floor.
-3. **e2e** — installs the package (not editable) and runs the `e2e`-marked tests, so the
+1. **commits** — `commitlint` over the pull request's commits.
+2. **lint** — `ruff check`.
+3. **test** — the unit suite on Python 3.11, 3.12 and 3.13, with the coverage floor.
+4. **e2e** — installs the package (not editable) and runs the `e2e`-marked tests, so the
    console script and the packaged data files (`grammar.lark`, the GCP catalogs) are exercised
    the way a user meets them.
-4. **package** — builds the sdist and wheel, runs `twine check`, installs the wheel into a fresh
+5. **package** — builds the sdist and wheel, runs `twine check`, installs the wheel into a fresh
    virtualenv and parses a rule with it.
 
 ## Writing a change
 
 The conventions in `AGENTS.md` §8 hold. In particular:
 
-- **One line per commit**, `type(scope): what and why`, atomic, no trailers.
 - **No new runtime dependencies.** `lark`, `pyyaml`, `z3-solver`, `rich`, `prompt_toolkit` — that
   is the list. Test and lint tooling lives in the `test` / `dev` extras and is never imported by
-  the package.
+  the package; the npm packages are hooks only.
 - **A test for every behaviour change.** Corpus-dependent tests must skip cleanly without the corpus.
 
 ### What a good test looks like here

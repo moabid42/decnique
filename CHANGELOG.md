@@ -28,11 +28,18 @@ translation work below.
 ## [2026-09-06]
 
 ### Added
-- **CI pipeline** (`.github/workflows/ci.yml`), four gates: `ruff check`; the unit suite on
-  Python 3.11 / 3.12 / 3.13 with an 80 % coverage floor; the `e2e` tests against an *installed*
-  package (so the console script and the packaged `grammar.lark` / GCP catalogs are exercised);
-  and a packaging job that builds the sdist + wheel, runs `twine check`, and parses a rule with
-  the wheel in a clean virtualenv. Plus `dependabot.yml` (actions only) and a PR template.
+- **CI pipeline** (`.github/workflows/ci.yml`), five gates: `commitlint` over a pull request's
+  commits; `ruff check`; the unit suite on Python 3.11 / 3.12 / 3.13 with an 80 % coverage floor;
+  the `e2e` tests against an *installed* package (so the console script and the packaged
+  `grammar.lark` / GCP catalogs are exercised); and a packaging job that builds the sdist + wheel,
+  runs `twine check`, and parses a rule with the wheel in a clean virtualenv. Plus
+  `dependabot.yml` (actions only) and a PR template.
+- **Git hooks via husky** (`.husky/`, `package.json`, `commitlint.config.js`): `pre-commit` lints
+  the staged Python with `ruff --fix` (lint-staged), `commit-msg` checks the message, `pre-push`
+  runs the fast test suite. The message rules make `AGENTS.md` §8 enforceable — Conventional
+  Commits for the shape, plus this project's type list, `body-empty` (that is what "one line"
+  means) and a local `no-trailers` rule that rejects `Co-authored-by:` and friends; `revert:`
+  commits are exempt. `npm install` is hooks-only — nothing in the package imports JavaScript.
 - **End-to-end tests** (`tests/e2e/`, 28): the two entry points run as real processes — argv,
   stdout/stderr, and the batch exit codes (0 clean · 2 finding · 3 input error · 4 inconclusive);
   and the whole pipeline from four SIEM formats on disk (YARA-L, Sigma, Elastic, Panther) plus a
@@ -53,7 +60,7 @@ translation work below.
   `$DECNIQUE_CONFIG`, so the suite is start-directory independent and cannot read or overwrite a
   developer's own shell settings. `run_cli` runs an entry point in a subprocess.
 - **`CONTRIBUTING.md`**, a `dev` extra (ruff / build / twine), ruff and coverage configuration in
-  `pyproject.toml`, `.pre-commit-config.yaml`, and the `e2e` / `corpus` pytest markers.
+  `pyproject.toml`, and the `e2e` / `corpus` pytest markers.
 
 ### Changed / Fixed
 - **`yaml_io` could write an `InList` predicate but never read it back.** The node-type tag was

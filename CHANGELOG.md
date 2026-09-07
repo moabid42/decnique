@@ -3,7 +3,8 @@
 All notable changes to decnique. The format is loosely based on
 [Keep a Changelog](https://keepachangelog.com/); entries are grouped by date, because the work
 arrives that way. `v0.1.0` (2026-09-07) is the first tagged version and covers every entry below
-it. `AGENTS.md` explains the concepts these changes touch.
+it; each later tag covers the entries between it and the tag under it. `AGENTS.md` explains
+the concepts these changes touch.
 
 ## [Planned]
 
@@ -25,6 +26,16 @@ translation work below.
   so `field in %list` becomes an exact membership test instead of `unknown`.
 - **Evaluate IAM Conditions.** Parse and evaluate conditional bindings so `Reach` is exact
   instead of over-approximated.
+
+## [2026-09-07] — tagged `v0.1.1`
+
+### Fixed
+- **The first setup command in `AGENTS.md` did not run on a Mac.** zsh reads a bare `.[dev]` as
+  a filename pattern and refuses the line with `no matches found: .[dev]`, before uv is even
+  started — so the one command a new contributor copies first failed, on the default shell of
+  every Mac since 2019. It is now quoted, the way `CONTRIBUTING.md` and `tools/run_tests.sh`
+  always had it. `README.md` told the reader to "add [dev]" and so handed them the same trap;
+  it now shows the quotes instead of describing them.
 
 ## [2026-09-07] — tagged `v0.1.0`
 

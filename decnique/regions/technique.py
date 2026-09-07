@@ -309,16 +309,21 @@ def _project(
         if not boxes:
             continue
         covers.extend(boxes)
-        from decnique.regions.boxes import classify
+        from decnique.regions.boxes import DISJOINT, classify
 
         widest = min(boxes, key=lambda b: len(b.values))
-        crossed.append(
-            Crossed(
-                rule=d.id,
-                relation=classify(reachable, widest),
-                escape_axes=reachable.escape_axes(widest),
+        relation = classify(reachable, widest)
+        if relation != DISJOINT:
+            # "crosses" means the two sets actually meet (plan §2.3).  A rule that can never
+            # fire on this technique is not a row in the report — on a real corpus that would
+            # be every rule about every other service.
+            crossed.append(
+                Crossed(
+                    rule=d.id,
+                    relation=relation,
+                    escape_axes=reachable.escape_axes(widest),
+                )
             )
-        )
     return tuple(covers), tuple(crossed), tuple(excluded)
 
 

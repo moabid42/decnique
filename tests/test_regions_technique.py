@@ -182,3 +182,93 @@ def test_the_report_serialises_for_the_json_answer():
     assert "span ∈ [601, 21600]s" in summary["holes"][0]["variables"]
     assert summary["holes"][0]["replayed"] is True
     assert summary["crossed_rules"][0]["escape_axes"] == ["span"]
+
+
+# --- the count axis ----------------------------------------------------------------------------
+
+
+def test_every_count_condition_is_read_as_the_right_range():
+    """`#e > 10` and `#e >= 10` differ by exactly one run, and that one run is the difference
+    between a technique being caught and not.  Read directly, because a bare `#e < n` is true on
+    an empty trace and so never reaches this code through a live rule."""
+    from decnique.model.trace import Count, CTrue
+    from decnique.regions.technique import _count_region
+
+    assert _count_region(CTrue()) == Numeric.at_least(1)
+    assert _count_region(Count(var="e", op=">", n=10)) == Numeric.at_least(11)
+    assert _count_region(Count(var="e", op=">=", n=10)) == Numeric.at_least(10)
+    assert _count_region(Count(var="e", op="<", n=10)) == Numeric.at_most(9)
+    assert _count_region(Count(var="e", op="<=", n=10)) == Numeric.at_most(10)
+    assert _count_region(Count(var="e", op="=", n=10)) == Numeric.exactly(10)
+
+
+@pytest.mark.parametrize(
+    ("condition", "span_hole"),
+    [("#e >= 12", Numeric(lo=601, hi=21600, na=False)),
+     ("#e = 12", Numeric(lo=601, hi=21600, na=False))],
+)
+def test_a_threshold_the_technique_meets_leaves_only_the_timing(condition, span_hole):
+    lib = _lib(
+        f'detection rate {{ events {{ e: method = "{TOKEN}" }} window 600s condition {condition} }}'
+        + _burst(12, "6h")
+    )
+    r = region_report(lib.bundle.candidates[0], lib, _account())
+    assert r.holes[0].box.get("span") == span_hole
+
+
+def test_a_threshold_the_technique_never_reaches_leaves_the_whole_run_open():
+    """Twelve uses can never trip a rule that needs thirteen, so no timing helps the defender —
+    the region is the technique itself, not a slice of it."""
+    lib = _lib(
+        f'detection rate {{ events {{ e: method = "{TOKEN}" }} window 600s condition #e > 12 }}'
+        + _burst(12, "6h")
+    )
+    r = region_report(lib.bundle.candidates[0], lib, _account())
+    assert r.holes[0].box.get("span") == Numeric(lo=0, hi=21600, na=False)
+    assert r.crossed == ()  # the rule cannot fire on this technique at all
+
+
+def test_a_rule_that_fires_on_an_empty_trace_observes_nothing():
+    """`#e < 5` holds before the attacker does anything, so counting it as coverage would make
+    every technique look watched."""
+    lib = _lib(
+        f'detection vacuous {{ events {{ e: method = "{TOKEN}" }} window 1h condition #e < 5 }}'
+        + _burst(12, "6h")
+    )
+    r = region_report(lib.bundle.candidates[0], lib, _account())
+    assert r.excluded_rules == (("vacuous", "fires on an empty trace, so it observes nothing"),)
+    assert r.holes[0].box.get("span") == Numeric(lo=0, hi=21600, na=False)
+
+
+def test_a_condition_outside_a_plain_count_is_excluded():
+    lib = _lib(
+        f'detection agg {{ events {{ e: method = "{TOKEN}" }} '
+        "aggregates { ips = count_distinct(e.caller_ip) } condition ips >= 3 }" + _burst(12, "6h")
+    )
+    r = region_report(lib.bundle.candidates[0], lib, _account())
+    assert [rid for rid, _ in r.excluded_rules] == ["agg"]
+
+
+# --- the payload -------------------------------------------------------------------------------
+
+_DELTA = 'udm("target.resource.attribute.labels[ser_binding_deltas_%s]")'
+
+
+def test_a_udm_payload_lands_where_the_oracle_reads_it():
+    """`udm:` values live under `event["udm"]`.  A witness that puts them anywhere else replays
+    clean for the wrong reason — no rule matches because the fields are not where rules look."""
+    perm = "resourcemanager.projects.setIamPolicy"
+    lib = _lib(
+        f'detection owner {{ event method = "SetIamPolicy" and {_DELTA % "role"} = "roles/editor" }}'
+        f'candidate esc {{ required {{ {perm} }} footprint {{ act: "SetIamPolicy" '
+        f'where {_DELTA % "action"} = "ADD" and {_DELTA % "role"} = "roles/owner" span 1h }} }}'
+    )
+    acct = Account(name="t", bindings={"a@x.com": (Grant(permission=perm),)},
+                   logging=LogConfig(admin_activity=True))
+    r = region_report(lib.bundle.candidates[0], lib, acct)
+    assert r.holes, r.caveats
+    event = r.holes[0].schedule[0]
+    labels = event["udm"]
+    assert labels["target.resource.attribute.labels[ser_binding_deltas_action]"] == "ADD"
+    assert labels["target.resource.attribute.labels[ser_binding_deltas_role]"] == "roles/owner"
+    assert r.holes[0].replayed is True

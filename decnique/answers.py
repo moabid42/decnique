@@ -54,7 +54,13 @@ def blindspots_report(
     }
 
 
-def stealth_report(lib: DetectionLibrary, account: Account) -> dict[str, Any]:
+def stealth_report(
+    lib: DetectionLibrary, account: Account, *, regions: bool = True, backend: str = "auto"
+) -> dict[str, Any]:
+    """Per-technique stealth verdicts.  ``regions`` also works out the *whole* set of runs that
+    evade — the plan's §9.1 ``holes`` — instead of only the one schedule the solver found."""
+    from decnique.regions.technique import region_report
+
     techniques = []
     for c in lib.bundle.candidates:
         r = stealth_feasible(c, lib, account)
@@ -66,6 +72,8 @@ def stealth_report(lib: DetectionLibrary, account: Account) -> dict[str, Any]:
             entry["schedule"] = list(r.schedule)
             entry["unknown_rules"] = list(r.unknown_rules)
             entry["unlogged"] = list(r.unlogged)
+            if regions:
+                entry["region"] = region_report(c, lib, account, backend=backend).summary()
         techniques.append(entry)
     evasive = sum(1 for t in techniques if t["verdict"] == "evasive")
     return {

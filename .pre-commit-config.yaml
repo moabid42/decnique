@@ -20,18 +20,23 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
+      # these three declare `pre-push` in their own manifest, which `default_stages` does not
+      # override — say it here, or they rewrite files in the middle of a `git push`
       - id: trailing-whitespace
         # two trailing spaces are a hard line break in Markdown — the README's roadmap
         # depends on them, so strip whitespace everywhere *except* there
         args: [--markdown-linebreak-ext=md]
+        stages: [pre-commit]
       - id: end-of-file-fixer
+        stages: [pre-commit]
+      - id: check-added-large-files
+        args: [--maxkb=2048]  # the bundled GCP catalogs are ~1 MB gzipped
+        stages: [pre-commit]
       - id: check-yaml
       - id: check-toml
       # the example accounts carry `_comment` keys rather than comments — still strict JSON
       - id: check-json
       - id: check-merge-conflict
-      - id: check-added-large-files
-        args: [--maxkb=2048]  # the bundled GCP catalogs are ~1 MB gzipped
 
   - repo: local
     hooks:

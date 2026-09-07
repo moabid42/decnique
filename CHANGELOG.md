@@ -69,6 +69,13 @@ translation work below.
   `end-of-file-fixer` and `check-added-large-files` declare `pre-push` in their own manifest,
   which `default_stages` does not override — they were rewriting files in the middle of a
   `git push`.
+- **The git hooks are required now, and both gates check that they are.** `pre-commit install`
+  sets up all three hook types at once; installing one by hand does not — this repository had
+  only a hand-written `pre-push`, so the commit convention was first checked in CI, minutes
+  after a push. `tools/run_tests.sh` grew a gate in front of the others that refuses to run
+  unless the `pre-commit` and `commit-msg` hooks are installed, and names the one command that
+  fixes it; the CI `lint` job runs every hook over every file, which is what holds the line for
+  a clone where nobody installed them.
 - `uv.lock` is git-ignored.
 
 ## [2026-09-06]

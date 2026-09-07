@@ -25,6 +25,51 @@ translation work below.
 - **Evaluate IAM Conditions.** Parse and evaluate conditional bindings so `Reach` is exact
   instead of over-approximated.
 
+## [2026-09-07] — tagged `v0.1.0`
+
+### Added
+- **The four front-ends are tested without the private rule corpus.** Every idiom below was
+  previously exercised *only* by the vendored corpus, so on a clean checkout — CI, or a new
+  contributor's machine — the translation layer ran nowhere and a front-end could stop reading a
+  construct without a single test going red. One suite per front-end, each test naming what
+  breaks in an *answer* when the translation is wrong (a rule that covers too much, a threshold
+  that silently disappears, a GCP rule that never loads at all):
+  `sigma` (modifiers, condition forms, the non-GCP filter) 320 lines → 99 %;
+  `elastic` (the TOML rule types and the KQL subset) 264 → **100 %**;
+  `panther` (the `.yml` rule file, thresholds, the literal scraper of last resort) 246 → 96 %;
+  `panther_py` (the Python idioms the AST evaluator reads, one test per construct) 255 → 91 %;
+  `secops` (what single-event lowering never reached: `match` windows, joins between two event
+  variables, `outcome` aggregates and the `condition` atoms that read them) 343 → 84 / 87 %;
+  and `dsl/loader` (file sniffing, the directory walk, rulesets) 209 → 94 %.
+  396 → 677 tests; coverage **84 %** with the corpus hidden (86 % with it), against the 83 %
+  the last entry measured *with* the corpus visible.
+- **`corpus` pytest marker and `$DECNIQUE_CORPUS`.** The tests that need a native rule corpus
+  are marked and skip cleanly without one; the environment variable says where it is, and
+  pointing it at a path that does not exist reproduces CI exactly.
+
+### Changed / Fixed
+- **A negated Panther test claimed the exact opposite set of methods.** `method != "X"`,
+  `method not in SET` and `not method.startswith(…)` name the methods a rule does **not** fire
+  on; the scraper was reading those literals as the set it *does* fire on. `_same_statement`
+  became `_receiver`, which returns the operand text *and* whether the test is negated, and
+  `not ` is no longer cut out of the receiver — cutting there is what hid the negation. The
+  method test now becomes `unknown("panther:negated_method_test")` instead of a wrong method
+  set, and a negated *permission* test is dropped rather than claimed. This is honesty
+  invariant #1 in the other direction: a definite "does not fire" is as dishonest as a
+  definite "fires".
+- **The push gate runs what CI runs, with the corpus hidden.** `tools/run_tests.sh` (was
+  `run_fast_tests.sh`) is now four stages — ruff, the unit suite with the coverage floor and
+  `$DECNIQUE_CORPUS` pointing nowhere, the `e2e` suite, then the corpus tests if this machine
+  has a corpus. The corpus is what exercises the front-ends, so with it visible the floor passed
+  locally and failed in CI; that is how a red run got pushed in the first place. The coverage
+  floor itself moved into `pyproject.toml`, so the hook and the CI job cannot disagree about the
+  number.
+- **The file-fixing hooks no longer run at push time.** `trailing-whitespace`,
+  `end-of-file-fixer` and `check-added-large-files` declare `pre-push` in their own manifest,
+  which `default_stages` does not override — they were rewriting files in the middle of a
+  `git push`.
+- `uv.lock` is git-ignored.
+
 ## [2026-09-06]
 
 ### Added

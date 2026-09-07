@@ -1,0 +1,10 @@
+version: 2
+updates:
+  # Only the CI actions: the runtime dependencies are deliberately unpinned and deliberately few
+  # (AGENTS.md §8), so a bot bumping them would be noise.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "chore(ci)"

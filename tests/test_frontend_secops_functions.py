@@ -62,8 +62,8 @@ def test_nested_to_lower_becomes_case_insensitive_regex():
 
 
 def test_panther_datamodel_admin_role_assigned_is_exact():
-    from decnique.frontends.panther import _datamodel_pred
     from decnique.dsl.interpret import evaluate
+    from decnique.frontends.panther import _datamodel_pred
     from decnique.model.predicates import Unknown
 
     py = 'def rule(event):\n    return event.udm("event_type") == event_type.ADMIN_ROLE_ASSIGNED\n'

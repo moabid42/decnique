@@ -1,0 +1,140 @@
+name: CI
+
+# Five gates, in the order a failure is cheapest to read:
+#   commits  — the message convention (AGENTS.md §8); the same check the commit-msg hook runs
+#   lint     — style and dead code, seconds, no install
+#   test     — the unit suite on every Python the package claims to support, with the coverage
+#              floor from pyproject.toml (`[tool.coverage.report] fail_under`)
+#   e2e      — the entry points as real processes, against the *installed* package
+#   package  — the sdist and wheel build, pass twine, and give a working `decnique` command
+#
+# Installs go through `uv`, which resolves this project's dependency set in about a second.
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_COLOR: "1"
+  UV_SYSTEM_PYTHON: "1"   # install into the runner's Python, no venv to activate
+
+jobs:
+  # A local hook can be skipped with --no-verify, so the convention is checked here too.
+  # Same script, so the two can never disagree.
+  commits:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: commit messages follow AGENTS.md §8
+        run: >
+          python tools/commit_msg.py --range
+          ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: ruff
+        # the version pinned in the dev extra, so CI and the pre-commit hook agree
+        run: uv tool run ruff@0.16.6 check --output-format=github .
+
+  test:
+    needs: lint
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv pip install -e ".[test]"
+      - name: pytest (unit)
+        # no rule corpus here, and none is wanted: the corpus exercises the four front-ends, so
+        # a machine that has one measures higher coverage than this job ever will.
+        # `tools/run_tests.sh` hides it the same way before a push.  The floor itself lives in
+        # pyproject.toml (`[tool.coverage.report] fail_under`), so there is only one number.
+        env:
+          DECNIQUE_CORPUS: ${{ github.workspace }}/.no-such-corpus
+        run: >
+          pytest -m "not e2e"
+          --cov=decnique --cov-report=term-missing --cov-report=xml
+      - name: upload coverage
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: error
+
+  e2e:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      # a real install, not editable: the e2e suite also checks the console script
+      - run: uv pip install ".[test]"
+      - name: pytest (end to end)
+        run: pytest -m e2e -v
+
+  package:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv build
+      - run: uv tool run twine check dist/*
+      - name: the wheel installs and runs on its own
+        run: |
+          uv venv /tmp/fresh
+          uv pip install --python /tmp/fresh/bin/python dist/*.whl
+          /tmp/fresh/bin/decnique --help
+          # the grammar and the GCP catalogs must be packaged, not just present in the repo
+          /tmp/fresh/bin/python -c "
+          from decnique.dsl.parser import parse_text
+          from decnique.env import Catalog
+          print(parse_text('detection d { event method = \"X\" }', 'd.decn').detections[0].id)
+          print(len(Catalog.gcp().all_permissions()), 'permissions in the bundled catalog')
+          "
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error

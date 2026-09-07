@@ -20,7 +20,7 @@ atomic tests the rules make on it (:mod:`decnique.smt.atoms`), so the query is p
 from __future__ import annotations
 
 import ipaddress
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import z3
 
@@ -125,7 +125,7 @@ class CoverageContext:
         # names the rules that jointly cover a permission ("caught by …")
         self.tracks = {d.id: z3.Bool(f"rule.{d.id}") for d in self.single_rules}
         self.any_obs = z3.Or(*obs) if obs else z3.BoolVal(False)
-        exact = [o for d, o in zip(self.single_rules, obs) if d.id in self.exact_rules]
+        exact = [o for d, o in zip(self.single_rules, obs, strict=True) if d.id in self.exact_rules]
         self.any_obs_exact = z3.Or(*exact) if exact else z3.BoolVal(False)
         self.consistency: list[z3.BoolRef] = []
         if minimize is None:
@@ -137,7 +137,7 @@ class CoverageContext:
         # ("an event whose user_agent does not contain X") and realizable.
         self.solver = z3.Optimize()
         self.solver.set("random_seed", 0)  # reproducible witnesses
-        for d, o in zip(self.single_rules, obs):
+        for d, o in zip(self.single_rules, obs, strict=True):
             self.solver.add(z3.Implies(self.tracks[d.id], z3.Not(o)))
         # `=` atoms of one field are mutually exclusive across case-folded literal groups.  Kept
         # *incrementally* (see `_sync_eq`): the domain of every permission adds new `=` atoms
@@ -354,7 +354,7 @@ class CoverageContext:
         irrelevant to the event, so they are left out."""
         ev = self.enc.ev
         diffs: list[z3.BoolRef] = []
-        for path, pres in ev._present.items():
+        for pres in ev._present.values():
             diffs.append(z3.Not(pres) if self._true(model, pres) else pres)
         for path, atoms in self.table.by_field.items():
             if not self._present(model, path):

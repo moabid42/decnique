@@ -25,7 +25,8 @@ from dataclasses import dataclass, field
 
 import z3
 
-from decnique.dsl.interpret import glob_unescape, _leaf as _concrete_leaf
+from decnique.dsl.interpret import _leaf as _concrete_leaf
+from decnique.dsl.interpret import glob_unescape
 from decnique.model import event_fields as ef
 from decnique.model.predicates import Cmp, In, Like, Pred, Regex, StrFn, Value
 from decnique.smt.encode_event import SymEvent

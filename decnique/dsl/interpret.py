@@ -10,8 +10,8 @@ caller did not supply).
 
 from __future__ import annotations
 
-import ipaddress
 import functools
+import ipaddress
 import re
 from collections.abc import Mapping, Sequence
 from typing import Any as AnyT

@@ -16,10 +16,10 @@ from typing import Any as AnyT
 import yaml
 
 from decnique.dsl.ast import Bundle, Detection, LoadIssue, Provenance
+from decnique.dsl.interpret import glob_has_wildcard, glob_unescape
 from decnique.model import event_fields as ef
 from decnique.model.predicates import (
     Cmp,
-    Const,
     Exists,
     InCidr,
     Like,
@@ -31,7 +31,6 @@ from decnique.model.predicates import (
     all_of,
     any_of,
 )
-from decnique.dsl.interpret import glob_has_wildcard, glob_unescape
 from decnique.model.trace import RuleOptions, single_event
 
 # Sigma / KQL have no zero-value rule: a test on an absent field is simply false, and a negated
@@ -371,4 +370,3 @@ def _glob(pattern: str, name: str) -> bool:
 
 
 __all__ = ["FIELD_MAP", "is_sigma_gcp", "load_sigma_file", "load_sigma_text", "lower_sigma"]
-

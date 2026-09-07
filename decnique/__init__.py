@@ -7,21 +7,22 @@ event/predicate/trace model, and the four SIEM front-ends that translate real ru
 into the DSL.
 """
 
-from decnique.dsl.parser import DslError, parse_file, parse_text
+from decnique.detections import DetectionLibrary, event_from_audit_log
 from decnique.dsl import format as _format
 from decnique.dsl.loader import load_paths
-from decnique.detections import DetectionLibrary, event_from_audit_log
+from decnique.dsl.parser import DslError, parse_file, parse_text
+
 
 def format_bundle(b) -> str:
     """Render a parsed :class:`Bundle` back to canonical DSL text."""
     return _format.bundle(b)
 
 __all__ = [
+    "DetectionLibrary",
     "DslError",
-    "parse_text",
-    "parse_file",
+    "event_from_audit_log",
     "format_bundle",
     "load_paths",
-    "DetectionLibrary",
-    "event_from_audit_log",
+    "parse_file",
+    "parse_text",
 ]

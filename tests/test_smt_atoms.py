@@ -71,6 +71,13 @@ def test_eq_exclusion_groups():
         t.var(at)
     s = z3.Solver()
     s.add(*t.eq_exclusion("f"))
-    s.push(); s.add(t.var(a), t.var(b)); assert s.check() == z3.unsat; s.pop()
-    s.push(); s.add(t.var(a), z3.Not(t.var(c))); assert s.check() == z3.unsat; s.pop()  # x ⇒ X~nocase
-    s.push(); s.add(t.var(c), z3.Not(t.var(a))); assert s.check() == z3.sat; s.pop()
+    def check(*assumptions):
+        s.push()
+        s.add(*assumptions)
+        result = s.check()
+        s.pop()
+        return result
+
+    assert check(t.var(a), t.var(b)) == z3.unsat
+    assert check(t.var(a), z3.Not(t.var(c))) == z3.unsat  # x ⇒ X~nocase
+    assert check(t.var(c), z3.Not(t.var(a))) == z3.sat

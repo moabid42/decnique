@@ -33,10 +33,10 @@ from typing import Any as AnyT
 
 from decnique.dsl.ast import Footprint, Step
 from decnique.dsl.interpret import (
+    _MISSING,
     Event,
     RefLists,
     Tri,
-    _MISSING,
     evaluate,
     field_value,
 )
@@ -262,7 +262,7 @@ def _order_gate(spec: TraceSpec, group: Group) -> Tri:
     for v, e, _ in group:
         by_var[v].append(_time(e))
     result: Tri = True
-    for a, b in zip(spec.order, spec.order[1:]):
+    for a, b in zip(spec.order, spec.order[1:], strict=False):  # consecutive pairs
         ta, tb = by_var.get(a, []), by_var.get(b, [])
         if not ta or not tb:
             return False
@@ -452,10 +452,9 @@ def _within_filter(pool: list[Event], within_seconds: int | None, repeat: int) -
     a single window of that length (so ``repeat`` occurrences must be close in time)."""
     if within_seconds is None:
         return pool
-    timed = sorted((t for e in pool if (t := _time(e)) is not None))
+    timed = sorted(t for e in pool if (t := _time(e)) is not None)
     if len(timed) < len(pool):  # a missing timestamp — cannot bound the window
         return pool
-    best = pool[:0]
     best_n = 0
     for i, start in enumerate(timed):
         n = sum(1 for t in timed[i:] if t - start <= within_seconds)
@@ -464,12 +463,11 @@ def _within_filter(pool: list[Event], within_seconds: int | None, repeat: int) -
     # rebuild an event subset of size best_n (timestamps are the discriminator here)
     if best_n == 0:
         return []
-    keep: list[Event] = []
-    for i, start in enumerate(timed):
+    for start in timed:
         window = [e for e in pool if (t := _time(e)) is not None and start <= t <= start + within_seconds]
         if len(window) == best_n:
             return window
-    return keep or pool
+    return pool
 
 
 def matches_footprint(
@@ -485,7 +483,7 @@ def matches_footprint(
         if result is False:
             return False
 
-    for a, b in zip(fp.order, fp.order[1:]):
+    for a, b in zip(fp.order, fp.order[1:], strict=False):  # consecutive pairs
         ta = [t for t in step_times.get(a, []) if t is not None]
         tb = [t for t in step_times.get(b, []) if t is not None]
         if not ta or not tb:

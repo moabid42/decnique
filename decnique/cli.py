@@ -155,8 +155,8 @@ def cmd_trace(ns: argparse.Namespace) -> int:
 
 def cmd_coverage(ns: argparse.Namespace) -> int:
     """Plan §4 top-level answer: blind spots + stealth verdicts (+ chains) for an account."""
-    from decnique.env import load_account
     from decnique.answers import full_report
+    from decnique.env import load_account
 
     lib = DetectionLibrary.load(*ns.paths, options=_opts(ns))
     account = load_account(ns.account)

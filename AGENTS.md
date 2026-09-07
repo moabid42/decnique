@@ -66,18 +66,38 @@ decnique/
   catalogs/     UDM field map; gcp_methods/gcp_roles (built by catalogs/build_gcp.py), gcp_tags
 answers.py      engine-level JSON (blindspots/stealth/chains) for the argparse CLI
 examples/       accounts/ (json + custom/ scenarios + infra/ terraform), candidates/ checks/ events/
-tests/          pytest; synthetic suites + corpus tests (skipped when the corpus is absent)
+tests/          pytest; synthetic suites + corpus tests (skipped when the corpus is absent);
+                conftest.py (repo-root cwd, isolated config, subprocess runner), e2e/ (the
+                entry points run as real processes)
 run.py          launcher for the interactive shell / one-shot commands
+.github/        CI: commit messages · lint · unit suite on 3.11-3.13 · e2e installed · packaging
+tools/          commit_msg.py: the commit convention as a program (hook + CI use the same one)
 ```
 
 ## 4. Running
 
 ```bash
-python -m venv .venv && .venv/bin/pip install -e .[test]
-.venv/bin/python -m pytest -q tests                      # ~10 s, must stay green
-python3 run.py                                           # shell
+uv venv && uv pip install -e .[dev]        # or python -m venv .venv && pip install …
+.venv/bin/pre-commit install               # git hooks; optional
+.venv/bin/python -m pytest -q              # ~35 s, must stay green
+.venv/bin/python -m pytest -q -m "not e2e" # ~20 s, the fast loop
+.venv/bin/ruff check .                     # the same lint gate CI runs
+python3 run.py                             # shell
 python3 run.py ask blindspots resourcemanager.projects.setIamPolicy
 ```
+The hooks lint the staged files on commit, check the commit message against
+`tools/commit_msg.py`, and on push run `tools/run_tests.sh` — the unit suite *with the coverage
+floor and the rule corpus hidden* (what CI measures), then the e2e suite, then the corpus tests
+if this machine has a corpus; `--no-verify` skips one.
+`tests/conftest.py` puts every test at the repository root and points `$DECNIQUE_CONFIG` at a
+temporary file, so `pytest` behaves the same wherever it is started and never touches your own
+settings.  Two markers: `e2e` (runs an entry point in a subprocess) and `corpus` (needs a rule
+corpus that is not in the repo; `$DECNIQUE_CORPUS` says where it is, and pointing it at nothing
+reproduces CI exactly — the corpus covers the front-ends, so it lifts the coverage number by
+several points).  CI (`.github/workflows/ci.yml`) runs lint, the unit suite on 3.11–3.13 with the
+coverage floor from `pyproject.toml` (`[tool.coverage.report] fail_under`), the `e2e` tests
+against an *installed* package, and a packaging job that builds the wheel and parses a rule with
+it.  `CONTRIBUTING.md` has the detail.
 Every shell command reads **`<object> <verb> [args…]`**.  The objects are the things the
 session holds; their verbs only load or look at state.  The math lives under one object, `ask`.
 
@@ -192,7 +212,10 @@ rule across hops is caught); stealth reports the rules that always catch a techn
 - The simplest unobserved event is often boring (e.g. a role *removal*). Use the per-change
   list or `config blindspots.explain formula` before concluding a rule is missing.
 - Roughly half of the Panther GCP rules yield no method predicate (their logic is Python).
-  Each is a place where a real detection hides behind `unknown`. Data-model "standard" rules
+  Each is a place where a real detection hides behind `unknown`.  A *negated* method or
+  permission test there is a don't-know on purpose: its literals are the ones the rule does
+  **not** fire on, so scraping them would claim the opposite set (invariant 1, in the other
+  direction — a definite "does not fire" is as dishonest as a definite "fires"). Data-model "standard" rules
   are translated exactly; add more idioms to `frontends/panther.py` as you meet them.
 - Real audit-log method for project IAM changes is `SetIamPolicy` (v1). The binding deltas
   (`action`/`role`/`member`) can be stripped in exported logs — a delta-less event is a real,
@@ -206,7 +229,13 @@ rule across hops is caught); stealth reports the rules that always catch a techn
 
 ## 8. Conventions
 
-- Commits: one line, `type(scope): what and why`; atomic; no trailers.
-- No new dependencies (lark, pyyaml, z3-solver, rich, prompt_toolkit).
+- Commits: one line, `type(scope): what and why`; atomic; no trailers.  Enforced by
+  `tools/commit_msg.py` — at the `commit-msg` hook (`pre-commit install`) and again over every
+  pull request in CI.  It is tested (`tests/test_commit_msg.py`); change the rule there.
+- No new *runtime* dependencies (lark, pyyaml, z3-solver, rich, prompt_toolkit).  Test and lint
+  tooling lives in the `test` / `dev` extras and is never imported by the package.
 - Tests for every behaviour change; corpus-dependent tests must skip cleanly without the corpus.
+  A test's docstring says what breaks in the product when it fails, not what the code does.
+- `ruff check .` must be clean; its configuration (and what is deliberately ignored, such as the
+  shell's `×`/`→`/`✓`) is in `pyproject.toml`.
 - UI text says the *question* a verb answers, in plain words.

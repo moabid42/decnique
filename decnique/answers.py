@@ -21,7 +21,7 @@ from decnique.detections import DetectionLibrary
 from decnique.env.model import Account
 from decnique.graph.search import NoStealthyPath, StealthyPath, search_stealth_path
 from decnique.graph.state import Technique
-from decnique.smt.coverage import Gap, NoGap, probe_permissions
+from decnique.smt.coverage import probe_permissions
 from decnique.smt.stealth import Evasive, stealth_feasible
 
 
@@ -119,7 +119,7 @@ def chains_report(
         techniques, lib, account, principal, initial, goal,
         max_depth=attack.get("max_depth"),
     )
-    
+
     if isinstance(result, StealthyPath):
         return {
             "goal": goal,

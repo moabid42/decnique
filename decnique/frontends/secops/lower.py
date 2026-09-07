@@ -39,7 +39,6 @@ from decnique.model.trace import (
     CondExpr,
     COr,
     Count,
-    CTrue,
     CUnknown,
     EventVar,
     Join,

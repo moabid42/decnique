@@ -1,0 +1,57 @@
+# The same gates CI runs, before the push instead of after.
+#
+#     uv tool install pre-commit        (or: pip install -e '.[dev]')
+#     pre-commit install                installs all three hook types listed below
+#     pre-commit run --all-files        run everything once, by hand
+#
+# `git commit --no-verify` / `git push --no-verify` skips them for one command.
+default_install_hook_types: [pre-commit, commit-msg, pre-push]
+# without this, every file hook is also invoked at commit-msg and pre-push time, where there are
+# no files for it — three screens of "(no files to check) Skipped" on each commit
+default_stages: [pre-commit]
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.6
+    hooks:
+      - id: ruff-check
+        args: [--fix, --exit-non-zero-on-fix]
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      # these three declare `pre-push` in their own manifest, which `default_stages` does not
+      # override — say it here, or they rewrite files in the middle of a `git push`
+      - id: trailing-whitespace
+        # two trailing spaces are a hard line break in Markdown — the README's roadmap
+        # depends on them, so strip whitespace everywhere *except* there
+        args: [--markdown-linebreak-ext=md]
+        stages: [pre-commit]
+      - id: end-of-file-fixer
+        stages: [pre-commit]
+      - id: check-added-large-files
+        args: [--maxkb=2048]  # the bundled GCP catalogs are ~1 MB gzipped
+        stages: [pre-commit]
+      - id: check-yaml
+      - id: check-toml
+      # the example accounts carry `_comment` keys rather than comments — still strict JSON
+      - id: check-json
+      - id: check-merge-conflict
+
+  - repo: local
+    hooks:
+      # standard library only, so any interpreter on PATH can run it
+      - id: commit-convention
+        name: commit message follows AGENTS.md §8
+        entry: python3 tools/commit_msg.py
+        language: system
+        stages: [commit-msg]
+
+      # a script, not `python -m pytest`: a hook inherits your login PATH, where the venv is
+      # usually not active — tools/run_tests.sh finds the right interpreter itself
+      - id: pytest-prepush
+        name: pytest (the whole suite + the coverage floor, exactly as CI runs it)
+        entry: tools/run_tests.sh
+        language: script
+        pass_filenames: false
+        stages: [pre-push]

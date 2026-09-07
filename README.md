@@ -47,8 +47,9 @@ makes them comparable.
 ## Install & use
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -e .
+uv venv && source .venv/bin/activate   # or python -m venv .venv
+uv pip install -e .           # add [dev] for the test suite, the linter and the git hooks
+pytest                        # ~35 s; -m "not e2e" for the fast loop — see CONTRIBUTING.md
 ```
 
 ```python
@@ -138,4 +139,3 @@ Cache each method's solver domain across permissions that share methods, so an o
 - [ ] **A second cloud.**  
 Everything is GCP IAM today; a new catalog + account importer + front-end idioms would open
 the same questions for AWS or Azure.
-

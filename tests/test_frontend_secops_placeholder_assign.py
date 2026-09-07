@@ -11,7 +11,7 @@ later use of the placeholder (a literal, a regex, a ``%list`` membership, a cros
 from __future__ import annotations
 
 from decnique.frontends.secops import load_yaral_text
-from decnique.model.predicates import Regex, StrFn, unknowns
+from decnique.model.predicates import Regex, unknowns
 
 
 def _detection(rule: str):

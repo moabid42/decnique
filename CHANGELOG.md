@@ -25,6 +25,62 @@ translation work below.
 - **Evaluate IAM Conditions.** Parse and evaluate conditional bindings so `Reach` is exact
   instead of over-approximated.
 
+## [2026-09-06]
+
+### Added
+- **CI pipeline** (`.github/workflows/ci.yml`), five gates, installing through `uv`: the commit
+  convention over a pull request's commits; `ruff check` at the version pinned in the `dev` extra;
+  the unit suite on Python 3.11 / 3.12 / 3.13 with an 80 % coverage floor;
+  the `e2e` tests against an *installed* package (so the console script and the packaged
+  `grammar.lark` / GCP catalogs are exercised); and a packaging job that builds the sdist + wheel,
+  runs `twine check`, and parses a rule with the wheel in a clean virtualenv. Plus
+  `dependabot.yml` (actions only) and a PR template.
+- **Git hooks** (`.pre-commit-config.yaml`, installed with `pre-commit install`): `pre-commit`
+  lints the staged files with `ruff --fix` and checks whitespace / YAML / TOML / JSON,
+  `commit-msg` checks the message, `pre-push` runs the fast test suite.
+- **`tools/commit_msg.py`**: `AGENTS.md` §8 as a program — the type list this repository uses, a
+  lower-case subject with no full stop, one line, and no `Co-authored-by:`-style trailers. Merges,
+  reverts and `fixup!` commits pass untouched, and the comments and diff `git commit -v` writes
+  into the message file are not mistaken for a body. Standard library only, covered by
+  `tests/test_commit_msg.py`, and the `commit-msg` hook and CI run the same script so they cannot
+  disagree.
+- **End-to-end tests** (`tests/e2e/`, 28): the two entry points run as real processes — argv,
+  stdout/stderr, and the batch exit codes (0 clean · 2 finding · 3 input error · 4 inconclusive);
+  and the whole pipeline from four SIEM formats on disk (YARA-L, Sigma, Elastic, Panther) plus a
+  native `.decn`, through the front-ends into one library, to `blindspots` / `stealth` / `check`
+  against an account. A reported gap's witness is replayed through the oracle *across the process
+  boundary*, and rules exported with `import` are loaded back and compared.
+- **Unit tests** for the parts that had none: `cli.py` (0 → 98 %), `dsl/yaml_io.py` (0 → 99 %),
+  `answers.py` (60 → 100 %), `model/predicates.py` (71 → 100 %), `model/trace.py` (52 → 98 %),
+  `ui/format.py` (29 → 100 %), and the Terraform importer's untaken branches. Overall 79 → 83 %
+  with branch coverage on; 204 → 396 tests.
+- **Property test for the NNF normaliser** (hypothesis): `normalize` may never change what a
+  predicate *means*, checked against the interpreter in three-valued logic; it may never turn a
+  don't-know into an answer; it is idempotent; and it leaves no negation above a connective. The
+  encoders assume NNF, so a De Morgan slip there would make the solver answer a different question
+  from the oracle. (Note that an `unknown` a constant absorbs — `unknown(…) and false` — *is*
+  soundly dropped, so "every `Unknown` node survives" would be the wrong thing to assert.)
+- **`tests/conftest.py`**: every test runs from the repository root, against a temporary
+  `$DECNIQUE_CONFIG`, and with `GIT_*` cleared from the environment — so the suite is
+  start-directory independent, cannot read or overwrite a developer's own shell settings, and
+  cannot act on the repository it is running in. (That last one is not hypothetical: a git hook
+  exports `GIT_DIR`, which overrides `cwd`, and the first `pre-push` run committed a test's
+  throwaway fixture into the branch.) `run_cli` runs an entry point in a subprocess.
+- **`CONTRIBUTING.md`**, a `dev` extra (ruff pinned / pre-commit / build / twine), ruff and
+  coverage configuration in `pyproject.toml`, and the `e2e` / `corpus` pytest markers.
+
+### Changed / Fixed
+- **`yaml_io` could write an `InList` predicate but never read it back.** The node-type tag was
+  stored under `kind`, and `InList` has a field of the same name (`string` / `regex` / `cidr`)
+  that overwrote it, so `field in %list` failed to deserialise with `KeyError: 'regex'`. The tag
+  moved to `node`; `kind` is still accepted when reading, so documents written earlier still load.
+  Found by the round-trip test above.
+- **Dead code removed** in `eval/trace_eval.py` (`_within_filter`'s unused `best` / `keep`) and
+  `smt/encode_trace.py` (an unused step index); `zip()` calls are now explicit about `strict=`.
+- `frontends/elastic.py`: a docstring with `\*` in it is now a raw string (it raised a
+  `SyntaxWarning` on every import).
+- `pyproject.toml` declares `readme`, so the built distributions carry a long description.
+
 ## [2026-09-01]
 
 ### Added

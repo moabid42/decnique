@@ -6,6 +6,7 @@ are ignored, and anything unresolved (`${...}`) is kept but flagged approximate.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from decnique.env import load_account, normalize_account_doc
 from decnique.ui.repl import dispatch
@@ -14,6 +15,10 @@ from decnique.ui.session import Session
 _SHOW = "tests/fixtures/terraform_show.json"
 _CONFIG = "tests/fixtures/terraform_config.tf.json"
 _BUCKET = "//storage.googleapis.com/projects/_/buckets/secrets"
+
+
+def _read_json(path):
+    return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
 def test_terraform_show_state_import():
@@ -32,7 +37,7 @@ def test_terraform_show_state_import():
     assert "ghost@demo.com" not in acct.bindings
     # Data Access logging comes from the audit config; exempted member is a note
     assert acct.logged("storage.objects.get")
-    doc = normalize_account_doc(json.load(open(_SHOW)))
+    doc = normalize_account_doc(_read_json(_SHOW))
     assert any("exempted" in n for n in doc["notes"])
 
 
@@ -40,7 +45,7 @@ def test_terraform_native_config_import_flags_unresolved():
     acct = load_account(_CONFIG)
     assert acct.reach("carol@demo.com", "compute.instances.get", "projects/demo")
     assert acct.reach("dave@demo.com", "resourcemanager.projects.setIamPolicy", "projects/demo")
-    doc = normalize_account_doc(json.load(open(_CONFIG)))
+    doc = normalize_account_doc(_read_json(_CONFIG))
     assert any("unresolved reference" in n for n in doc["notes"])
 
 

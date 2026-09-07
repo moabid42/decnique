@@ -24,7 +24,7 @@ Three honesty rules, mirroring the coverage engine:
 from __future__ import annotations
 
 import ipaddress
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import z3
 
@@ -220,7 +220,7 @@ def stealth_feasible(
             unproven = unproven or realized is None  # "don't know" is not a refutation
             s.add(_block(trace, model, paths))
             continue
-        seen = [e for e, ok in zip(events, visible) if ok]  # what the audit log carries
+        seen = [e for e, ok in zip(events, visible, strict=True) if ok]  # what the audit log carries
         verdicts = {d.id: fires(d.spec, seen, ref_lists=lib.ref_lists) for d in rules}
         if any(v is True for v in verdicts.values()):
             s.add(_block(trace, model, paths))

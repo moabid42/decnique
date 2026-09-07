@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from decnique.ui.config import Settings
-from decnique.ui.report import Report, list_reports, load, save
 from decnique.ui.commands import OBJECTS, SHELL
+from decnique.ui.config import Settings
 from decnique.ui.repl import dispatch
+from decnique.ui.report import Report, list_reports, load, save
 from decnique.ui.session import Session
 
 

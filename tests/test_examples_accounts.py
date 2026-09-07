@@ -3,6 +3,7 @@ These use only the bundled catalog (seed or gcp), so they run with or without th
 
 import glob
 import json
+from pathlib import Path
 
 import pytest
 
@@ -18,7 +19,7 @@ def test_there_are_several_example_accounts():
 
 @pytest.mark.parametrize("path", ACCOUNTS)
 def test_account_is_valid_json_and_loads(path):
-    json.loads(open(path, encoding="utf-8").read())  # valid JSON (comments live in _comment/_expect)
+    json.loads(Path(path).read_text(encoding="utf-8"))  # valid JSON (comments live in _comment/_expect)
     acc = load_account(path)
     assert acc.bindings, f"{path} has no principals"
 

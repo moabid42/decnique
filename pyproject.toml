@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "decnique"
 version = "0.1.0"
 description = "A DSL for detections and attacker techniques over one shared event model"
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "lark>=1.1",
@@ -18,7 +19,16 @@ dependencies = [
 [project.optional-dependencies]
 test = [
     "pytest>=8",
+    "pytest-cov>=5",
     "hypothesis>=6",
+]
+# tooling the CI pipeline runs; never imported by the package itself
+dev = [
+    "decnique[test]",
+    "ruff~=0.16.6",   # pinned: a new ruff release must not turn CI red on its own
+    "pre-commit>=4",
+    "build>=1.2",
+    "twine>=5",
 ]
 
 [project.scripts]
@@ -26,6 +36,55 @@ decnique = "decnique.cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config"
+markers = [
+    "e2e: runs an entry point in a subprocess (slower; deselect with -m 'not e2e')",
+    "corpus: needs a native rule corpus that is not in the repository",
+]
+filterwarnings = ["error::SyntaxWarning"]
+
+[tool.coverage.run]
+source = ["decnique"]
+branch = true
+
+[tool.coverage.report]
+# The floor CI enforces and `tools/run_tests.sh` re-checks before every push.  One number, in
+# one place: a second copy on a command line is how the two drifted apart.
+fail_under = 80
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "W",    # warnings
+    "I",    # import order
+    "UP",   # pyupgrade
+    "B",    # bugbear
+    "SIM",  # simplify
+    "RUF",  # ruff's own
+]
+ignore = [
+    "E501",    # long lines: the tables and DSL fragments read better whole
+    "B008",    # call in a default argument: the dataclass field(default_factory=…) idiom
+    "SIM108",  # a ternary is not always clearer than an if
+    "SIM102",  # nested ifs often mirror the shape of the thing being lowered
+    "RUF001",  # the shell's output is deliberately ×, →, ≤, ✓, ▸ — not look-alikes
+    "RUF002",
+    "RUF003",
+    "RUF005",  # list + list reads fine and rewriting it risks changing evaluation order
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E741"]  # single-letter names are fine in a test fixture
 
 [tool.setuptools]
 packages = [

@@ -64,7 +64,7 @@ def tri(value: object) -> str:
         return f"[yes]{CHECK} yes[/yes]"
     if value is False:
         return f"[no]{DOT} no[/no]"
-    return f"[unknown]? unknown[/unknown]"
+    return "[unknown]? unknown[/unknown]"
 
 
 def tri_word(value: object) -> tuple[str, str]:

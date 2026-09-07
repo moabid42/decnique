@@ -290,9 +290,13 @@ class Categorical:
         return NA
 
     def to_smt(self, term: z3.ExprRef, present: z3.BoolRef) -> z3.BoolRef:
-        concrete = sorted((v for v in self.values if v is not NA), key=_sort_key)
-        has_na = NA in self.values
-        if self.include:
+        # A declared value list has to be *stated* to the solver, not just known here: left as
+        # `Exclude`, "any method other than get" lets z3 answer with a method that exists on no
+        # axis at all, and the hole it then reports cannot be blocked or realised.
+        c = self.closed()
+        concrete = sorted((v for v in c.values if v is not NA), key=_sort_key)
+        has_na = NA in c.values
+        if c.include:
             parts = [z3.And(present, term == _lit(term, v)) for v in concrete]
             if has_na:
                 parts.append(z3.Not(present))
@@ -338,10 +342,12 @@ def _show(v: Point) -> str:
 
 
 def _lit(term: z3.ExprRef, v: Point) -> z3.ExprRef:
-    if isinstance(v, bool):
-        return z3.BoolVal(v)
-    if isinstance(v, int):
-        return z3.IntVal(v)
+    """The literal in the *term's* sort, not the Python value's: an axis is one sort for its
+    whole life, and mixing sorts is a z3 error rather than a wrong answer, but only at run time."""
+    if z3.is_bool(term):
+        return z3.BoolVal(bool(v))
+    if z3.is_int(term):
+        return z3.IntVal(int(v))  # type: ignore[arg-type]
     return z3.StringVal(str(v))
 
 

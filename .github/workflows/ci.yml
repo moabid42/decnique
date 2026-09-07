@@ -86,7 +86,7 @@ jobs:
           --cov=decnique --cov-report=term-missing --cov-report=xml
       - name: upload coverage
         if: matrix.python-version == '3.12'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-xml
           path: coverage.xml
@@ -133,7 +133,7 @@ jobs:
           print(parse_text('detection d { event method = \"X\" }', 'd.decn').detections[0].id)
           print(len(Catalog.gcp().all_permissions()), 'permissions in the bundled catalog')
           "
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/

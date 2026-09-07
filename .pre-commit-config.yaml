@@ -48,10 +48,10 @@ repos:
         stages: [commit-msg]
 
       # a script, not `python -m pytest`: a hook inherits your login PATH, where the venv is
-      # usually not active — tools/run_fast_tests.sh finds the right interpreter itself
-      - id: pytest-fast
-        name: pytest (unit suite; the e2e tests run in CI)
-        entry: tools/run_fast_tests.sh
+      # usually not active — tools/run_tests.sh finds the right interpreter itself
+      - id: pytest-prepush
+        name: pytest (the whole suite + the coverage floor, exactly as CI runs it)
+        entry: tools/run_tests.sh
         language: script
         pass_filenames: false
         stages: [pre-push]

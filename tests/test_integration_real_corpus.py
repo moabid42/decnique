@@ -12,6 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from conftest import corpus_dir
 
 from decnique.answers import chains_report
 from decnique.detections import DetectionLibrary
@@ -20,13 +21,17 @@ from decnique.eval import fires
 from decnique.smt.coverage import probe_permissions
 from decnique.smt.stealth import Evasive, stealth_feasible
 
-_DATA = Path("/Users/nil/BachelorArbeit/Bachelorarbeit/code/IAMouflage/data")
-_GSECOPS = _DATA / "detections" / "gsecops-detection-rules"
+_CORPUS = corpus_dir()
+_GSECOPS = _CORPUS / "gsecops-detection-rules" if _CORPUS else None
 _EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 
-pytestmark = pytest.mark.skipif(
-    not _GSECOPS.is_dir(), reason="IAMouflage corpus not present on this machine"
-)
+pytestmark = [
+    pytest.mark.corpus,
+    pytest.mark.skipif(
+        _GSECOPS is None or not _GSECOPS.is_dir(),
+        reason="IAMouflage corpus not present on this machine",
+    ),
+]
 
 
 @pytest.fixture(scope="module")

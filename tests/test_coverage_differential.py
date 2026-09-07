@@ -7,6 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from conftest import corpus_dir
 
 from decnique.detections import DetectionLibrary
 from decnique.dsl.parser import parse_text
@@ -83,10 +84,11 @@ def test_new_agrees_with_legacy(name: str):
     assert ctx.stats["unproven"] == 0  # every verdict above is a proof, not an exhaustion
 
 
-_DATA = Path("/Users/nil/BachelorArbeit/Bachelorarbeit/code/IAMouflage/data/detections")
+_DATA = corpus_dir()
 
 
-@pytest.mark.skipif(not _DATA.is_dir(), reason="IAMouflage corpus not present on this machine")
+@pytest.mark.corpus
+@pytest.mark.skipif(_DATA is None, reason="IAMouflage corpus not present on this machine")
 def test_corpus_gcp_witnesses_sound_and_fast():
     import time
 

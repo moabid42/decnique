@@ -2,7 +2,7 @@ name: CI
 
 # Five gates, in the order a failure is cheapest to read:
 #   commits  — the message convention (AGENTS.md §8); the same check the commit-msg hook runs
-#   lint     — style and dead code, seconds, no install
+#   lint     — style and dead code, plus every pre-commit hook over every file, seconds
 #   test     — the unit suite on every Python the package claims to support, with the coverage
 #              floor from pyproject.toml (`[tool.coverage.report] fail_under`)
 #   e2e      — the entry points as real processes, against the *installed* package
@@ -57,6 +57,17 @@ jobs:
       - name: ruff
         # the version pinned in the dev extra, so CI and the pre-commit hook agree
         run: uv tool run ruff@0.16.6 check --output-format=github .
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+      - name: the pre-commit hooks, over every file
+        # the local hooks can be missing (nobody ran `pre-commit install`) or skipped
+        # (`--no-verify`), so what they check is checked here as well, at the revisions
+        # `.pre-commit-config.yaml` pins.  ruff is skipped: it ran above, with annotations.
+        env:
+          SKIP: ruff-check
+        run: uv tool run pre-commit run --all-files --show-diff-on-failure
 
   test:
     needs: lint

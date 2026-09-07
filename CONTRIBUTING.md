@@ -51,7 +51,12 @@ file, so no test can read or overwrite your own shell settings.
 |---|---|---|
 | `pre-commit` | `ruff check --fix` on the **staged** files, plus whitespace / YAML / TOML / JSON checks | under a second |
 | `commit-msg` | `python tools/commit_msg.py` | instant |
-| `pre-push` | `tools/run_tests.sh`: `ruff check .`, the unit suite **with the coverage floor and no rule corpus**, the e2e suite, and the corpus tests if this machine has a corpus | ~40 s |
+| `pre-push` | `tools/run_tests.sh`: that the two hooks above are installed, `ruff check .`, the unit suite **with the coverage floor and no rule corpus**, the e2e suite, and the corpus tests if this machine has a corpus | ~40 s |
+
+Installing one hook by hand does not install the others, and a missing `commit-msg` is invisible
+until CI rejects the push — so the push gate checks for them first and tells you the one command
+that fixes it. CI also runs every hook over every file, which is what actually holds the line for
+a clone where nobody ran `pre-commit install`.
 
 `pre-commit run --all-files` runs them over the whole tree by hand.
 `git commit --no-verify` / `git push --no-verify` skips them for one command — fine on a branch of
@@ -96,7 +101,8 @@ exactly what CI runs over a pull request, since a local hook can be skipped.
 `.github/workflows/ci.yml`, five jobs. Installs go through `uv`:
 
 1. **commits** — `tools/commit_msg.py --range` over the pull request's commits.
-2. **lint** — `ruff check`, at the version pinned in the `dev` extra.
+2. **lint** — `ruff check` at the version pinned in the `dev` extra, then every
+   `pre-commit` hook over every file (whitespace, YAML / TOML / JSON, merge markers).
 3. **test** — the unit suite on Python 3.11, 3.12 and 3.13, with the coverage floor.
 4. **e2e** — installs the package (not editable) and runs the `e2e`-marked tests, so the
    console script and the packaged data files (`grammar.lark`, the GCP catalogs) are exercised

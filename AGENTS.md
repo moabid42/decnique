@@ -78,7 +78,7 @@ tools/          commit_msg.py: the commit convention as a program (hook + CI use
 
 ```bash
 uv venv && uv pip install -e .[dev]        # or python -m venv .venv && pip install …
-.venv/bin/pre-commit install               # git hooks; optional
+.venv/bin/pre-commit install               # all three git hooks; the push gate checks them
 .venv/bin/python -m pytest -q              # ~35 s, must stay green
 .venv/bin/python -m pytest -q -m "not e2e" # ~20 s, the fast loop
 .venv/bin/ruff check .                     # the same lint gate CI runs
@@ -86,9 +86,11 @@ python3 run.py                             # shell
 python3 run.py ask blindspots resourcemanager.projects.setIamPolicy
 ```
 The hooks lint the staged files on commit, check the commit message against
-`tools/commit_msg.py`, and on push run `tools/run_tests.sh` — the unit suite *with the coverage
-floor and the rule corpus hidden* (what CI measures), then the e2e suite, then the corpus tests
-if this machine has a corpus; `--no-verify` skips one.
+`tools/commit_msg.py`, and on push run `tools/run_tests.sh` — which first refuses to run at all
+unless the other two hooks are installed, then runs ruff, the unit suite *with the coverage floor
+and the rule corpus hidden* (what CI measures), the e2e suite, and the corpus tests if this
+machine has a corpus; `--no-verify` skips one.  CI runs every hook over every file as well, so
+the checks hold for a clone that never installed them.
 `tests/conftest.py` puts every test at the repository root and points `$DECNIQUE_CONFIG` at a
 temporary file, so `pytest` behaves the same wherever it is started and never touches your own
 settings.  Two markers: `e2e` (runs an entry point in a subprocess) and `corpus` (needs a rule

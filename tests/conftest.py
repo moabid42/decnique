@@ -39,6 +39,20 @@ def _isolated_config(tmp_path, monkeypatch):
     monkeypatch.setenv("DECNIQUE_CONFIG", str(tmp_path / "decnique-config.json"))
 
 
+@pytest.fixture(autouse=True)
+def _no_inherited_git_context(monkeypatch):
+    """No test can act on the repository it is running in.
+
+    A git hook runs its command with ``GIT_DIR`` (and friends) exported, and every ``git`` a test
+    shells out to then obeys *those* rather than its own ``cwd``.  A test that builds a throwaway
+    repository in ``tmp_path`` will happily commit into the real one instead — which is exactly
+    what `pytest -m "not e2e"` did the first time it ran from the ``pre-push`` hook, leaving four
+    junk commits on the branch.  Clearing the variables makes ``cwd`` mean what it says.
+    """
+    for name in [k for k in os.environ if k.startswith("GIT_")]:
+        monkeypatch.delenv(name, raising=False)
+
+
 @pytest.fixture
 def repo_root() -> Path:
     return ROOT

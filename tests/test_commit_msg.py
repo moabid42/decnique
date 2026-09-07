@@ -9,6 +9,7 @@ merges and reverts.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -171,31 +172,48 @@ def test_a_failure_shows_an_example_that_would_have_worked(tmp_path, capsys):
     assert check(EXAMPLE) == []  # the example it prints must itself pass
 
 
-def test_checking_a_range_is_what_ci_does(tmp_path, capsys):
+def test_checking_a_range_is_what_ci_does(tmp_path, capsys, monkeypatch):
     """CI runs `--range base..head`; a repository of its own keeps the test hermetic."""
     repo = tmp_path / "repo"
     repo.mkdir()
-    run = lambda *a: subprocess.run(a, cwd=repo, check=True, capture_output=True)  # noqa: E731
+
+    def run(*args: str) -> str:
+        done = subprocess.run(args, cwd=repo, check=True, capture_output=True, text=True)
+        return done.stdout.strip()
+
     run("git", "init", "-q", "-b", "main")
     run("git", "config", "user.email", "t@example.com")
     run("git", "config", "user.name", "t")
     (repo / "a.txt").write_text("a")
     run("git", "add", "-A")
     run("git", "commit", "-q", "--no-verify", "-m", "feat: add a")
-    base = subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True, check=True
-    ).stdout.strip()
+    base = run("git", "rev-parse", "HEAD")
     (repo / "b.txt").write_text("b")
     run("git", "add", "-A")
     run("git", "commit", "-q", "--no-verify", "-m", "added stuff")
 
-    import os
-
-    cwd = os.getcwd()
-    os.chdir(repo)
-    try:
-        assert main(["--range", f"{base}..HEAD"]) == 1  # only the second commit is bad
-        assert main(["--range", f"{base}..{base}"]) == 0
-    finally:
-        os.chdir(cwd)
+    monkeypatch.chdir(repo)
+    assert main(["--range", f"{base}..HEAD"]) == 1  # only the second commit is bad
+    assert main(["--range", f"{base}..{base}"]) == 0
     assert "1 of 1 commit message(s) need a rewrite" in capsys.readouterr().err
+
+
+def test_the_throwaway_repository_really_is_throwaway(tmp_path):
+    """The guard this file leans on, asserted directly.
+
+    `conftest.py` clears `GIT_*` from the environment. Without that, a hook's exported `GIT_DIR`
+    wins over `cwd` and every `git` call above commits into the *real* repository — which is how
+    the run above first left four junk commits on the branch."""
+    assert [k for k in os.environ if k.startswith("GIT_")] == []
+
+    repo = tmp_path / "elsewhere"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True, capture_output=True)
+    top = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert Path(top).resolve() == repo.resolve(), "git followed something other than cwd"

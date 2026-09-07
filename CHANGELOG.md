@@ -60,9 +60,12 @@ translation work below.
   encoders assume NNF, so a De Morgan slip there would make the solver answer a different question
   from the oracle. (Note that an `unknown` a constant absorbs — `unknown(…) and false` — *is*
   soundly dropped, so "every `Unknown` node survives" would be the wrong thing to assert.)
-- **`tests/conftest.py`**: every test runs from the repository root and against a temporary
-  `$DECNIQUE_CONFIG`, so the suite is start-directory independent and cannot read or overwrite a
-  developer's own shell settings. `run_cli` runs an entry point in a subprocess.
+- **`tests/conftest.py`**: every test runs from the repository root, against a temporary
+  `$DECNIQUE_CONFIG`, and with `GIT_*` cleared from the environment — so the suite is
+  start-directory independent, cannot read or overwrite a developer's own shell settings, and
+  cannot act on the repository it is running in. (That last one is not hypothetical: a git hook
+  exports `GIT_DIR`, which overrides `cwd`, and the first `pre-push` run committed a test's
+  throwaway fixture into the branch.) `run_cli` runs an entry point in a subprocess.
 - **`CONTRIBUTING.md`**, a `dev` extra (ruff pinned / pre-commit / build / twine), ruff and
   coverage configuration in `pyproject.toml`, and the `e2e` / `corpus` pytest markers.
 

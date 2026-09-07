@@ -1,8 +1,9 @@
 # Changelog
 
 All notable changes to decnique. The format is loosely based on
-[Keep a Changelog](https://keepachangelog.com/); the project is not versioned yet, so
-entries are grouped by date. `AGENTS.md` explains the concepts these changes touch.
+[Keep a Changelog](https://keepachangelog.com/); entries are grouped by date, because the work
+arrives that way. `v0.1.0` (2026-09-07) is the first tagged version and covers every entry below
+it. `AGENTS.md` explains the concepts these changes touch.
 
 ## [Planned]
 

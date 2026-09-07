@@ -86,13 +86,18 @@ python3 run.py                             # shell
 python3 run.py ask blindspots resourcemanager.projects.setIamPolicy
 ```
 The hooks lint the staged files on commit, check the commit message against
-`tools/commit_msg.py`, and run the fast test suite on push; `--no-verify` skips one.
+`tools/commit_msg.py`, and on push run `tools/run_tests.sh` — the unit suite *with the coverage
+floor and the rule corpus hidden* (what CI measures), then the e2e suite, then the corpus tests
+if this machine has a corpus; `--no-verify` skips one.
 `tests/conftest.py` puts every test at the repository root and points `$DECNIQUE_CONFIG` at a
 temporary file, so `pytest` behaves the same wherever it is started and never touches your own
 settings.  Two markers: `e2e` (runs an entry point in a subprocess) and `corpus` (needs a rule
-corpus that is not in the repo).  CI (`.github/workflows/ci.yml`) runs lint, the unit suite on
-3.11–3.13 with an 80 % coverage floor, the `e2e` tests against an *installed* package, and a
-packaging job that builds the wheel and parses a rule with it.  `CONTRIBUTING.md` has the detail.
+corpus that is not in the repo; `$DECNIQUE_CORPUS` says where it is, and pointing it at nothing
+reproduces CI exactly — the corpus covers the front-ends, so it lifts the coverage number by
+several points).  CI (`.github/workflows/ci.yml`) runs lint, the unit suite on 3.11–3.13 with the
+coverage floor from `pyproject.toml` (`[tool.coverage.report] fail_under`), the `e2e` tests
+against an *installed* package, and a packaging job that builds the wheel and parses a rule with
+it.  `CONTRIBUTING.md` has the detail.
 Every shell command reads **`<object> <verb> [args…]`**.  The objects are the things the
 session holds; their verbs only load or look at state.  The math lives under one object, `ask`.
 

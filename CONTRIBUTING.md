@@ -51,7 +51,7 @@ file, so no test can read or overwrite your own shell settings.
 |---|---|---|
 | `pre-commit` | `ruff check --fix` on the **staged** files, plus whitespace / YAML / TOML / JSON checks | under a second |
 | `commit-msg` | `python tools/commit_msg.py` | instant |
-| `pre-push` | `pytest -m "not e2e"` | ~20 s |
+| `pre-push` | `tools/run_tests.sh`: `ruff check .`, the unit suite **with the coverage floor and no rule corpus**, the e2e suite, and the corpus tests if this machine has a corpus | ~40 s |
 
 `pre-commit run --all-files` runs them over the whole tree by hand.
 `git commit --no-verify` / `git push --no-verify` skips them for one command — fine on a branch of
@@ -59,8 +59,14 @@ your own, and CI checks the same things anyway.
 
 A git hook inherits your *login* environment, not the shell you typed the command in, so the venv
 is usually not active when one runs. Both local hooks handle that themselves: the commit checker
-is standard-library-only, and `tools/run_fast_tests.sh` looks for `$VIRTUAL_ENV`, then `.venv/`,
+is standard-library-only, and `tools/run_tests.sh` looks for `$VIRTUAL_ENV`, then `.venv/`,
 before falling back to the system interpreter.
+
+The push gate hides the rule corpus (`DECNIQUE_CORPUS` pointing at nothing) on purpose. The
+corpus is what exercises the four front-ends, so a machine that has one measures several points
+more coverage than CI ever will — run the floor with the corpus visible and it passes here and
+fails there. `$DECNIQUE_CORPUS` also tells the corpus tests where your corpus is, if it is not at
+the default path.
 
 ## The commit convention
 

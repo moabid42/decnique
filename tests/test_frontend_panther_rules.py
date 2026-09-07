@@ -16,7 +16,7 @@ from decnique.frontends.panther import (
     load_panther_file,
     lower_panther,
 )
-from decnique.model.predicates import In, Unknown, unknowns
+from decnique.model.predicates import Cmp, In, StrFn, Unknown, unknowns
 from decnique.model.trace import Count
 
 _YML = """AnalysisType: rule
@@ -44,9 +44,12 @@ def _write(tmp_path, yml: str = _YML, py: str | None = None, py_name: str = "gcp
     return tmp_path / "rule.yml"
 
 
-def _scraped(body: str):
+def _scraped(body: str, head_sets: bool = False):
     """The predicate the scraper recovers from a ``rule()`` it cannot evaluate."""
-    py = "from panther_base_helpers import pattern_match\n\ndef rule(event):\n" + _OPAQUE + body
+    head = "from panther_base_helpers import pattern_match\n"
+    if head_sets:
+        head += 'ADMIN_METHODS = ["SetIamPolicy", "storage.buckets.delete"]\n'
+    py = head + "\ndef rule(event):\n" + _OPAQUE + body
     d, unsupported = lower_panther({"AnalysisType": "rule", "RuleID": "r", "LogTypes": ["GCP.AuditLog"]}, py, "r.yml")
     assert "panther:python_logic" in unsupported, "expected the scraper, not the evaluator"
     return d.spec.events[0].pred
@@ -205,17 +208,46 @@ def test_the_scraper_reads_a_module_level_method_constant():
     assert ins and set(ins[0].values) == {"SetIamPolicy", "google.iam.admin.v1.CreateServiceAccountKey"}
 
 
-def test_a_negated_method_set_is_not_scraped_as_the_method_list():
-    """`method not in (...)` fires on *other* methods; reading it as the list inverts the rule."""
-    p = _scraped('    return method_name not in ("SetIamPolicy", "storage.buckets.delete")\n')
-    assert not [x for x in _leaves(p) if isinstance(x, In) and x.field == (None, "method")]
-    assert evaluate(p, {"method": "SetIamPolicy"}) is None  # nothing is claimed either way
-    assert evaluate(p, {"method": "other.method.name"}) is None
+@pytest.mark.parametrize(
+    "body",
+    [
+        '    return method_name != "SetIamPolicy"\n',
+        '    return method_name not in ("SetIamPolicy", "storage.buckets.delete")\n',
+        '    if not method_name in ("SetIamPolicy", "storage.buckets.delete"):\n        return True\n',
+        "    return method_name not in ADMIN_METHODS\n",
+        "    if not method_name in ADMIN_METHODS:\n        return True\n",
+        '    if not method_name.startswith("storage."):\n        return True\n',
+        '    if not method_name.endswith(".setIamPolicy"):\n        return True\n',
+        '    if not method_name == "SetIamPolicy":\n        return True\n',
+    ],
+)
+def test_a_negated_method_test_leaves_the_rule_open(body):
+    """A negated test names the methods the rule does *not* fire on.
 
-
-def test_a_not_equal_method_test_is_also_left_open():
-    p = _scraped('    return method_name != "SetIamPolicy"\n')
+    Scraping its literals as the method set claims the exact opposite of the rule: every other
+    method — the ones it really fires on — would be reported as "this rule does not fire", and
+    that answer is a blind spot or a stealthy technique the tool would swear to.  Which methods
+    such a rule fires on cannot be read off a regex, so the only honest answer is don't-know.
+    """
+    p = _scraped(body, head_sets=True)
     assert "panther:negated_method_test" in {u.label for u in unknowns(p)}
+    assert not [x for x in _leaves(p) if isinstance(x, In | Cmp | StrFn) and x.field == (None, "method")]
+    assert evaluate(p, {"method": "SetIamPolicy"}) is None
+    assert evaluate(p, {"method": "compute.instances.delete"}) is None  # never a bare "no"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        '    return permission != "iam.serviceAccounts.actAs"\n',
+        '    if not permission == "iam.serviceAccounts.actAs":\n        return True\n',
+    ],
+)
+def test_a_negated_permission_test_is_not_scraped_as_the_permission(body):
+    """Same trap on the other scraped field: `permission != p` is not `permission == p`."""
+    p = _scraped(body)
+    assert not [x for x in _leaves(p) if isinstance(x, In) and x.field == (None, "permission")]
+    assert evaluate(p, {"method": "m", "permission": ["storage.objects.get"]}) is None
 
 
 def test_a_literal_next_to_another_field_is_not_read_as_a_method():

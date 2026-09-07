@@ -5,7 +5,9 @@ front-end recovers what is syntactically visible - method-name and permission
 literals used with ``==``, ``in``, ``endswith``/``startswith`` next to
 ``methodName``/``permission`` - and conjoins an ``Unknown("panther:python_logic")``
 atom, so the result is always *approximate* and never claims more than the rule
-text shows.  ``Threshold`` becomes ``condition #e >= N`` with the dedup period as the
+text shows.  A *negated* test (``!=``, ``not in``, ``not x.startswith(...)``) names
+the methods the rule does **not** fire on; which ones it does fire on cannot be read
+off a regex, so it becomes a don't-know rather than the opposite set.  ``Threshold`` becomes ``condition #e >= N`` with the dedup period as the
 window; ``correlation_rule`` files lower to a single ``Unknown`` event.
 """
 
@@ -207,47 +209,66 @@ def _python_pred(py_text: str | None, unsupported: list[str]) -> Pred:
     body = _rule_function(py_text) or py_text
     sets = {name: _strings(vals) for name, vals in _SET_DEF.findall(py_text)}
     methods: list[Pred] = []
+    negated = False  # a negated method test: the rule fires on the OTHER methods
+
+    def positive(pos: int) -> bool:
+        """Is the test at ``pos`` a *positive* test on the method name?
+
+        A negated one (``!=``, ``not in``, ``not x.startswith(...)``) records `negated`
+        instead: a regex cannot say which methods such a rule fires on, and scraping the
+        literals would claim the exact opposite set (honesty invariant #1)."""
+        nonlocal negated
+        receiver, neg = _receiver(body, pos)
+        if not _METHOD_CTX.search(receiver):
+            return False
+        negated = negated or neg
+        return not neg
+
     for m in _ENDSWITH.finditer(body):
-        s = _first(m)
-        if _METHOD_CTX.search(_same_statement(body, m.start())):
-            methods.append(StrFn(field=(None, "method"), fn="endswith", value=s))
+        if positive(m.start()):
+            methods.append(StrFn(field=(None, "method"), fn="endswith", value=_first(m)))
     for m in _STARTSWITH.finditer(body):
-        s = _first(m)
-        if _METHOD_CTX.search(_same_statement(body, m.start())):
-            methods.append(StrFn(field=(None, "method"), fn="startswith", value=s))
+        if positive(m.start()):
+            methods.append(StrFn(field=(None, "method"), fn="startswith", value=_first(m)))
     for m in _STR_IN.finditer(body):  # substring test on the method name
         s = _first(m)
         if _METHOD_CTX.search(m.group(m.lastindex)) and _METHOD_LIKE.match(s):
-            methods.append(StrFn(field=(None, "method"), fn="contains", value=s))
-    negated = False  # a `!=` / `not in` on the method: the rule fires on OTHER methods
-    for m in _EQ.finditer(body):
-        s = _first(m)
-        ctx = _same_statement(body, m.start())
-        if _METHOD_CTX.search(ctx) and _METHOD_LIKE.match(s):
-            if body[m.start():m.start() + 2] == "!=":
+            if _receiver(body, m.start())[1]:
                 negated = True
             else:
-                methods.append(Cmp(field=(None, "method"), op="=", value=s))
-    for m in _IN_SET.finditer(body):
-        ctx = _same_statement(body, m.start())
-        if not _METHOD_CTX.search(ctx):
+                methods.append(StrFn(field=(None, "method"), fn="contains", value=s))
+    for m in _EQ.finditer(body):
+        s = _first(m)
+        if not _METHOD_LIKE.match(s):
             continue
-        if re.search(r"\bnot\s*$", body[max(0, m.start() - 8):m.start()]):
-            negated = True
+        if body[m.start():m.start() + 2] == "!=":
+            if _METHOD_CTX.search(_receiver(body, m.start())[0]):
+                negated = True
+        elif positive(m.start()):
+            methods.append(Cmp(field=(None, "method"), op="=", value=s))
+    for m in _IN_SET.finditer(body):
+        if not positive(m.start()):
             continue
         inner = m.group(1).strip()
-        vals = sets.get(inner, _strings(inner))
-        vals = [v for v in vals if _METHOD_LIKE.match(v)]
+        vals = [v for v in sets.get(inner, _strings(inner)) if _METHOD_LIKE.match(v)]
         if vals:
             methods.append(In(field=(None, "method"), values=tuple(vals)))
     # `in SOME_CONSTANT` (a module-level set)
     for name, vals in sets.items():
-        if re.search(r"\bin\s+" + re.escape(name) + r"\b", body) and _METHOD_CTX.search(body):
-            vals = [v for v in vals if _METHOD_LIKE.match(v)]
-            if vals:
-                methods.append(In(field=(None, "method"), values=tuple(vals)))
-    perms = [_first(m) for m in _PERM_CTX.finditer(body)]
-    perms = [p for p in perms if _METHOD_LIKE.match(p)]
+        for m in re.finditer(r"\bin\s+" + re.escape(name) + r"\b", body):
+            if not positive(m.start()):
+                continue
+            kept = [v for v in vals if _METHOD_LIKE.match(v)]
+            if kept:
+                methods.append(In(field=(None, "method"), values=tuple(kept)))
+    # a negated permission test names the permission the rule does NOT fire on: no claim
+    perms = [
+        _first(m)
+        for m in _PERM_CTX.finditer(body)
+        if _METHOD_LIKE.match(_first(m))
+        and "!=" not in m.group(0)
+        and not _receiver(body, m.start())[1]
+    ]
     parts: list[Pred] = []
     if methods and not negated:
         parts.append(any_of(_dedupe(methods)))
@@ -266,19 +287,23 @@ def _python_pred(py_text: str | None, unsupported: list[str]) -> Pred:
     return all_of(parts)
 
 
-_RECEIVER_CUTS = ("\n", " and ", " or ", " if ", "not ", " in ", "[", "elif ", "return ")
+_RECEIVER_CUTS = ("\n", " and ", " or ", " if ", " in ", "[", "elif ", "return ")
+_NOT = re.compile(r"\bnot\b")
 
 
-def _same_statement(body: str, pos: int, limit: int = 160) -> str:
+def _receiver(body: str, pos: int, limit: int = 160) -> tuple[str, bool]:
     """The *receiver* of a test — the operand text just before ``.startswith(`` / ``==`` /
-    ``in`` — back to the previous operator or line.  Only if that mentions the method name is
-    the test a method test; a ``methodName`` check elsewhere in the same expression must not
-    claim a test on ``logName`` or ``serviceName``."""
+    ``in``, back to the previous operator or line — and whether that test is negated.
+
+    Only if the receiver mentions the method name is the test a method test; a ``methodName``
+    check elsewhere in the same expression must not claim a test on ``logName`` or
+    ``serviceName``.  ``not`` is deliberately *not* a cut: it belongs to the test being read
+    (``method not in (…)``, ``not method.startswith(…)``), and cutting there once hid the
+    negation and let the scraper claim the exact set of methods the rule does not fire on."""
     chunk = body[max(0, pos - limit) : pos]
-    cut = max(chunk.rfind(t) + len(t) for t in _RECEIVER_CUTS if chunk.rfind(t) >= 0) if any(
-        t in chunk for t in _RECEIVER_CUTS
-    ) else 0
-    return chunk[cut:]
+    cut = max((chunk.rfind(t) + len(t) for t in _RECEIVER_CUTS if t in chunk), default=0)
+    receiver = chunk[cut:]
+    return receiver, bool(_NOT.search(receiver))
 
 
 def _rule_function(py_text: str) -> str:

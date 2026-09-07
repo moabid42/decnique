@@ -12,9 +12,6 @@ Coverage as a **measure**, not a yes/no — the next block of work (see the road
 `README.md`). None of this touches the translation layer, so it can land alongside the
 translation work below.
 
-- **Holes as regions, not single witnesses.** After a gap is found, return the whole
-  evading set over the technique's free variables (e.g. `window ∈ [600,899] ∧ method=PATCH`)
-  instead of one example event. Projection + box subtraction in the small variable space.
 - **Cost-weighted coverage measure.** Measure the safe region (volume for continuous axes,
   integer-point count for discrete ones), weighted by attacker cost, and report it as a
   number with an uncertainty band. Turns covered/not-covered into a quantity.
@@ -26,6 +23,57 @@ translation work below.
   so `field in %list` becomes an exact membership test instead of `unknown`.
 - **Evaluate IAM Conditions.** Parse and evaluate conditional bindings so `Reach` is exact
   instead of over-approximated.
+
+## [2026-09-07] — since `v0.1.1`
+
+### Added
+- **A hole is a region now, not one example.** `ask stealth` proved a blind spot by handing back
+  a single schedule, which never said how much room the attacker had in it: is that the one
+  timing that slips through, or does every run over ten minutes slip through? An evasive
+  technique now also reports the **whole** evading set over its own free variables — how many
+  times the step is performed (`count`), over how many seconds (`span`), and the fields its
+  payload leaves open — with the old schedule as one point inside it. The canonical case reads
+  `count = 12 ∧ span ∈ [601, 21600]s`, and the report names `span` as the knob that leaves the
+  rule. `config stealth.region off` goes back to just the schedule. New package
+  `decnique/regions/`, following the coverage-gap plan's build order:
+  - `domains.py` — the per-axis set algebra (§4). Numeric axes are closed integer intervals at
+    the axis's own resolution, so `< 600` and `>= 600` tile the axis exactly and `< 600` with
+    `>= 601` leaves a one-second hole that is *visible* instead of being a rounding argument.
+    Categorical axes are `Include`/`Exclude` sets. "The event does not carry this field" is an
+    ordinary member of every axis, so "the rule says nothing about `method`" and
+    "`method = POST`" stay different things.
+  - `boxes.py` — boxes and their difference (§4.8, §7.3). Subtraction yields *disjoint* pieces,
+    so no hole is ever counted twice, and the pieces are checked against brute-force point
+    listing rather than against hand-written expectations.
+  - `compile.py` — a rule predicate to a union of boxes (§5). On an axis with a known value
+    list, every leaf — globs and regexes included — is expanded by asking decnique's own leaf
+    interpreter value by value, which makes the region exact *against the oracle that decides
+    whether the rule fires*.
+  - `backends.py` — two ways to compute the same difference (§7.3–§7.5): box subtraction, and
+    z3 over the same axes with each model grown into a box that is proven to lie wholly inside
+    the hole. `config regions.backend` picks one; `auto` uses the fast exact one and hands over
+    only when it fragments past its limit. A test requires the two to agree point for point.
+  - `technique.py` — the projection (§6, §7.2): a rate rule fires when enough matching events
+    fit inside its window, so it covers the box *its predicate* ∧ *the counts that trip it* ∧
+    *the spans short enough to fit*. The report is the plan's §9.1 shape and reaches `--json`
+    and saved reports.
+- **Every reported region carries a run from inside it, replayed.** The witness is rebuilt as
+  concrete events and pushed back through `matches_footprint` + `fires`; a region is only called
+  verified when nothing fires on it. Invariant #2, applied to a set instead of a point.
+
+### Changed / Fixed
+- **The setup line in `AGENTS.md` and the hint in `README.md` did not run on a Mac** — the same
+  zsh quoting bug as `v0.1.1`, in the two places that describe rather than show the command.
+
+### Honesty
+- Rules are only ever made **smaller** and candidates only ever **wider**, so this view can
+  invent a hole but never lose one. Anything a rule says that the compiler cannot turn into a
+  set operation — a reference list that is not loaded, an `unknown(...)` a front-end could not
+  translate, a join or an aggregate, a glob on an axis with no value list — drops that rule
+  *whole* and lists it with a reason, because dropping only part of it would enlarge the rule
+  and could hide a real blind spot. A technique whose payload cannot be read widens the region
+  and says so. A footprint with several steps, or one forcing a field to differ between
+  occurrences, is answered `undetermined` rather than modelled as something it is not.
 
 ## [2026-09-07] — tagged `v0.1.1`
 

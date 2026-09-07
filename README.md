@@ -93,9 +93,10 @@ the rule is flagged `approximate` and the interpreter answers three-valued —
 
 **Coverage as a measure** — turn the binary covered / not-covered verdict into a quantity.
 
-- [ ] **Holes as regions, not single witnesses.**  
-Return the whole evading set over a technique's free variables
-(e.g. `window ∈ [600,899] ∧ method=PATCH`), not just one example event.
+- [x] **Holes as regions, not single witnesses.**  
+`ask stealth` returns the whole evading set over a technique's free variables
+(e.g. `count = 12 ∧ span ∈ [601, 21600]s`), with the example schedule as one point inside it.
+Two backends — box subtraction and z3 — must agree; `config regions.backend` picks one.
 - [ ] **Cost-weighted coverage measure.**  
 Measure the safe region (volume for numeric axes, integer-point count for discrete ones),
 weighted by attacker cost, reported as a number with an uncertainty band. This *is* the

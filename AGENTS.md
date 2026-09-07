@@ -59,6 +59,9 @@ decnique/
                 consistency), encode_*/stealth (M3), answers.py at repo top = engine-level JSON,
                 bucket (optional grouping), legacy_coverage (old engine, differential test only)
   graph/        chains: search over stealthy techniques
+  regions/      a hole as a REGION, not one witness: domains (per-axis set algebra),
+                boxes (+ subtraction), compile (rule -> boxes), backends (interval | smt),
+                technique (a candidate's count/span/payload space)
   checks.py     runs `check` blocks (one engine per check type, three-valued, replayed)
   ui/           commands (the object/verb table: single source for dispatch, help, completion),
                 repl (prompt, help pages, batch/CI main), render (verbs), browse (catalog),
@@ -124,7 +127,12 @@ DSL as plain text, for copying into a `.decn` file.
 its settings.  With `config report.save on`, every `ask` run is written to `report.dir` as
 Markdown (default; the data is embedded as JSON at the end), JSON, or YAML (`report.format`);
 `reports list` lists them, `reports show <file>` reopens one, and `reports diff <a> <b>` shows
-what changed between two runs.  `reports export <file.json>` writes the last run's witnesses as
+what changed between two runs.  With `config stealth.region on` (the default) an evasive technique also reports the
+**whole** evading set — ranges over its own free variables (`count`, `span`, the fields its
+payload leaves open), computed by subtracting the rules' boxes from the technique's; the
+schedule above it is one point inside that region, and `config regions.backend` picks how it
+is computed (`interval` = box subtraction, `smt` = z3, `auto` = interval until it fragments).
+`reports export <file.json>` writes the last run's witnesses as
 Cloud Audit Log entries to replay in a SIEM; `ask suggest <perm> [define]` proposes DSL
 detections that would close a blind spot.  The `catalog` verbs (`ui/browse.py`) look things up
 without leaving the shell: `perms` (by service, then by name; `--tag`, `--reachable`,
@@ -194,6 +202,11 @@ rule across hops is caught); stealth reports the rules that always catch a techn
   `POLICY_DELTA_FIELDS`, `EXAMPLE_VALUES`, `verified=`). Data, not code.
 - **New setting** → one `Setting(...)` in `decnique/ui/config.py` `REGISTRY`; read it via
   `session.settings.get(key)`.
+- **New axis kind for regions** → one class in `decnique/regions/domains.py` implementing the
+  six set operations plus `to_smt`; `boxes.py` and both backends then work with it unchanged.
+  Anything a rule says that the compiler cannot turn into a set operation must *drop the whole
+  rule* (`regions/compile.py`) — an under-stated rule invents a hole, an over-stated one hides
+  one, and only the first is safe.
 - **New check type** → one `_<type>` function in `decnique/checks.py`, dispatched from
   `run_check`, added to `IMPLEMENTED`, and a question line in `ui/render.py` `_CHECK_QUESTION`.
   Every type is implemented; the one option without an engine, `mode fires_bg` (against a

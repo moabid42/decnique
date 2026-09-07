@@ -48,6 +48,9 @@ source = ["decnique"]
 branch = true
 
 [tool.coverage.report]
+# The floor CI enforces and `tools/run_tests.sh` re-checks before every push.  One number, in
+# one place: a second copy on a command line is how the two drifted apart.
+fail_under = 80
 exclude_also = [
     "if TYPE_CHECKING:",
     "raise NotImplementedError",

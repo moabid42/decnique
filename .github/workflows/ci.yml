@@ -3,7 +3,8 @@ name: CI
 # Five gates, in the order a failure is cheapest to read:
 #   commits  — the message convention (AGENTS.md §8); the same check the commit-msg hook runs
 #   lint     — style and dead code, seconds, no install
-#   test     — the unit suite on every Python the package claims to support, with a coverage floor
+#   test     — the unit suite on every Python the package claims to support, with the coverage
+#              floor from pyproject.toml (`[tool.coverage.report] fail_under`)
 #   e2e      — the entry points as real processes, against the *installed* package
 #   package  — the sdist and wheel build, pass twine, and give a working `decnique` command
 #
@@ -74,10 +75,15 @@ jobs:
           enable-cache: true
       - run: uv pip install -e ".[test]"
       - name: pytest (unit)
+        # no rule corpus here, and none is wanted: the corpus exercises the four front-ends, so
+        # a machine that has one measures higher coverage than this job ever will.
+        # `tools/run_tests.sh` hides it the same way before a push.  The floor itself lives in
+        # pyproject.toml (`[tool.coverage.report] fail_under`), so there is only one number.
+        env:
+          DECNIQUE_CORPUS: ${{ github.workspace }}/.no-such-corpus
         run: >
           pytest -m "not e2e"
           --cov=decnique --cov-report=term-missing --cov-report=xml
-          --cov-fail-under=80
       - name: upload coverage
         if: matrix.python-version == '3.12'
         uses: actions/upload-artifact@v4

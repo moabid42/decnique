@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "decnique"
-version = "0.1.0"
+version = "0.1.1"
 description = "A DSL for detections and attacker techniques over one shared event model"
 readme = "README.md"
 requires-python = ">=3.11"

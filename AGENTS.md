@@ -212,7 +212,10 @@ rule across hops is caught); stealth reports the rules that always catch a techn
 - The simplest unobserved event is often boring (e.g. a role *removal*). Use the per-change
   list or `config blindspots.explain formula` before concluding a rule is missing.
 - Roughly half of the Panther GCP rules yield no method predicate (their logic is Python).
-  Each is a place where a real detection hides behind `unknown`. Data-model "standard" rules
+  Each is a place where a real detection hides behind `unknown`.  A *negated* method or
+  permission test there is a don't-know on purpose: its literals are the ones the rule does
+  **not** fire on, so scraping them would claim the opposite set (invariant 1, in the other
+  direction — a definite "does not fire" is as dishonest as a definite "fires"). Data-model "standard" rules
   are translated exactly; add more idioms to `frontends/panther.py` as you meet them.
 - Real audit-log method for project IAM changes is `SetIamPolicy` (v1). The binding deltas
   (`action`/`role`/`member`) can be stripped in exported logs — a delta-less event is a real,

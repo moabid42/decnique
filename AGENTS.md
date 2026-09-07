@@ -77,7 +77,7 @@ tools/          commit_msg.py: the commit convention as a program (hook + CI use
 ## 4. Running
 
 ```bash
-uv venv && uv pip install -e .[dev]        # or python -m venv .venv && pip install …
+uv venv && uv pip install -e '.[dev]'      # quoted: zsh reads a bare .[dev] as a glob
 .venv/bin/pre-commit install               # all three git hooks; the push gate checks them
 .venv/bin/python -m pytest -q              # ~35 s, must stay green
 .venv/bin/python -m pytest -q -m "not e2e" # ~20 s, the fast loop

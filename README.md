@@ -48,7 +48,7 @@ makes them comparable.
 
 ```bash
 uv venv && source .venv/bin/activate   # or python -m venv .venv
-uv pip install -e .           # add [dev] for the test suite, the linter and the git hooks
+uv pip install -e .           # or '.[dev]' — quoted — for the tests, the linter and the hooks
 pytest                        # ~35 s; -m "not e2e" for the fast loop — see CONTRIBUTING.md
 ```
 

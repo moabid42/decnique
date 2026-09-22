@@ -205,7 +205,7 @@ session. `reports show` is read-only and does not replace the export source.
 - `--fail-on unknown` also returns 4 for exhausted, unknown, or inconclusive output.
 - Input and dispatch failures return 3.
 
-The lower-level `python -m decnique.cli` has a different contract: 0 success, 1 load/parse issues,
+The lower-level `decnique-tooling` (`python -m decnique.cli`) has a different contract: 0 success, 1 load/parse issues,
 and 3 input errors.
 
 ## Personal settings changed during tests

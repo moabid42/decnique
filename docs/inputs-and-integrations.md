@@ -96,7 +96,7 @@ metadata outside the trace model remains unknown.
 The lower-level import command can write a complete bundle as YAML or JSON:
 
 ```bash
-python -m decnique.cli import native-rules/ -o translated --yaml --json
+decnique-tooling import native-rules/ -o translated --yaml --json
 ```
 
 These documents serialize every predicate, trace, aggregate, check, candidate, ruleset, source,

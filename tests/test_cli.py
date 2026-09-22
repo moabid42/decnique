@@ -1,7 +1,7 @@
-"""``python -m decnique.cli`` — the non-interactive tooling front door.
+"""``python -m decnique.cli`` / ``decnique-tooling`` — the narrow tooling interface.
 
-The shell (`run.py`) has its own tests; this one covers the argparse CLI, which is what a
-build script or a `Makefile` calls.  Its contract is narrow and worth pinning: **stdout is
+The product shell has its own tests; this one covers the argparse CLI that a build script or a
+`Makefile` can call.  Its contract is narrow and worth pinning: **stdout is
 machine-readable**, and the exit code says what happened — 0 ok, 1 the input had errors,
 3 the input could not be read at all.  A subcommand that printed a nice message but exited 0
 on a broken file would silently pass in a pipeline.
@@ -30,7 +30,7 @@ def rules(tmp_path):
 
 def _json(capsys) -> dict:
     out = capsys.readouterr().out
-    return json.loads(out[out.index("{") :])
+    return json.loads(out)
 
 
 # --- parse / fmt -------------------------------------------------------------------------

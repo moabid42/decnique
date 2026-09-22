@@ -1,16 +1,13 @@
 # Changelog
 
 All notable changes to decnique. The format is loosely based on
-[Keep a Changelog](https://keepachangelog.com/); entries are grouped by date, because the work
-arrives that way. `v0.1.0` (2026-09-07) is the first tagged version and covers every entry below
-it; each later tag covers the entries between it and the tag under it. `AGENTS.md` explains
-the concepts these changes touch.
+[Keep a Changelog](https://keepachangelog.com/); entries are grouped by release where possible
+and by date for older, unreleased work. `AGENTS.md` explains the concepts these changes touch.
 
 ## [Planned]
 
-Coverage as a **measure**, not a yes/no — the next block of work (see the roadmap in
-`README.md`). None of this touches the translation layer, so it can land alongside the
-translation work below.
+Coverage as a **measure**, not a yes/no — the next block of work. None of this touches the
+translation layer, so it can land alongside the translation work below.
 
 - **Cost-weighted coverage measure.** Measure the safe region (volume for continuous axes,
   integer-point count for discrete ones), weighted by attacker cost, and report it as a
@@ -24,7 +21,7 @@ translation work below.
 - **Evaluate IAM Conditions.** Parse and evaluate conditional bindings so `Reach` is exact
   instead of over-approximated.
 
-## [2026-09-07] — since `v0.1.1`
+## [0.2.0] — 2026-09-22
 
 ### Added
 - **A hole is a region now, not one example.** `ask stealth` proved a blind spot by handing back
@@ -62,6 +59,20 @@ translation work below.
   verified when nothing fires on it. Invariant #2, applied to a set instead of a point.
 
 ### Changed / Fixed
+- **The published command now opens the documented product.** `decnique` starts the interactive
+  shell and its batch/CI mode; the narrower parser and conversion interface remains available as
+  `decnique-tooling`. Existing tooling subcommands are also forwarded by `decnique` for a smoother
+  transition.
+- **`--json` is a strict machine interface.** Human progress and diagnostics go to stderr, while
+  stdout contains exactly one JSON value (an object for one command, an array for a command file).
+- **The complete package is discovered for builds.** Wheels now include new subpackages such as
+  `decnique.regions` automatically instead of relying on an explicit list that could silently
+  omit future engines. CI installs the wheel outside the checkout and verifies its version,
+  commands, region engine, grammar, and bundled GCP catalog. The source distribution now carries
+  the examples, documentation, launcher, and test support its included suite needs.
+- **The release branch contains the region engine and current documentation together.** The
+  previously diverged feature and documentation histories were reconciled without dropping either
+  side.
 - **The setup line in `AGENTS.md` and the hint in `README.md` did not run on a Mac** — the same
   zsh quoting bug as `v0.1.1`, in the two places that describe rather than show the command.
 

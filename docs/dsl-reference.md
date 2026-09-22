@@ -464,9 +464,9 @@ check all_owner_changes_watched {
 Validate and canonicalize it:
 
 ```bash
-python -m decnique.cli parse my-rules.decn
-python -m decnique.cli fmt my-rules.decn
-python -m decnique.cli fmt --write my-rules.decn
+decnique-tooling parse my-rules.decn
+decnique-tooling fmt my-rules.decn
+decnique-tooling fmt --write my-rules.decn
 ```
 
 Then use it:

@@ -3,8 +3,8 @@
 decnique has two command surfaces:
 
 1. The primary object/verb shell exposed by `run.py` and the installed `decnique` command.
-2. A lower-level `python -m decnique.cli` interface for parsing, formatting, importing, and
-   machine-readable compatibility workflows.
+2. A lower-level `decnique-tooling` / `python -m decnique.cli` interface for parsing,
+   formatting, importing, and machine-readable compatibility workflows.
 
 ## Primary command grammar
 
@@ -315,7 +315,7 @@ python run.py [GLOBAL OPTIONS] <object> <verb> [arguments...]
 | `--all` | Disable the GCP-only rule filter |
 | `--account FILE`, `-a FILE` | Preload account data |
 | `--resource RES` | Scope for a plain gcloud IAM policy; default `*` |
-| `--json` | Print each generated run report as JSON |
+| `--json` | Print one report object, or an array for a multi-command script, as JSON |
 | `--report DIR` | Save runs to this directory for this process |
 | `--format md|json|yaml` | Saved report format |
 | `--fail-on finding|unknown` | Enable CI failure policy |
@@ -326,7 +326,8 @@ Exit codes are 0 clean, 2 finding, 3 input error, and 4 inconclusive under
 
 ## Lower-level `decnique.cli`
 
-Invoke this surface explicitly with `python -m decnique.cli`:
+Invoke this surface with the installed `decnique-tooling` command. `python -m decnique.cli` is
+the equivalent module form:
 
 | Subcommand | Purpose | Important options |
 |---|---|---|

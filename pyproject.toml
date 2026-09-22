@@ -4,10 +4,22 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "decnique"
-version = "0.1.1"
+version = "0.2.0"
 description = "A DSL for detections and attacker techniques over one shared event model"
 readme = "README.md"
 requires-python = ">=3.11"
+keywords = ["detection-engineering", "security", "siem", "threat-detection", "red-team"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Information Technology",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+]
 dependencies = [
     "lark>=1.1",
     "pyyaml>=6.0",
@@ -34,6 +46,13 @@ dev = [
 [project.scripts]
 decnique = "decnique.ui.repl:main"
 decnique-tooling = "decnique.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/moabid42/decnique"
+Documentation = "https://github.com/moabid42/decnique/wiki"
+Repository = "https://github.com/moabid42/decnique"
+Issues = "https://github.com/moabid42/decnique/issues"
+Changelog = "https://github.com/moabid42/decnique/blob/main/CHANGELOG.md"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

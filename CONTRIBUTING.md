@@ -122,8 +122,9 @@ exactly what CI runs over a pull request, since a local hook can be skipped.
 4. **e2e** — installs the package (not editable) and runs the `e2e`-marked tests, so the
    console script and the packaged data files (`grammar.lark`, the GCP catalogs) are exercised
    the way a user meets them.
-5. **package** — `uv build`, `twine check`, then installs the wheel into a fresh virtualenv and
-   parses a rule with it.
+5. **package** — `uv build`, `twine check`, then installs the wheel into a fresh virtualenv
+   outside the checkout and verifies both commands, metadata, every Python subpackage, the grammar,
+   and the GCP catalog.
 
 ## Writing a change
 

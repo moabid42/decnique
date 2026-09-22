@@ -6,6 +6,8 @@ Adversarial Techniques.**
 > New here (human or AI)? Start with [AGENTS.md](AGENTS.md) for a two-minute explanation,
 > the architecture, the invariants, and the common traps.
 
+> For the complete user and contributor documentation, open the [decnique wiki](docs/README.md).
+
 decnique evaluates whether a concrete detection-rule corpus can observe adversarial actions that
 are reachable in a particular cloud account and recorded in its audit logs.  It combines a shared
 formal language with native-rule translators, a GCP account and audit catalog, symbolic analysis,

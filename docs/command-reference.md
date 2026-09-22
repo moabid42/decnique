@@ -253,9 +253,9 @@ Compare two reports of the same verb. Show new, closed, and verdict-changed find
 
 ### `reports export <file.json> [n]`
 
-Export witness events from the last in-memory run, or only finding `n`, as a JSON list of Cloud
-Audit Log entries. Each entry includes `_decnique` provenance. Reports loaded with `reports show`
-become the current report and can then be exported.
+Export witness events from the last in-memory `ask` run, or only finding `n`, as a JSON list of
+Cloud Audit Log entries. Each entry includes `_decnique` provenance. `reports show` is read-only and
+does not replace the in-memory run, so export before leaving the session that produced it.
 
 ## Shell words
 

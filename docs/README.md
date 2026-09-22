@@ -14,7 +14,10 @@ shared model, and replays every proposed witness through a concrete evaluator be
 - Detection author: [DSL reference](dsl-reference.md) → [Analysis guide](analysis-guide.md)
 - Platform engineer: [Inputs and integrations](inputs-and-integrations.md) →
   [Architecture](architecture.md)
-- Anyone interpreting a result: [Concepts and verdicts](concepts-and-verdicts.md)
+- Contributor: [Architecture](architecture.md) → [Development guide](development.md)
+- Anyone interpreting a result: [Concepts and verdicts](concepts-and-verdicts.md) →
+  [Troubleshooting](troubleshooting.md)
+- Looking for worked tasks: [Cookbook](cookbook.md)
 
 ## What is implemented
 
@@ -84,3 +87,6 @@ run.py          interactive and batch launcher
 - [Analysis guide](analysis-guide.md) — what each engine asks, how it works, and how to use its evidence
 - [Inputs and integrations](inputs-and-integrations.md) — rule formats, accounts, events, catalogs, Terraform, and exports
 - [Architecture](architecture.md) — data flow, modules, symbolic abstraction, frontends, and trust boundaries
+- [Cookbook](cookbook.md) — practical audits, techniques, CI checks, migrations, and replay workflows
+- [Development guide](development.md) — setup, tests, extension recipes, conventions, and safety invariants
+- [Troubleshooting](troubleshooting.md) — common surprises, approximate results, and input problems

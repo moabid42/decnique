@@ -263,7 +263,9 @@ options {
 }
 ```
 
-`allow_zero_values` controls the YARA-L-style zero-value reading. Other options are preserved as
+`allow_zero_values` controls the YARA-L-style zero-value reading. By default, an event whose join
+or group key is missing is filtered out instead of joining other missing values. Enabling the
+option puts those events in the vendor's shared zero-value group. Other options are preserved as
 metadata in `RuleOptions.extra` even when the evaluator has no special behavior for them.
 
 ## Candidates

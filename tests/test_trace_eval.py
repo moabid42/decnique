@@ -118,6 +118,45 @@ def test_join_key_must_match():
     assert fires(d.spec, diff) is False
 
 
+def test_missing_join_keys_do_not_correlate():
+    """Absent values must not turn unrelated events into a definite joined detection."""
+    d = _detection(
+        """
+        detection chain {
+          events { a: method = "create" b: method = "use" }
+          join { a.principal = b.principal }
+          condition #a >= 1 and #b >= 1 }
+        """
+    )
+
+    assert fires(d.spec, [{"method": "create"}, {"method": "use"}]) is False
+
+
+def test_missing_group_keys_do_not_form_a_count_bucket():
+    """Events without a grouping value must not combine to cross a count threshold."""
+    d = _detection(
+        """
+        detection burst { events { e: method = "list" }
+          group by e.principal condition #e >= 2 }
+        """
+    )
+
+    assert fires(d.spec, [{"method": "list"}, {"method": "list"}]) is False
+
+
+def test_allow_zero_values_explicitly_groups_missing_keys():
+    """The vendor override keeps its documented zero-valued match-key behavior."""
+    d = _detection(
+        """
+        detection burst { events { e: method = "list" }
+          group by e.principal condition #e >= 2
+          options { allow_zero_values = true } }
+        """
+    )
+
+    assert fires(d.spec, [{"method": "list"}, {"method": "list"}]) is True
+
+
 # --- count_distinct ----------------------------------------------------------------------
 
 

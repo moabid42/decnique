@@ -12,7 +12,8 @@ Semantics (a deliberately naive oracle, §M0 of the plan):
    event a *definite* (``True``) or *possible* (``None``) membership; ``False`` drops it.
 2. **Correlate & group.** ``join`` equalities are unioned into key classes; together with
    ``group by`` they partition matched (event, variable) instances into groups that agree
-   on every key dimension.
+   on every key dimension.  An event with a missing key is filtered out unless the rule
+   explicitly enables ``allow_zero_values``.
 3. **Window / order.** A group is gated by ``window`` (events fit the span / anchor side)
    and ``order`` (temporal order among the named variables).
 4. **Aggregates & condition.** Counts (``#v``) and aggregates are computed per group as
@@ -62,7 +63,8 @@ from decnique.model.trace import (
 # An (event, variable, membership) instance produced by the match phase.
 Instance = tuple[str, Event, Tri]
 Group = list[Instance]
-_WILDCARD = object()
+_MISSING_KEY = object()
+_UNBOUND_KEY = object()
 
 
 # --- three-valued primitives ------------------------------------------------------------
@@ -203,12 +205,12 @@ def _key_dimensions(spec: TraceSpec) -> list[frozenset[QField]]:
 
 def _dim_value(event: Event, var: str, dim: frozenset[QField]) -> object:
     """The value event ``event`` (playing role ``var``) contributes to key dimension
-    ``dim``, or ``_WILDCARD`` if this variable has no field in the dimension."""
+    ``dim``; missing keys and dimensions not bound to this variable stay distinct."""
     for dvar, path in dim:
         if dvar in (None, var):
             v = field_value(event, (dvar, path))
-            return _WILDCARD if v is _MISSING else v
-    return _WILDCARD
+            return _MISSING_KEY if v is _MISSING or v is None else v
+    return _UNBOUND_KEY
 
 
 def _group(spec: TraceSpec, matched: dict[str, list[tuple[Event, Tri]]]) -> list[Group]:
@@ -220,6 +222,8 @@ def _group(spec: TraceSpec, matched: dict[str, list[tuple[Event, Tri]]]) -> list
     for var, hits in matched.items():
         for e, tri in hits:
             key = tuple(_dim_value(e, var, d) for d in dims)
+            if not spec.options.allow_zero_values and any(v is _MISSING_KEY for v in key):
+                continue
             groups[key].append((var, e, tri))
     return list(groups.values())
 

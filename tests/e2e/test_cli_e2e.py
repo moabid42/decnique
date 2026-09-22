@@ -107,6 +107,30 @@ def test_a_script_of_commands_runs_in_order_and_saves_a_report(run_cli, tmp_path
     assert saved["verb"] == "blindspots"
 
 
+def test_a_script_can_export_the_preceding_ask_witness(run_cli, tmp_path, rules_file):
+    """Non-computing script lines retain the last report just like an interactive session."""
+    exported = tmp_path / "witness.json"
+    script = tmp_path / "export.txt"
+    script.write_text(
+        "ask blindspots resourcemanager.projects.setIamPolicy\n"
+        f"reports export {exported}\n"
+    )
+
+    result = run_cli(
+        "run.py",
+        "--rules",
+        rules_file,
+        "--account",
+        ACCOUNT,
+        "-f",
+        str(script),
+    )
+
+    assert result.code == 0, result.err
+    entries = json.loads(exported.read_text())
+    assert entries[0]["protoPayload"]["methodName"] == "SetIamPolicy"
+
+
 def test_a_bad_account_file_is_an_input_error(run_cli, tmp_path, rules_file):
     bad = tmp_path / "acct.json"
     bad.write_text("{not json")

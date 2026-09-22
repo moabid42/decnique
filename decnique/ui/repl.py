@@ -513,14 +513,16 @@ def _batch(s: Session, ns: argparse.Namespace) -> tuple[int, list[dict]]:
         _parser().print_usage()
         return EXIT_INPUT, reports
     for line in lines:
-        s.last_report = None
+        previous_report = s.last_report
         if not dispatch(s, line):
             break
-        if s.last_report is not None:
+        # Non-computing commands such as ``reports export`` need the preceding ask result to
+        # remain available.  Only collect and score a report when this line produced a new one.
+        if s.last_report is not None and s.last_report is not previous_report:
             from .report import to_json
 
             reports.append(json.loads(to_json(s.last_report)))
-        worst = max(worst, _outcome(s, line.split()[0], ns.fail_on))
+            worst = max(worst, _outcome(s, line.split()[0], ns.fail_on))
     return worst, reports
 
 

@@ -126,3 +126,49 @@ def test_show_prints_the_source_file(tmp_path, capsys):
     with console.capture() as cap:
         dispatch(s, "rules inspect d")
     assert "source:" in cap.get() and "r.decn" in cap.get()
+
+
+def _burst_session(tmp_path):
+    s = _session(tmp_path)
+    acct = tmp_path / "burst.json"
+    acct.write_text(json.dumps({"version": 1, "name": "t", "bindings": {"a@x.com": [
+        {"permission": "iam.serviceAccounts.getAccessToken"}]},
+        "logging": {"admin_activity": True, "data_access_services": ["*"]}}))
+    dispatch(s, f"account load {acct}")
+    dispatch(s, 'detection rate { events { e: method = "iam.serviceAccounts.getAccessToken" } '
+                "window 600s condition #e > 10 }")
+    dispatch(s, 'candidate burst { required { iam.serviceAccounts.getAccessToken } footprint '
+                '{ use: "iam.serviceAccounts.getAccessToken" repeat 12 span 6h } }')
+    return s
+
+
+def test_stealth_shows_the_whole_evading_set_not_only_one_schedule(tmp_path):
+    """The single schedule says a blind spot exists; the region says how much room the attacker
+    has in it.  A defender who only sees one timestamped example cannot tell whether tightening
+    the rule by a minute would close the gap or miss it by hours."""
+    s = _burst_session(tmp_path)
+    assert dispatch(s, "ask stealth") is True
+    item = _last(tmp_path)["items"][0]
+    assert item["verdict"] == "evasive"
+    assert item["region"] == ['count = 12  ∧  span ∈ [601, 21600]s  ∧  '
+                              'method = "iam.serviceAccounts.getAccessToken"']
+    assert item["region_status"] == "partially_covered"
+    assert "the knobs that leave a rule: span" in _last(tmp_path)["transcript"]
+
+
+def test_the_region_can_be_turned_off_and_the_backend_chosen(tmp_path):
+    """Both are settings because the region costs solver time and because the two backends are
+    worth swapping when one of them struggles — the answer must not depend on which is used."""
+    s = _burst_session(tmp_path)
+    dispatch(s, "config stealth.region off")
+    dispatch(s, "ask stealth")
+    assert "region" not in _last(tmp_path)["items"][0]
+
+    s2 = _burst_session(tmp_path)
+    dispatch(s2, "config stealth.region on")  # settings persist to disk between sessions
+    dispatch(s2, "config regions.backend smt")
+    dispatch(s2, "ask stealth")
+    smt = _last(tmp_path)["items"][0]
+    assert smt["region_backend"] == "smt"
+    assert smt["region"] == ['count = 12  ∧  span ∈ [601, 21600]s  ∧  '
+                             'method = "iam.serviceAccounts.getAccessToken"']

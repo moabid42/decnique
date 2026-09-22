@@ -743,11 +743,59 @@ def stealth(s: Session, ident: str | None) -> None:
         console.print("[muted]no candidates to evaluate" + (f" for {ident!r}" if ident else "") + "[/muted]")
         return
 
+    show_region = s.settings.get("stealth.region") == "on"
+    backend = s.settings.get("regions.backend")
     with s.report("stealth", [ident] if ident else []) as rep:
-        _stealth(lib, account, cands, rep)
+        _stealth(lib, account, cands, rep, show_region=show_region, backend=backend)
 
 
-def _stealth(lib, account, cands, rep) -> None:  # type: ignore[no-untyped-def]
+def _stealth_region(c, lib, account, r, show_region, backend):  # type: ignore[no-untyped-def]
+    """The whole set of runs that evade, not just the one schedule the solver happened to find.
+
+    Printed under the verdict when `config stealth.region on`; the schedule above is one point
+    inside the region, and the region says how much room around it the attacker really has."""
+    if not show_region:
+        return None
+    from decnique.regions.technique import UNDETERMINED, region_report
+
+    with r.thinking("subtracting the rules from the technique's own variable space…"):
+        reg = region_report(c, lib, account, backend=backend)
+    if reg.status == UNDETERMINED:
+        r.note("no region for this technique: " + "; ".join(reg.caveats))
+        return reg
+    if not reg.holes:
+        return reg
+    r.math("evading set  =  Runs(technique) ∧ ¬( ⋁ Observes )  over the technique's own knobs:")
+    for i, hole in enumerate(reg.holes):
+        lead = "every run with  " if i == 0 else "          or    "
+        replay = "replayed" if hole.replayed else "NOT replayed — treat as a lead, not a finding"
+        r.no(f"{lead}{_short(hole.text())}   ({replay})")
+    axes = sorted({a for cr in reg.crossed for a in cr.escape_axes})
+    if axes:
+        r.note("the knobs that leave a rule: " + ", ".join(axes))
+    for caveat in reg.caveats:
+        r.note("caveat: " + caveat)
+    if reg.excluded_rules:
+        names = ", ".join(rid for rid, _ in reg.excluded_rules[:3])
+        more = "…" if len(reg.excluded_rules) > 3 else ""
+        r.note(f"{len(reg.excluded_rules)} rule(s) left out of this region ({names}{more}) — "
+               "they are not read exactly here, so part of it may in fact be watched")
+    return reg
+
+
+def _region_fields(reg) -> dict:  # type: ignore[no-untyped-def]
+    """What a saved report keeps about the region, so `reports show` can reopen it."""
+    if reg is None or not reg.holes:
+        return {}
+    return {
+        "region": [h.text() for h in reg.holes],
+        "region_status": reg.status,
+        "region_backend": reg.backend,
+        "region_excluded": [rid for rid, _ in reg.excluded_rules],
+    }
+
+
+def _stealth(lib, account, cands, rep, *, show_region=False, backend="auto") -> None:  # type: ignore[no-untyped-def]
     from decnique.smt.stealth import Evasive, feasible, stealth_feasible
 
     r = Reasoner()
@@ -794,11 +842,12 @@ def _stealth(lib, account, cands, rep) -> None:  # type: ignore[no-untyped-def]
                 r.no(f"not audit-logged by this account: {', '.join(res.unlogged)} — "
                        "no rule can see these steps (a logging gap, not a rule gap)")
             r.verdict_gap(f"EVASIVE ({tag}) — {len(res.schedule)} event(s) as {res.principal} evade every rule")
+            region = _stealth_region(c, lib, account, r, show_region, backend)
             rows.append((c.id, ("evasive", "gap"), f"{len(res.schedule)} events as {res.principal}"
                          + (" (unlogged step)" if res.unlogged else ""), approx_word(res.approximate)))
             rep.add(c.id, "evasive", f"{len(res.schedule)} event(s) as {res.principal} evade every rule",
                     approximate=res.approximate, principal=res.principal, schedule=list(res.schedule),
-                    unlogged=list(res.unlogged))
+                    unlogged=list(res.unlogged), **_region_fields(region))
             evasive += 1
         elif res.verdict == "always_detected":
             caught = ", ".join(_title(lib, rid) for rid in res.caught_by)

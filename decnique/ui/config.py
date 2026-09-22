@@ -42,6 +42,24 @@ REGISTRY: dict[str, Setting] = {
             "also print the raw witness event (every field) under the sentence",
         ),
         Setting(
+            "stealth.region",
+            ("on", "off"),
+            "on",
+            "after a technique is found evasive, also work out the *whole* set of runs that "
+            "evade — ranges over the technique's own free variables (how many times, over how "
+            "long, with which payload) instead of the single example schedule; 'off' keeps "
+            "just the example",
+        ),
+        Setting(
+            "regions.backend",
+            ("auto", "interval", "smt"),
+            "auto",
+            "how that set is computed: 'interval' = box subtraction, exact and fast, but a "
+            "candidate crossed by many overlapping rules can fragment past the limit; 'smt' = "
+            "z3 over the same axes, slower but it does not fragment; 'auto' = interval, "
+            "handing over to smt only when it fragments",
+        ),
+        Setting(
             "report.save",
             ("off", "on"),
             "off",

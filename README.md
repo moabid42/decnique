@@ -51,7 +51,7 @@ Python 3.11 or newer is required:
 ```bash
 uv venv
 uv pip install -e .
-uv run python run.py
+uv run decnique
 ```
 
 Inside the shell:

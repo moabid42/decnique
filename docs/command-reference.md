@@ -153,7 +153,8 @@ Load one of:
 - native Terraform `*.tf.json` configuration.
 
 The default scope for a plain IAM policy is `*`; pass a concrete value such as
-`projects/my-project` for accurate resource scoping.
+`projects/my-project` for accurate resource scoping. See
+[Inputs and integrations](inputs-and-integrations.md) for schema details.
 
 ### `account show`
 

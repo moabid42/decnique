@@ -11,7 +11,9 @@ shared model, and replays every proposed witness through a concrete evaluator be
 ## Choose a path
 
 - New user: [Getting started](getting-started.md) → [Command reference](command-reference.md)
-- Detection author: [DSL reference](dsl-reference.md)
+- Detection author: [DSL reference](dsl-reference.md) → [Analysis guide](analysis-guide.md)
+- Platform engineer: [Inputs and integrations](inputs-and-integrations.md) →
+  [Architecture](architecture.md)
 - Anyone interpreting a result: [Concepts and verdicts](concepts-and-verdicts.md)
 
 ## What is implemented
@@ -79,3 +81,6 @@ run.py          interactive and batch launcher
 - [Concepts and verdicts](concepts-and-verdicts.md) — Reach, Log, Observes, exactness, replay, and result interpretation
 - [Command reference](command-reference.md) — every shell object, verb, setting, flag, and exit code
 - [DSL reference](dsl-reference.md) — write detections, candidates, checks, and rulesets
+- [Analysis guide](analysis-guide.md) — what each engine asks, how it works, and how to use its evidence
+- [Inputs and integrations](inputs-and-integrations.md) — rule formats, accounts, events, catalogs, Terraform, and exports
+- [Architecture](architecture.md) — data flow, modules, symbolic abstraction, frontends, and trust boundaries

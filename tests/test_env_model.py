@@ -162,6 +162,9 @@ def test_catalog_field_invariants_known_method():
     inv = cat.field_invariants("google.iam.admin.v1.CreateServiceAccountKey")
     assert inv["service"] == "iam.googleapis.com"
     assert inv["product_name"] == "Google Cloud IAM"
+    assert cat.required_fields("google.iam.admin.v1.CreateServiceAccountKey") == (
+        "udm:security_result.detection_fields[key_id]",
+    )
 
 
 def test_catalog_field_invariants_unknown_method_asserts_nothing():

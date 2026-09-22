@@ -67,6 +67,14 @@ METHOD_EVENT_TYPE: dict[str, str] = {
 _DELTA = "udm:target.resource.attribute.labels[ser_binding_deltas_{}]"
 POLICY_DELTA_FIELDS: tuple[str, ...] = tuple(_DELTA.format(k) for k in ("action", "role", "member"))
 
+# The GCP_CLOUDAUDIT parser exposes the affected key identifier on service-account key creation
+# and upload events.  Google's published rule groups those methods by this field; treating it as
+# optional would let the solver evade that rule only by fabricating a parser output without its
+# correlation key.
+SERVICE_ACCOUNT_KEY_FIELDS: tuple[str, ...] = (
+    "udm:security_result.detection_fields[key_id]",
+)
+
 # Realistic example values a witness falls back to when no rule constrains a field; ordered by
 # how ordinary they are.  ``{principal}`` is the acting principal.  Purely a readability aid: every
 # candidate is still checked against the rules' atoms and replayed through the oracle.
@@ -284,11 +292,14 @@ class Catalog:
         return inv
 
     def required_fields(self, method: str) -> tuple[str, ...]:
-        """Fields a real event of ``method`` always carries (values free) — the binding deltas
-        of an IAM policy change.  See :data:`POLICY_DELTA_FIELDS`."""
-        if method.rsplit(".", 1)[-1] in METHOD_EVENT_TYPE:
-            return POLICY_DELTA_FIELDS
-        return ()
+        """Fields a real event of ``method`` always carries, with values left free."""
+        suffix = method.rsplit(".", 1)[-1]
+        fields: tuple[str, ...] = ()
+        if suffix in METHOD_EVENT_TYPE:
+            fields += POLICY_DELTA_FIELDS
+        if suffix in {"CreateServiceAccountKey", "UploadServiceAccountKey"}:
+            fields += SERVICE_ACCOUNT_KEY_FIELDS
+        return fields
 
     def example_values(self, path: str, *, principal: str | None = None) -> tuple[str, ...]:
         """Realistic fallback values for a witness field (see :data:`EXAMPLE_VALUES`)."""

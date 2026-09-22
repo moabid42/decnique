@@ -91,6 +91,7 @@ def test_json_mode_prints_a_document_a_pipeline_can_read(run_cli, rules_file):
     doc = r.json()
     assert doc["verb"] == "blindspots"
     assert doc["items"] and doc["items"][0]["verdict"] == "gap"
+    assert "loaded" in r.err
 
 
 def test_a_script_of_commands_runs_in_order_and_saves_a_report(run_cli, tmp_path, rules_file):
@@ -169,13 +170,12 @@ def test_the_launcher_delegates_the_tooling_subcommands(run_cli, rules_file):
 def test_the_installed_console_script_works(tmp_path):
     """Only runs against an installed package — CI installs it, so it runs there.
 
-    `decnique` is the tooling CLI (`decnique.cli`); the shell is `run.py` / `decnique.ui.repl`.
-    Parsing a file through the installed command also proves ``grammar.lark`` was packaged, which
-    a source checkout can never catch."""
+    `decnique` is the interactive and batch front door. Its compatibility delegation keeps the
+    tooling commands available; parsing also proves ``grammar.lark`` was packaged."""
     rules = tmp_path / "r.decn"
     rules.write_text(WATCH_KEYS)
     helped = subprocess.run([CONSOLE, "--help"], capture_output=True, text=True, timeout=120)
-    assert helped.returncode == 0 and "decnique.cli" in helped.stdout
+    assert helped.returncode == 0 and "interactive shell" in helped.stdout
     parsed = subprocess.run(
         [CONSOLE, "parse", str(rules)], capture_output=True, text=True, timeout=120
     )

@@ -16,6 +16,7 @@ import json
 import os
 import shlex
 import sys
+from contextlib import nullcontext, redirect_stdout
 from pathlib import Path
 
 from decnique.dsl.parser import DslError
@@ -439,7 +440,6 @@ def repl(s: Session) -> int:
 # --- entry point --------------------------------------------------------------------------
 
 _DELEGATED = {"parse", "fmt", "import", "event", "trace", "coverage", "admits", "show"}
-_DELEGATED_FLAGS = {"-e", "-o", "-a", "--account", "--yaml", "--permission"}
 
 # what a finding is, per verb, for --fail-on
 _FINDING = {"blindspots": ("gap",), "stealth": ("evasive",), "chains": ("stealthy",), "check": ("fail",)}
@@ -484,17 +484,8 @@ def _outcome(s: Session, verb: str, fail_on: str | None) -> int:
     return EXIT_CLEAN
 
 
-def main(argv: list[str] | None = None) -> int:
-    argv = sys.argv[1:] if argv is None else argv
-    s = Session()
-    if not argv:
-        return repl(s)
-    # richer flag forms belong to the batch CLI
-    if argv[0] in _DELEGATED and _DELEGATED_FLAGS & set(argv):
-        from decnique.cli import main as cli_main
-
-        return cli_main(argv)
-    ns = _parser().parse_args(argv)
+def _batch(s: Session, ns: argparse.Namespace) -> tuple[int, list[dict]]:
+    """Run parsed batch arguments and return the exit code plus structured ask reports."""
     if ns.report:
         s.settings.set("report.save", "on", persist=False)
         s.settings.set("report.dir", ns.report, persist=False)
@@ -509,8 +500,9 @@ def main(argv: list[str] | None = None) -> int:
             s.account_load(ns.account, ns.resource)
     except (OSError, ValueError, DslError) as e:
         console.print(f"[err]input error:[/err] {e}")
-        return EXIT_INPUT
+        return EXIT_INPUT, []
     worst = EXIT_CLEAN
+    reports: list[dict] = []
     lines: list[str] = []
     if ns.file:
         text = sys.stdin.read() if ns.file == "-" else Path(ns.file).read_text(encoding="utf-8")
@@ -519,14 +511,37 @@ def main(argv: list[str] | None = None) -> int:
         lines.append(" ".join(shlex.quote(a) for a in ns.verb))
     if not lines:
         _parser().print_usage()
-        return EXIT_INPUT
+        return EXIT_INPUT, reports
     for line in lines:
         s.last_report = None
         if not dispatch(s, line):
             break
-        if s.last_report is not None and ns.json:
+        if s.last_report is not None:
             from .report import to_json
 
-            print(to_json(s.last_report))
+            reports.append(json.loads(to_json(s.last_report)))
         worst = max(worst, _outcome(s, line.split()[0], ns.fail_on))
-    return worst
+    return worst, reports
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    s = Session()
+    if not argv:
+        return repl(s)
+    # The installed command is the interactive/batch front door, while the original tooling
+    # subcommands remain available for compatibility (and through ``decnique-tooling``).
+    if argv[0] in _DELEGATED:
+        from decnique.cli import main as cli_main
+
+        return cli_main(argv)
+    ns = _parser().parse_args(argv)
+    # Machine mode owns stdout: all narration and diagnostics move to stderr, then exactly one
+    # JSON value is written. A command script produces an array; one ask command an object.
+    output = redirect_stdout(sys.stderr) if ns.json else nullcontext()
+    with output:
+        code, reports = _batch(s, ns)
+    if ns.json:
+        payload: object = reports[0] if len(reports) == 1 else reports
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    return code

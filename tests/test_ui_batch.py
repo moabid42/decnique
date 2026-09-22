@@ -29,8 +29,27 @@ def test_batch_check_exit_codes_and_json(tmp_path, capsys):
     capsys.readouterr()
     assert main(base + ["--json", "ask", "check", "bad"]) == EXIT_CLEAN
     out = capsys.readouterr().out
-    doc = json.loads(out[out.index("{"):])
+    doc = json.loads(out)
     assert doc["verb"] == "check" and doc["items"][0]["verdict"] == "fail" and doc["items"][0]["label"] == "bad"
+
+
+def test_json_script_is_one_array_and_narration_moves_to_stderr(tmp_path, capsys):
+    rules = tmp_path / "r.decn"
+    rules.write_text('detection keys { event method = "google.iam.admin.v1.CreateServiceAccountKey" }\n')
+    script = tmp_path / "run.txt"
+    script.write_text(
+        "ask blindspots iam.serviceAccountKeys.create\n"
+        "ask blindspots resourcemanager.projects.setIamPolicy\n"
+    )
+    code = main([
+        "--json", "--rules", str(rules), "--account", "examples/accounts/custom/account.json",
+        "-f", str(script),
+    ])
+    assert code == EXIT_CLEAN
+    captured = capsys.readouterr()
+    docs = json.loads(captured.out)
+    assert [d["verb"] for d in docs] == ["blindspots", "blindspots"]
+    assert "loaded" in captured.err
 
 
 def test_batch_blindspots_report_and_script(tmp_path):

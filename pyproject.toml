@@ -32,7 +32,8 @@ dev = [
 ]
 
 [project.scripts]
-decnique = "decnique.cli:main"
+decnique = "decnique.ui.repl:main"
+decnique-tooling = "decnique.cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

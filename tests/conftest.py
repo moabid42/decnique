@@ -66,12 +66,10 @@ class CliResult:
     err: str
 
     def json(self) -> object:
-        """The JSON document printed on stdout, ignoring anything printed before it."""
+        """The JSON value printed on stdout; machine mode must emit nothing around it."""
         import json
 
-        start = self.out.find("{")
-        assert start >= 0, f"no JSON object on stdout of {self.argv}:\n{self.out}\n{self.err}"
-        return json.loads(self.out[start:])
+        return json.loads(self.out)
 
 
 @pytest.fixture

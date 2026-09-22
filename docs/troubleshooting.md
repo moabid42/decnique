@@ -131,7 +131,9 @@ Check:
 - distinct tuples rather than merely distinct events;
 - usable timestamps for `within`, order, and span;
 - `where` fields nested under `udm` or `tags` correctly;
-- duplicate events, which `events load` removes after normalization.
+- duplicated Cloud Logging exports with the same `logName`, `timestamp`, and `insertId`, which
+  `events load` removes; otherwise equal occurrences are deliberately preserved for count and rate
+  detections.
 
 Use `events list`, `events inspect N`, and `candidates inspect ID` side by side.
 

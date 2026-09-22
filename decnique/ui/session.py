@@ -7,8 +7,10 @@ one calm line, so the bottom toolbar and every later verb have a known footing.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 from decnique.detections import DetectionLibrary, event_from_audit_log
 from decnique.dsl.ast import Bundle
@@ -35,16 +37,39 @@ def _merge_bundles(old: Bundle, new: Bundle) -> Bundle:
     return kept + new
 
 
-def _events_from(raw: object) -> list[dict]:
+def _cloud_logging_identity(entry: object) -> tuple[str, object, str] | None:
+    """Cloud Logging's duplicate identity, when the complete stable key is present.
+
+    ``insertId`` alone is not enough: Cloud Logging scopes de-duplication by log and event
+    timestamp.  Records without all three values may be equal payloads from separate actions,
+    so their multiplicity must survive loading.
+    """
+    if not isinstance(entry, Mapping):
+        return None
+    log_name = entry.get("logName")
+    timestamp = entry.get("timestamp")
+    insert_id = entry.get("insertId")
+    if not isinstance(log_name, str) or not log_name:
+        return None
+    if not isinstance(timestamp, str | int | float) or timestamp == "":
+        return None
+    if not isinstance(insert_id, str) or not insert_id:
+        return None
+    return log_name, timestamp, insert_id
+
+
+def _events_from(raw: object) -> list[dict[str, Any]]:
     entries = raw if isinstance(raw, list) else [raw]
-    events = [event_from_audit_log(e) if "protoPayload" in e else e for e in entries]
-    seen: set[str] = set()
-    out: list[dict] = []
-    for e in events:  # collapse identical events — the same event loaded twice is one event
-        key = json.dumps(e, sort_keys=True, default=str)
-        if key not in seen:
-            seen.add(key)
-            out.append(e)
+    seen: set[tuple[str, object, str]] = set()
+    out: list[dict[str, Any]] = []
+    for entry in entries:
+        identity = _cloud_logging_identity(entry)
+        if identity is not None and identity in seen:
+            continue
+        if identity is not None:
+            seen.add(identity)
+        event = event_from_audit_log(entry) if "protoPayload" in entry else entry
+        out.append(event)
     return out
 
 

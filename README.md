@@ -1,38 +1,84 @@
 # decnique
 
-> New here (human or AI)? Start with `[AGENTS.md](AGENTS.md)` — a two-minute explanation,
-> the layout, the invariants, and the traps.
+**A Formal Language and Evaluation Framework for Measuring Detection Coverage Against
+Adversarial Techniques.**
 
-A domain-specific language for writing **detections** (a security team's alarm rules)
-and **candidates** (an attacker's technique) against **one shared event model**, so the
-two can be compared directly.
+> New here (human or AI)? Start with [AGENTS.md](AGENTS.md) for a two-minute explanation,
+> the architecture, the invariants, and the common traps.
 
-This repository is the *language* only — grammar, parser, AST, formatter, the
-three-valued interpreter, the event/predicate/trace model, and the four SIEM
-front-ends that translate real rules into the DSL, plus the coverage/stealth/chains
-engine (`decnique/smt/`, `decnique/graph/`) and an interactive shell.
+decnique evaluates whether a concrete detection-rule corpus can observe adversarial actions that
+are reachable in a particular cloud account and recorded in its audit logs.  It combines a shared
+formal language with native-rule translators, a GCP account and audit catalog, symbolic analysis,
+concrete replay, and an interactive and batch-capable shell.
 
-The coverage engine (`decnique/smt/`) answers `Reach ∧ Log ∧ ¬⋁Observes` over a finite
-**atom abstraction** of string fields — no z3 string theory; see
-`docs/COVERAGE_ABSTRACTION.md` for the idea, the measurements, and what was changed.
+The DSL is the common representation, not the whole product.  Google SecOps/YARA-L, Elastic,
+Sigma, and Panther rules are translated into it; attacker techniques use the same event and trace
+model.  The evaluation engines can then compare both sides while accounting for what principals
+can do, what GCP logs, and what each rule observes.
 
-image
+## What it answers
+
+- **Blindspots** — for a permission, does any reachable and logged action evade every loaded
+  detection?  A finding includes a concrete event witness.
+- **Stealth** — can a particular adversarial technique, including a specific payload and
+  multi-event footprint, execute without any rule firing?
+- **Chains** — can individually stealthy techniques be composed into a privilege-escalation path?
+- **Checks** — do named coverage, boundary, redundancy, dead-rule, comparison, and public-access
+  assertions pass, fail, or remain unknown?
+
+The core single-event question is:
+
+```text
+∃ e : Reach_p(e) ∧ Log(e) ∧ ¬(⋁_R Observes(R, e))
+```
+
+Every answer is three-valued—yes, no, or don't-know—and every symbolic witness is replayed through
+the concrete evaluator before it is reported.
+
+## How the pieces fit
+
+```mermaid
+flowchart LR
+    R["Native SIEM rules<br/>YARA-L · Elastic · Sigma · Panther"] --> F["Frontends"]
+    F --> D["DSL detections"]
+    T["Adversarial techniques"] --> C["DSL candidates"]
+    A["Account + audit catalog"] --> RL["Reach + Log constraints"]
+
+    D --> E["Analysis engines<br/>blindspots · stealth · chains · checks"]
+    C --> E
+    RL --> E
+
+    E --> O["Concrete replay oracle"]
+    O --> X["Interactive shell · batch JSON · reports"]
+```
+
+The coverage engine uses a finite **atom abstraction** of the string tests made by the loaded
+rules.  The solver proposes models; account reachability, audit logging, and the concrete rule
+oracle decide whether a proposed witness is valid.
 
 ## Layout
 
 ```
 decnique/
-  dsl/            grammar.lark, parser, AST, formatter, interpreter, loader, yaml_io
-  model/          event_fields (the closed vocabulary), predicates, trace (TraceSpec)
-  frontends/      secops (YARA-L), sigma, elastic, panther  -> DSL
-  catalogs/       udm field-map used by the SecOps front-end
-  detections.py   DetectionLibrary: observing() and admitting() on concrete events
-  cli.py          command-line entry point
+  dsl/          grammar, parser, AST, formatter, interpreter, and loader
+  model/        shared event vocabulary, predicates, and trace specifications
+  frontends/    Google SecOps/YARA-L, Elastic, Sigma, and Panther → DSL
+  env/          account model, GCP/gcloud/Terraform import, Reach and Log
+  catalogs/     GCP methods, permissions, roles, tags, and UDM field mappings
+  eval/         concrete trace evaluator—the replay oracle
+  smt/          atom abstraction, blindspot analysis, and stealth analysis
+  graph/        stealthy privilege-escalation chain search
+  ui/           interactive shell, batch mode, rendering, configuration, and reports
+  checks.py     engines for named DSL checks
+  answers.py    JSON-serializable blindspot, stealth, and chain reports
+examples/       accounts, candidates, checks, events, and Terraform inputs
+tests/          unit, property, end-to-end, and optional real-corpus tests
+run.py          interactive and one-shot shell launcher
 ```
 
+## The formal language
 
-
-## The four top-level constructs
+The shared language has four top-level constructs:
 
 - **detection** — a pattern in the logs that should raise an alarm (single- or
 multi-event, with joins, windows, ordering, aggregates, and count conditions).
@@ -42,24 +88,55 @@ trace they *leave* (`footprint`, with `repeat`/`within`/`distinct`).
 - **ruleset** — a bundle of includes with enable/disable toggles.
 
 Both a detection and a candidate bottom out in the same event form, which is what
-makes them comparable.
+makes them directly comparable.  Native SIEM rules are translated into these structures, so users
+can work with their existing rule corpus instead of rewriting it by hand.
 
 ## Install & use
 
+With `uv`, create the project environment and install the runtime package:
+
 ```bash
 uv venv
-source .venv/bin/activate             # or: python -m venv .venv
-uv pip install -e .                   # runtime installation
+uv pip install -e .
 ```
 
-For development and the test suite, install the `dev` extra (quote it in shells such as zsh)
-and run pytest through the virtual environment's Python:
+The commands below use `uv run`, so activating `.venv` is not required.  Request the `dev` extra
+when running the test suite or development tools:
 
 ```bash
-uv pip install -e ".[dev]"
-python -m pytest                       # ~35 s
-python -m pytest -m "not e2e"         # ~20 s; see CONTRIBUTING.md
+uv run --extra dev python -m pytest                       # ~35 s
+uv run --extra dev python -m pytest -m "not e2e"         # ~20 s; see CONTRIBUTING.md
 ```
+
+Alternatively, activate the environment with `source .venv/bin/activate`, install
+`uv pip install -e ".[dev]"`, and omit `uv run` from the commands.
+
+## Run the shell
+
+From the repository root:
+
+```bash
+uv run python run.py
+```
+
+This opens the interactive shell.  Type `help` to list its objects and verbs.  A minimal analysis
+session looks like this (the optional IAMouflage setup is described below):
+
+```text
+rules load ../IAMouflage/data/detections
+candidates load examples/candidates/candidates.decn
+checks load examples/checks/checks.decn
+account load examples/accounts/custom/account.json
+rules summary
+ask blindspots resourcemanager.projects.setIamPolicy
+ask stealth escalate_project_iam
+ask chains
+ask check
+```
+
+Commands follow `<object> <verb> [args…]`.  The shell keeps the loaded rules, techniques, account,
+events, and reports in one session; the solver runs only for commands under `ask`.  Exit with
+`quit` or `Ctrl-D`.
 
 ### Optional real-rule corpus
 
@@ -70,7 +147,7 @@ Git submodules:
 
 ```bash
 git clone --recurse-submodules https://github.com/moabid42/IAMouflage.git ../IAMouflage
-python -m pytest -q -m corpus
+uv run --extra dev python -m pytest -q -m corpus
 ```
 
 That sibling location is discovered automatically.  If you clone it elsewhere, point the tests
@@ -78,7 +155,7 @@ at its detection directory:
 
 ```bash
 export DECNIQUE_CORPUS=/absolute/path/to/IAMouflage/data/detections
-python -m pytest -q -m corpus
+uv run --extra dev python -m pytest -q -m corpus
 ```
 
 `DECNIQUE_CORPUS` is only test discovery.  To analyze those rules, load them explicitly:
@@ -88,6 +165,8 @@ rules load ../IAMouflage/data/detections
 ```
 
 The IAMouflage Docker/Neo4j pipeline is not needed; decnique reads the native rule files directly.
+
+## As a Python library
 
 ```python
 from decnique import parse_text, format_bundle, DetectionLibrary, event_from_audit_log
@@ -100,29 +179,29 @@ ev  = event_from_audit_log(one_cloud_audit_log_json)
 obs = lib.observing(ev)      # Observes(R, e): which rules fire, which are "unknown"
 ```
 
+## Batch mode
 
+The same workflow can run non-interactively in CI, with stable exit codes and optional JSON or
+saved reports:
 
-## In the shell
-
-Every command reads `<object> <verb> [args…]`.  Objects hold state; `ask` runs the math.
-
-```
-rules load <rules/> examples/candidates/candidates.decn     # detections (+ candidates / checks in the same files)
-rules list ~                                     # only the approximate rules
-rules inspect <id>   ·   rules dsl <id>          # one rule with context / just its DSL
-candidates inspect <id>   ·   checks load examples/checks/checks.decn
-account load examples/accounts/custom/account.json               # or a raw gcloud export
-ask blindspots resourcemanager.projects.setIamPolicy
-ask stealth escalate_project_iam   ·   ask chains   ·   ask check
-reports list   ·   reports show <file>   ·   reports diff <a> <b>
-help <object> [verb]
+```bash
+uv run python run.py \
+  --rules ../IAMouflage/data/detections \
+  --account examples/accounts/custom/account.json \
+  --json --fail-on finding \
+  ask blindspots resourcemanager.projects.setIamPolicy
 ```
 
-## The honesty mechanism
+Accounts can come from decnique JSON, raw `gcloud` IAM exports, or Terraform state, plan, and
+`*.tf.json` configuration.
+
+## Honesty and soundness
 
 Anything the language cannot express becomes a first-class `unknown("label")` atom;
 the rule is flagged `approximate` and the interpreter answers three-valued —
-**yes / no / don't know** — never forcing a false yes or no.
+**yes / no / don't know** — never forcing a false yes or no.  Solver-generated witnesses are
+accepted only after concrete replay confirms reachability, logging, and non-observation by the
+loaded rules.
 
 ## Roadmap / future work
 

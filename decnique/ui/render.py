@@ -820,7 +820,7 @@ def _stealth(lib, account, cands, rep, *, show_region=False, backend="auto") -> 
             rep.add(c.id, "not_feasible", "actor cannot obtain: " + (", ".join(missing) or "no single principal holds all"))
             r.blank()
             continue
-        r.ok(f"feasible as {principals[0]}")
+        r.ok(f"feasible as {', '.join(principals)}")
         r.math("proposing a schedule that evades every exactly-encoded rate rule, refuting each with the oracle")
         with r.thinking("SMT: solving for an evasive schedule (≤64 refinements)…"):
             res = stealth_feasible(c, lib, account)

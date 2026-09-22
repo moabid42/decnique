@@ -160,8 +160,6 @@ def stealth_feasible(
             r.permission for r in candidate.required if not account.reachable(r.permission)
         )
         return NotFeasible(candidate.id, missing=missing)
-    principal = principals[0]
-
     fp = candidate.footprint
     fp_methods = {s.method for s in fp.steps}
     trace = build_trace(fp, share=candidate.share)
@@ -169,9 +167,14 @@ def stealth_feasible(
     s.set("random_seed", 0)  # reproducible schedules (plan §4)
     for c in footprint_constraints(trace, fp, account.catalog):
         s.add(c)
-    # pin the shared principal to a feasible one
-    if "principal" in candidate.share and trace.occs:
-        s.add(trace.occs[0].ev.term("principal") == z3.StringVal(principal))
+    # The technique is existential over its actor, not over the first actor returned by the
+    # account.  Keep each actor choice symbolic over the feasible set so SAT may find any actor
+    # and UNSAT covers all of them.  ``share principal`` (the default) equates those choices;
+    # omitting it permits different feasible actors across occurrences, never invented actors.
+    for occ in trace.occs:
+        actor = occ.ev.term("principal")
+        s.add(z3.Or(*(actor == z3.StringVal(p) for p in principals)))
+        s.add(occ.ev.present("principal"))
 
     # Log: an occurrence of an unlogged method never reaches a rule.
     visible = tuple(account.logged(o.method) for o in trace.occs)
@@ -226,6 +229,7 @@ def stealth_feasible(
             s.add(_block(trace, model, paths))
             continue
         unknown = tuple(rid for rid, v in verdicts.items() if v is None)
+        principal = str(events[0].get("principal") or principals[0]) if events else principals[0]
         return Evasive(
             candidate=candidate.id,
             schedule=tuple(events),

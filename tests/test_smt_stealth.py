@@ -60,6 +60,84 @@ def test_not_feasible_result():
     assert isinstance(r, NotFeasible)
 
 
+def test_stealth_searches_every_feasible_principal():
+    """A principal-specific rule must not hide another feasible actor's evasion."""
+    c = _candidate(
+        f'candidate esc {{ required {{ {_TOKEN} }} footprint {{ use: "{_TOKEN}" }} }}'
+    )
+    lib = _lib(
+        f'detection alice_only {{ event method = "{_TOKEN}" '
+        'and principal = "alice@x.com" }'
+    )
+    account = Account(
+        name="t",
+        bindings={
+            "alice@x.com": (Grant(permission=_TOKEN),),
+            "bob@x.com": (Grant(permission=_TOKEN),),
+        },
+        logging=LogConfig(
+            data_access_services=frozenset({"iamcredentials.googleapis.com"})
+        ),
+    )
+
+    r = stealth_feasible(c, lib, account)
+
+    assert isinstance(r, Evasive), r
+    assert r.principal == "bob@x.com"
+    assert r.schedule[0]["principal"] == "bob@x.com"
+
+
+def test_always_detected_covers_every_feasible_principal():
+    """An always-detected proof must include the whole feasible actor domain."""
+    c = _candidate(
+        f'candidate esc {{ required {{ {_TOKEN} }} footprint {{ use: "{_TOKEN}" }} }}'
+    )
+    lib = _lib(
+        f'detection alice {{ event method = "{_TOKEN}" and principal = "alice@x.com" }}\n'
+        f'detection bob {{ event method = "{_TOKEN}" and principal = "bob@x.com" }}'
+    )
+    account = Account(
+        name="t",
+        bindings={
+            "alice@x.com": (Grant(permission=_TOKEN),),
+            "bob@x.com": (Grant(permission=_TOKEN),),
+        },
+        logging=LogConfig(
+            data_access_services=frozenset({"iamcredentials.googleapis.com"})
+        ),
+    )
+
+    r = stealth_feasible(c, lib, account)
+
+    assert isinstance(r, AlwaysDetected), r
+    assert set(r.caught_by) == {"alice", "bob"}
+
+
+def test_unshared_principal_cannot_be_invented_to_evade():
+    """Overriding share may vary actors across events, but every actor must remain feasible."""
+    c = _candidate(
+        f"""
+        candidate esc {{
+          required {{ {_TOKEN} }}
+          footprint {{ use: "{_TOKEN}" }}
+          share caller_ip
+        }}
+        """
+    )
+    lib = _lib(
+        f'detection alice {{ event method = "{_TOKEN}" and principal = "alice@x.com" }}'
+    )
+    account = Account(
+        name="t",
+        bindings={"alice@x.com": (Grant(permission=_TOKEN),)},
+        logging=LogConfig(
+            data_access_services=frozenset({"iamcredentials.googleapis.com"})
+        ),
+    )
+
+    assert isinstance(stealth_feasible(c, lib, account), AlwaysDetected)
+
+
 # --- the canonical timing case: SAT (spread to evade) ------------------------------------
 
 

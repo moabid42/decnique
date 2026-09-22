@@ -107,9 +107,10 @@ def run_cli(tmp_path):
 
 # The native rule corpus is not in the repository.  Tests that need it skip without it, which
 # also means they cover a large part of the front-ends only on a machine that has it — the
-# reason a coverage floor can pass locally and fail in CI.  Point ``$DECNIQUE_CORPUS`` at a
-# path that does not exist to run exactly what CI runs (``tools/run_tests.sh`` does).
-_DEFAULT_CORPUS = "/Users/nil/BachelorArbeit/Bachelorarbeit/code/IAMouflage/data/detections"
+# reason a coverage floor can pass locally and fail in CI.  A sibling IAMouflage clone is the
+# portable default; ``$DECNIQUE_CORPUS`` overrides it.  Point the variable at a path that does
+# not exist to run exactly what CI runs (``tools/run_tests.sh`` does).
+_DEFAULT_CORPUS = ROOT.parent / "IAMouflage" / "data" / "detections"
 
 
 def corpus_dir() -> Path | None:

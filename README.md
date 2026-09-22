@@ -47,10 +47,47 @@ makes them comparable.
 ## Install & use
 
 ```bash
-uv venv && source .venv/bin/activate   # or python -m venv .venv
-uv pip install -e .           # add [dev] for the test suite, the linter and the git hooks
-pytest                        # ~35 s; -m "not e2e" for the fast loop — see CONTRIBUTING.md
+uv venv
+source .venv/bin/activate             # or: python -m venv .venv
+uv pip install -e .                   # runtime installation
 ```
+
+For development and the test suite, install the `dev` extra (quote it in shells such as zsh)
+and run pytest through the virtual environment's Python:
+
+```bash
+uv pip install -e ".[dev]"
+python -m pytest                       # ~35 s
+python -m pytest -m "not e2e"         # ~20 s; see CONTRIBUTING.md
+```
+
+### Optional real-rule corpus
+
+The repository does not vendor third-party SIEM rules.  The optional corpus tests use the four
+version-pinned rule repositories collected by
+[IAMouflage](https://github.com/moabid42/IAMouflage). Clone it next to this repository with its
+Git submodules:
+
+```bash
+git clone --recurse-submodules https://github.com/moabid42/IAMouflage.git ../IAMouflage
+python -m pytest -q -m corpus
+```
+
+That sibling location is discovered automatically.  If you clone it elsewhere, point the tests
+at its detection directory:
+
+```bash
+export DECNIQUE_CORPUS=/absolute/path/to/IAMouflage/data/detections
+python -m pytest -q -m corpus
+```
+
+`DECNIQUE_CORPUS` is only test discovery.  To analyze those rules, load them explicitly:
+
+```text
+rules load ../IAMouflage/data/detections
+```
+
+The IAMouflage Docker/Neo4j pipeline is not needed; decnique reads the native rule files directly.
 
 ```python
 from decnique import parse_text, format_bundle, DetectionLibrary, event_from_audit_log

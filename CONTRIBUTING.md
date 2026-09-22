@@ -33,6 +33,21 @@ Two markers exist:
 | `e2e` | runs `run.py` or `decnique.cli` in a **subprocess**; slower, checks argv, stdout and exit codes |
 | `corpus` | needs a native rule corpus that is not in this repository; skips cleanly without it |
 
+The optional corpus is provided by
+[IAMouflage](https://github.com/moabid42/IAMouflage), whose pinned Git submodules contain the
+Google SecOps, Elastic, Sigma, and Panther rule repositories.  Clone it next to decnique and run
+only the corpus tests with:
+
+```bash
+git clone --recurse-submodules https://github.com/moabid42/IAMouflage.git ../IAMouflage
+pytest -q -m corpus
+```
+
+`../IAMouflage/data/detections` is discovered automatically.  For another location, export
+`DECNIQUE_CORPUS=/absolute/path/to/IAMouflage/data/detections`.  A clone made without
+`--recurse-submodules` can be completed with
+`git -C ../IAMouflage submodule update --init --recursive`.
+
 Coverage, the way CI measures it (the gate is 80 %):
 
 ```bash
@@ -71,7 +86,7 @@ The push gate hides the rule corpus (`DECNIQUE_CORPUS` pointing at nothing) on p
 corpus is what exercises the four front-ends, so a machine that has one measures several points
 more coverage than CI ever will — run the floor with the corpus visible and it passes here and
 fails there. `$DECNIQUE_CORPUS` also tells the corpus tests where your corpus is, if it is not at
-the default path.
+the default sibling path (`../IAMouflage/data/detections`).
 
 ## The commit convention
 

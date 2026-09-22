@@ -96,7 +96,10 @@ temporary file, so `pytest` behaves the same wherever it is started and never to
 settings.  Two markers: `e2e` (runs an entry point in a subprocess) and `corpus` (needs a rule
 corpus that is not in the repo; `$DECNIQUE_CORPUS` says where it is, and pointing it at nothing
 reproduces CI exactly — the corpus covers the front-ends, so it lifts the coverage number by
-several points).  CI (`.github/workflows/ci.yml`) runs lint, the unit suite on 3.11–3.13 with the
+several points).  Clone it with
+`git clone --recurse-submodules https://github.com/moabid42/IAMouflage.git ../IAMouflage`; that
+sibling's `data/detections` directory is found automatically, or set `$DECNIQUE_CORPUS` for a
+different location.  CI (`.github/workflows/ci.yml`) runs lint, the unit suite on 3.11–3.13 with the
 coverage floor from `pyproject.toml` (`[tool.coverage.report] fail_under`), the `e2e` tests
 against an *installed* package, and a packaging job that builds the wheel and parses a rule with
 it.  `CONTRIBUTING.md` has the detail.

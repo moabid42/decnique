@@ -123,18 +123,155 @@ def _epoch(ts: AnyT) -> int | None:
         return None
 
 
+def _records(value: AnyT) -> list[Mapping[str, AnyT]]:
+    """Mapping records from a repeated audit-log field; malformed members are ignored."""
+    if isinstance(value, Mapping):
+        return [value]
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        return [item for item in value if isinstance(item, Mapping)]
+    return []
+
+
+def _compact(values: Sequence[AnyT]) -> AnyT:
+    """Keep a scalar scalar, but never discard later values from a repeated field."""
+    kept = [value for value in values if value is not None]
+    if len(kept) == 1:
+        return kept[0]
+    return kept
+
+
+def _append_flat(out: dict[str, AnyT], path: str, value: AnyT) -> None:
+    if value is None:
+        return
+    if path not in out:
+        out[path] = value
+        return
+    old = out[path]
+    if isinstance(old, list):
+        old.append(value)
+    else:
+        out[path] = [old, value]
+
+
+def _flatten_raw(value: AnyT, path: str, out: dict[str, AnyT]) -> None:
+    """Flatten raw JSON leaves to the dotted paths Panther's front-end emits as ``udm``.
+
+    Repeated objects merge into repeated leaf values instead of keeping only their first item.
+    """
+    if isinstance(value, Mapping):
+        for key, child in value.items():
+            _flatten_raw(child, f"{path}.{key}" if path else str(key), out)
+        return
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        for child in value:
+            _flatten_raw(child, path, out)
+        return
+    _append_flat(out, path, value)
+
+
+def _at(value: AnyT, index: int, *, repeat_scalar: bool = False) -> AnyT:
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        return value[index] if index < len(value) else None
+    return value if index == 0 or repeat_scalar else None
+
+
+def _field_values(records: Sequence[Mapping[str, AnyT]], key: str) -> list[AnyT]:
+    return [record[key] for record in records if record.get(key) is not None]
+
+
+def _value_count(value: AnyT) -> int:
+    if value is None:
+        return 0
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        return len(value)
+    return 1
+
+
+_DELTA_PREFIX = "target.resource.attribute.labels[ser_binding_deltas_"
+_AUDIT_CONFIG_LABELS = {
+    "action": "target.resource.attribute.labels[service_data_policy_delta_audit_config_delta_action]",
+    "service": "target.resource.attribute.labels[service_data_policy_delta_audit_config_delta_service]",
+    "logType": "target.resource.attribute.labels[service_data_policy_delta_audit_config_delta_log_type]",
+    "exemptedMember": "target.resource.attribute.labels[service_data_policy_delta_audit_config_delta_exempted_member]",
+}
+
+
 def event_from_audit_log(entry: Mapping[str, AnyT]) -> dict[str, AnyT]:
-    """Project a Cloud Audit Log entry (``protoPayload`` form) onto the event model."""
-    pp = entry.get("protoPayload") or entry
-    auth = pp.get("authenticationInfo") or {}
-    infos = pp.get("authorizationInfo") or []
-    meta = pp.get("requestMetadata") or {}
-    first = infos[0] if infos else {}
+    """Normalize a Cloud Audit Log entry onto the concrete event model.
+
+    Canonical fields serve the shared DSL.  Raw request/status/resource/auth leaves are also
+    retained as dotted ``udm`` paths, and the Google SecOps policy-delta labels are populated,
+    so native-rule replay sees the data that was present in the source record.
+    """
+    raw_pp = entry.get("protoPayload") or entry
+    pp = raw_pp if isinstance(raw_pp, Mapping) else {}
+    raw_auth = pp.get("authenticationInfo") or {}
+    auth = raw_auth if isinstance(raw_auth, Mapping) else {}
+    infos = _records(pp.get("authorizationInfo"))
+    raw_meta = pp.get("requestMetadata") or {}
+    meta = raw_meta if isinstance(raw_meta, Mapping) else {}
+    raw_resource = entry.get("resource") or {}
+    monitored = raw_resource if isinstance(raw_resource, Mapping) else {}
+    raw_labels = monitored.get("labels") or {}
+    labels = raw_labels if isinstance(raw_labels, Mapping) else {}
+
+    permissions = _field_values(infos, "permission")
+    resources = _field_values(infos, "resource")
+    granted = _field_values(infos, "granted")
+    resource_types = [
+        attrs["type"]
+        for info in infos
+        if isinstance((attrs := info.get("resourceAttributes")), Mapping)
+        and attrs.get("type") is not None
+    ]
+
+    # Preserve the raw shapes that front-ends lower to ``udm:<dotted path>``.  Explicit UDM
+    # supplied with the entry wins over a derived value because it is already parser output.
+    projected_udm: dict[str, AnyT] = {}
+    for key in ("request", "status", "requestMetadata"):
+        if key in pp:
+            _flatten_raw(pp[key], f"protoPayload.{key}", projected_udm)
+    if infos:
+        _flatten_raw(infos, "protoPayload.authorizationInfo", projected_udm)
+    if labels:
+        _flatten_raw(labels, "resource.labels", projected_udm)
+
+    service_data = pp.get("serviceData") or {}
+    if isinstance(service_data, Mapping):
+        policy_delta = service_data.get("policyDelta") or {}
+        if isinstance(policy_delta, Mapping):
+            _flatten_raw(
+                policy_delta,
+                "protoPayload.serviceData.policyDelta",
+                projected_udm,
+            )
+            binding_deltas = _records(policy_delta.get("bindingDeltas"))
+            for key in ("action", "role", "member"):
+                values = _field_values(binding_deltas, key)
+                if values:
+                    projected_udm[f"{_DELTA_PREFIX}{key}]"] = _compact(values)
+            audit_deltas = _records(policy_delta.get("auditConfigDeltas"))
+            for key, udm_path in _AUDIT_CONFIG_LABELS.items():
+                values = _field_values(audit_deltas, key)
+                if values:
+                    projected_udm[udm_path] = _compact(values)
+
+    explicit_udm = entry.get("udm") or {}
+    if isinstance(explicit_udm, Mapping):
+        projected_udm.update(explicit_udm)
+
+    access_levels: AnyT = None
+    request_attrs = meta.get("requestAttributes") or {}
+    if isinstance(request_attrs, Mapping):
+        request_auth = request_attrs.get("auth") or {}
+        if isinstance(request_auth, Mapping):
+            access_levels = request_auth.get("accessLevels") or request_auth.get("access_levels")
+
     principal = str(auth.get("principalEmail", "")).lower() or None
     event: dict[str, AnyT] = {
         "method": pp.get("methodName"),
         "service": pp.get("serviceName"),
-        "permission": [i.get("permission") for i in infos if i.get("permission")],
+        "permission": permissions,
         "principal": principal,
         "principal_type": (
             "SERVICE_ACCOUNT"
@@ -143,19 +280,18 @@ def event_from_audit_log(entry: Mapping[str, AnyT]) -> dict[str, AnyT]:
         )
         if principal
         else None,
-        "resource": first.get("resource") or pp.get("resourceName"),
-        "resource_type": ((first.get("resourceAttributes") or {}).get("type")),
+        "resource": _compact(resources) if resources else pp.get("resourceName"),
+        "resource_type": _compact(resource_types),
+        "project": labels.get("project_id"),
         "caller_ip": meta.get("callerIp"),
         "user_agent": meta.get("callerSuppliedUserAgent"),
-        "granted": first.get("granted") if infos else None,
+        "granted": _compact(granted),
         "time": _epoch(entry.get("timestamp") or pp.get("timestamp")),
         "log_name": entry.get("logName"),
-        "udm": dict(entry.get("udm") or {}),
+        "access_levels": access_levels,
+        "udm": projected_udm,
     }
     return {k: v for k, v in event.items() if v is not None and v != []}
-
-
-_DELTA_PREFIX = "target.resource.attribute.labels[ser_binding_deltas_"
 
 
 def to_audit_log(event: Mapping[str, AnyT]) -> dict[str, AnyT]:
@@ -171,21 +307,37 @@ def to_audit_log(event: Mapping[str, AnyT]) -> dict[str, AnyT]:
         pp["serviceName"] = e["service"]
     if e.get("principal"):
         pp["authenticationInfo"] = {"principalEmail": e["principal"]}
-    perms = e.get("permission") or []
-    perms = perms if isinstance(perms, list) else [perms]
-    if perms or "granted" in e or e.get("resource"):
-        info = {}
-        if perms:
-            info["permission"] = perms[0]
-        if "granted" in e:
-            info["granted"] = bool(e["granted"])
-        if e.get("resource"):
-            info["resource"] = e["resource"]
-        if e.get("resource_type"):
-            info["resourceAttributes"] = {"type": e["resource_type"]}
-        pp["authorizationInfo"] = [info] + [{"permission": p, "granted": bool(e.get("granted", True))} for p in perms[1:]]
-    if e.get("resource"):
-        pp["resourceName"] = e["resource"]
+    perms = e.get("permission")
+    granted = e.get("granted")
+    resources = e.get("resource")
+    resource_types = e.get("resource_type")
+    auth_count = max(
+        _value_count(perms),
+        _value_count(granted),
+        _value_count(resources),
+        _value_count(resource_types),
+    )
+    if auth_count:
+        infos: list[dict[str, AnyT]] = []
+        for index in range(auth_count):
+            info: dict[str, AnyT] = {}
+            permission = _at(perms, index)
+            allowed = _at(granted, index, repeat_scalar=True)
+            resource = _at(resources, index, repeat_scalar=True)
+            resource_type = _at(resource_types, index, repeat_scalar=True)
+            if permission is not None:
+                info["permission"] = permission
+            if allowed is not None:
+                info["granted"] = bool(allowed)
+            if resource is not None:
+                info["resource"] = resource
+            if resource_type is not None:
+                info["resourceAttributes"] = {"type": resource_type}
+            infos.append(info)
+        pp["authorizationInfo"] = infos
+    resource_name = _at(resources, 0)
+    if resource_name:
+        pp["resourceName"] = resource_name
     meta = {}
     if e.get("caller_ip"):
         meta["callerIp"] = e["caller_ip"]
@@ -194,9 +346,44 @@ def to_audit_log(event: Mapping[str, AnyT]) -> dict[str, AnyT]:
     if meta:
         pp["requestMetadata"] = meta
     udm = dict(e.get("udm") or {})
-    delta = {k[len(_DELTA_PREFIX):-1]: udm.pop(k) for k in list(udm) if k.startswith(_DELTA_PREFIX)}
-    if delta:
-        pp["serviceData"] = {"policyDelta": {"bindingDeltas": [delta]}}
+    binding_fields = {
+        key: udm.pop(f"{_DELTA_PREFIX}{key}]")
+        for key in ("action", "role", "member")
+        if f"{_DELTA_PREFIX}{key}]" in udm
+    }
+    binding_count = max((_value_count(value) for value in binding_fields.values()), default=0)
+    binding_deltas = []
+    for index in range(binding_count):
+        delta = {
+            key: item
+            for key, value in binding_fields.items()
+            if (item := _at(value, index, repeat_scalar=True)) is not None
+        }
+        if delta:
+            binding_deltas.append(delta)
+
+    audit_fields = {
+        key: udm.pop(path)
+        for key, path in _AUDIT_CONFIG_LABELS.items()
+        if path in udm
+    }
+    audit_count = max((_value_count(value) for value in audit_fields.values()), default=0)
+    audit_deltas = []
+    for index in range(audit_count):
+        delta = {
+            key: item
+            for key, value in audit_fields.items()
+            if (item := _at(value, index, repeat_scalar=True)) is not None
+        }
+        if delta:
+            audit_deltas.append(delta)
+    if binding_deltas or audit_deltas:
+        policy_delta: dict[str, AnyT] = {}
+        if binding_deltas:
+            policy_delta["bindingDeltas"] = binding_deltas
+        if audit_deltas:
+            policy_delta["auditConfigDeltas"] = audit_deltas
+        pp["serviceData"] = {"policyDelta": policy_delta}
     entry: dict[str, AnyT] = {"protoPayload": pp}
     if e.get("log_name"):
         entry["logName"] = e["log_name"]

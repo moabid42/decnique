@@ -25,7 +25,9 @@ def test_audit_log_round_trip():
     back = event_from_audit_log(entry)
     for k in ("method", "service", "principal", "permission", "granted", "resource", "caller_ip", "user_agent", "log_name"):
         assert back[k] == ev[k], k
-    assert back["udm"] == {"severity": "NOTICE"}  # deltas moved to their real place; the rest stays raw
+    assert back["udm"]["severity"] == "NOTICE"
+    for key in ("action", "role", "member"):
+        assert back["udm"][_D % key] == ev["udm"][_D % key]
 
 
 def _session(tmp_path) -> Session:

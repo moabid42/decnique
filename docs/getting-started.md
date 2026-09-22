@@ -198,4 +198,6 @@ Blank lines and lines beginning with `#` are ignored in command scripts. Exit co
 8. Rerun and use `reports diff` to confirm what changed.
 9. Export the witness and replay it in the destination SIEM before operational rollout.
 
-Before using findings operationally, read [Concepts and verdicts](concepts-and-verdicts.md).
+Continue with the [Command reference](command-reference.md) or learn to write your own
+[DSL definitions](dsl-reference.md). Before using findings operationally, read
+[Concepts and verdicts](concepts-and-verdicts.md).

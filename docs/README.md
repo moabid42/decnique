@@ -10,7 +10,8 @@ shared model, and replays every proposed witness through a concrete evaluator be
 
 ## Choose a path
 
-- New user: [Getting started](getting-started.md)
+- New user: [Getting started](getting-started.md) → [Command reference](command-reference.md)
+- Detection author: [DSL reference](dsl-reference.md)
 - Anyone interpreting a result: [Concepts and verdicts](concepts-and-verdicts.md)
 
 ## What is implemented
@@ -76,3 +77,5 @@ run.py          interactive and batch launcher
 
 - [Getting started](getting-started.md) — install, first analysis, interactive and CI workflows
 - [Concepts and verdicts](concepts-and-verdicts.md) — Reach, Log, Observes, exactness, replay, and result interpretation
+- [Command reference](command-reference.md) — every shell object, verb, setting, flag, and exit code
+- [DSL reference](dsl-reference.md) — write detections, candidates, checks, and rulesets

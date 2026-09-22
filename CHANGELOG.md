@@ -73,6 +73,10 @@ translation layer, so it can land alongside the translation work below.
 - **The release branch contains the region engine and current documentation together.** The
   previously diverged feature and documentation histories were reconciled without dropping either
   side.
+- **Releases are reproducible from tags.** A `v*` tag must match the package version and changelog,
+  pass lint and the full suite, and survive an isolated wheel smoke test before GitHub Release
+  artifacts are created. PyPI publication remains an explicit follow-up after trusted publishing
+  is configured.
 - **The setup line in `AGENTS.md` and the hint in `README.md` did not run on a Mac** — the same
   zsh quoting bug as `v0.1.1`, in the two places that describe rather than show the command.
 

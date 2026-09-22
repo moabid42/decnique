@@ -134,6 +134,7 @@ jobs:
       - run: uv tool run twine check dist/*
       - name: the wheel installs and runs on its own
         run: |
+          package_version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
           uv venv /tmp/fresh
           uv pip install --python /tmp/fresh/bin/python dist/*.whl
           cd /tmp/fresh
@@ -141,20 +142,7 @@ jobs:
           bin/decnique-tooling --help
           # Run outside the checkout so source files cannot mask an incomplete wheel. The grammar,
           # GCP catalogs, and every Python subpackage must come from the installed artifact.
-          bin/python -c "
-          from importlib.metadata import version
-          import pkgutil
-          import decnique
-          from decnique.dsl.parser import parse_text
-          from decnique.env import Catalog
-          from decnique.regions import Numeric
-          assert version('decnique') == '0.2.0'
-          modules = {m.name for m in pkgutil.walk_packages(decnique.__path__, 'decnique.')}
-          assert 'decnique.regions' in modules
-          assert Numeric(0, 2).contains_point(1)
-          print(parse_text('detection d { event method = \"X\" }', 'd.decn').detections[0].id)
-          print(len(Catalog.gcp().all_permissions()), 'permissions in the bundled catalog')
-          "
+          bin/python "$GITHUB_WORKSPACE/tools/smoke_install.py" "$package_version"
       - uses: actions/upload-artifact@v4
         with:
           name: dist

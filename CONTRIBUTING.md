@@ -126,6 +126,18 @@ exactly what CI runs over a pull request, since a local hook can be skipped.
    outside the checkout and verifies both commands, metadata, every Python subpackage, the grammar,
    and the GCP catalog.
 
+## Cutting a release
+
+Release changes land through an ordinary pull request: set the version in `pyproject.toml`, add a
+matching `## [VERSION]` section to `CHANGELOG.md`, and wait for CI to pass. Then create and push the
+matching tag, for example `v0.2.0`. The tag-triggered release workflow independently runs lint and
+the full test suite, builds and checks the sdist and wheel, installs the wheel outside the checkout,
+and creates a GitHub Release containing both artifacts. A mismatched tag or missing changelog entry
+fails before artifact creation.
+
+PyPI is not written by this workflow. Enable a PyPI project and trusted publisher before adding a
+publish job; package-index credentials must never be stored in the repository.
+
 ## Writing a change
 
 The conventions in `AGENTS.md` §8 hold. In particular:

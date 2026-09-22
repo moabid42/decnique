@@ -1,0 +1,61 @@
+name: Release
+
+# A tag is the deliberate release action. The job refuses tags that do not exactly match the
+# package version or that have no changelog section, then recreates every artifact from that tag.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: tag, package, and changelog agree
+        run: |
+          release_version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          test "$GITHUB_REF_NAME" = "v$release_version"
+          grep -Fq "## [$release_version]" CHANGELOG.md
+      - run: uv pip install ".[dev]"
+      - name: lint and test the tagged source
+        env:
+          DECNIQUE_CORPUS: ${{ github.workspace }}/.no-such-corpus
+        run: |
+          ruff check .
+          pytest -q
+      - name: build and inspect distributions
+        run: |
+          uv build
+          twine check dist/*
+      - name: test the wheel outside the checkout
+        run: |
+          release_version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          uv venv /tmp/decnique-release
+          uv pip install --python /tmp/decnique-release/bin/python dist/*.whl
+          cd /tmp/decnique-release
+          bin/decnique --help
+          bin/decnique-tooling --help
+          bin/python "$GITHUB_WORKSPACE/tools/smoke_install.py" "$release_version"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: distributions-${{ github.ref_name }}
+          path: dist/
+          if-no-files-found: error
+      - name: create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME" dist/*
+          --verify-tag --title "$GITHUB_REF_NAME" --generate-notes

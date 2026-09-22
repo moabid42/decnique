@@ -26,7 +26,14 @@ def main(argv: list[str] | None = None) -> int:
     if "decnique.regions" not in modules:
         parser.error("decnique.regions is missing from the installed package")
 
-    scripts = {entry.name: entry.value for entry in distribution("decnique").entry_points}
+    installed_distribution = distribution("decnique")
+    if installed_distribution.metadata.get("License-Expression") != "Apache-2.0":
+        parser.error("installed metadata does not declare the Apache-2.0 license")
+    license_files = installed_distribution.metadata.get_all("License-File") or []
+    if "LICENSE" not in license_files:
+        parser.error("installed metadata does not reference the packaged LICENSE file")
+
+    scripts = {entry.name: entry.value for entry in installed_distribution.entry_points}
     expected_scripts = {
         "decnique": "decnique.ui.repl:main",
         "decnique-tooling": "decnique.cli:main",

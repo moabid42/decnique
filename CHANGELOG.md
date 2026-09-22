@@ -77,6 +77,8 @@ translation layer, so it can land alongside the translation work below.
   pass lint and the full suite, and survive an isolated wheel smoke test before GitHub Release
   artifacts are created. PyPI publication remains an explicit follow-up after trusted publishing
   is configured.
+- **The project and its artifacts are licensed under Apache-2.0.** Package metadata uses the SPDX
+  expression and explicitly embeds the full license in both source and wheel distributions.
 - **The setup line in `AGENTS.md` and the hint in `README.md` did not run on a Mac** — the same
   zsh quoting bug as `v0.1.1`, in the two places that describe rather than show the command.
 

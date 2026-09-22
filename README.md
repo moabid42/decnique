@@ -90,3 +90,7 @@ uv pip install -e ".[dev]"
 Implemented changes and planned work are tracked in [CHANGELOG.md](CHANGELOG.md). The
 [development guide](https://github.com/moabid42/decnique/wiki/development) covers extension recipes
 for frontends, event fields, catalogs, checks, commands, settings, and solver engines.
+
+## License
+
+decnique is licensed under the [Apache License 2.0](LICENSE).

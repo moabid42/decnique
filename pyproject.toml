@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,6 +8,8 @@ version = "0.2.0"
 description = "A DSL for detections and attacker techniques over one shared event model"
 readme = "README.md"
 requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 keywords = ["detection-engineering", "security", "siem", "threat-detection", "red-team"]
 classifiers = [
     "Development Status :: 3 - Alpha",

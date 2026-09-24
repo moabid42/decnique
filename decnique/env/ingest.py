@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from decnique.env.catalog import Catalog
-from decnique.env.model import Account, Deny, Grant, LogConfig
+from decnique.env.model import DATA_ACCESS_TYPES, Account, AuditLogConfig, Deny, Grant, LogConfig
 
 SCHEMA_VERSION = 1
 
@@ -76,10 +76,27 @@ def account_from_dict(doc: Mapping[str, Any], *, catalog: Catalog | None = None)
         bindings[principal] = tuple(out)
 
     log = doc.get("logging") or {}
+    audit_configs = None
+    if "audit_configs" in log:
+        audit_configs = []
+        for c in log["audit_configs"]:
+            if c.get("log_type") not in DATA_ACCESS_TYPES:
+                raise AccountSchemaError(f"unknown audit log category {c.get('log_type')!r}")
+            members = tuple(m.split(":", 1)[1] if m.startswith(("user:", "serviceAccount:")) else m
+                            for m in c.get("exempted_members", ()))
+            for member in members:
+                if ":" in member or member in ("allUsers", "allAuthenticatedUsers"):
+                    assumptions.append(f"audit exemption {member} cannot be resolved to individual principals")
+            audit_configs.append(AuditLogConfig(
+                service=c["service"], log_type=c["log_type"], resource=c.get("resource", "*"),
+                exempted_members=members,
+            ))
+        audit_configs = tuple(audit_configs)
     logging = LogConfig(
         admin_activity=bool(log.get("admin_activity", True)),
         data_access_services=frozenset(log.get("data_access_services", ())),
         disabled_methods=frozenset(log.get("disabled_methods", ())),
+        audit_configs=audit_configs,
     )
     deny = tuple(
         Deny(

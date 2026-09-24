@@ -40,18 +40,33 @@ class Deny:
     resource: str = "*"
 
 
+DATA_ACCESS_TYPES = ("ADMIN_READ", "DATA_READ", "DATA_WRITE")
+
+
+@dataclass(frozen=True, slots=True)
+class AuditLogConfig:
+    """One service/category configuration, scoped like IAM and carrying normalized principals."""
+
+    service: str
+    log_type: str
+    resource: str = "*"
+    exempted_members: tuple[str, ...] = ()
+
+
 @dataclass(frozen=True, slots=True)
 class LogConfig:
     """What the account actually writes to Cloud Audit Logs.
 
     In GCP, Admin-Activity logs are always on; Data-Access logs are **off by default**
-    and enabled per service (``"*"`` = ``allServices``).  ``disabled_methods`` are explicit exemptions (e.g. an
-    ``exemptedMembers`` config or a removed sink) — a first-class blind-spot source.
+    and configured by service, category, resource and principal. ``audit_configs=None`` retains
+    the legacy service-wide model; an explicit tuple, even empty, takes precedence.
+    ``disabled_methods`` is an explicit local override, not an IAM principal exemption.
     """
 
     admin_activity: bool = True
     data_access_services: frozenset[str] = frozenset()
     disabled_methods: frozenset[str] = frozenset()
+    audit_configs: tuple[AuditLogConfig, ...] | None = None
 
 
 @dataclass
@@ -166,15 +181,57 @@ class Account:
 
     # -- logging ---------------------------------------------------------------------------
 
-    def logged(self, method: str) -> bool:
-        """``Log``: is an event with this ``method`` actually written to the audit logs?"""
+    def audit_configs_for(self, method: str) -> tuple[AuditLogConfig, ...]:
+        svc = self.catalog.service_of(method)
+        info = self.catalog.info(method)
+        return tuple(c for c in self.logging.audit_configs or () if c.service in ("*", svc)
+                     and (not info or not info.log_type or c.log_type == info.log_type))
+
+    def logging_caveats(self, methods) -> tuple[str, ...]:  # type: ignore[no-untyped-def]
+        notes: list[str] = []
+        for method in sorted(set(methods)):
+            configs = self.audit_configs_for(method)
+            if not configs or not self.catalog.is_data_access(method):
+                continue
+            info = self.catalog.info(method)
+            if not info.log_type:
+                notes.append(f"{method}: Data Access category is unverified; logging is approximate")
+            if any("[" in c.resource for c in configs):
+                notes.append(f"{method}: audit resource character classes require concrete replay")
+            for c in configs:
+                for member in c.exempted_members:
+                    if ":" in member or member in ("allUsers", "allAuthenticatedUsers"):
+                        notes.append(f"{method}: audit exemption {member} cannot be resolved to individual principals")
+        return tuple(notes)
+
+    def logged(self, method: str, *, principal: str | None = None, resource: str = "*") -> bool:
+        """``Log`` for a concrete event; omitted principal/resource ask whether logging is possible.
+
+        Unverified method categories conservatively admit any configured Data Access category;
+        callers must carry :meth:`logging_caveats` rather than treating that as an exact fact.
+        """
         if method in self.logging.disabled_methods:
             return False
         if self.catalog.is_data_access(method):
+            if self.logging.audit_configs is not None:
+                configs = [c for c in self.audit_configs_for(method)
+                           if resource == "*" or any(_res_match(c.resource, r) for r in self._ancestors(resource))]
+                if resource == "*":  # existential prefilter; exemptions may only cover some scopes
+                    return any(principal is None or principal not in c.exempted_members for c in configs)
+                return any(
+                    any(c.log_type == category for c in configs) and
+                    not any(c.log_type == category and principal in c.exempted_members for c in configs)
+                    for category in DATA_ACCESS_TYPES
+                )
             return ("*" in self.logging.data_access_services  # allServices
                     or self.catalog.service_of(method) in self.logging.data_access_services)
         # admin-activity (or unknown → treated as admin-activity)
         return self.logging.admin_activity
+
+    def event_logged(self, event: dict) -> bool:
+        """Concrete replay must retain both the actor and resource when evaluating Log."""
+        return self.logged(str(event.get("method", "")), principal=event.get("principal"),
+                           resource=str(event.get("resource") or "*"))
 
     def unlogged_methods(self, methods: tuple[str, ...]) -> tuple[str, ...]:
         """Methods that would *not* be logged — blind spots independent of any rule."""

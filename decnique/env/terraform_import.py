@@ -20,13 +20,13 @@ GCP IAM resources are recognised by suffix, so every service is covered by one r
 
 - ``google_*_iam_member`` / ``google_*_iam_binding`` — a grant, scoped to its resource;
 - ``google_*_iam_policy`` — the ``policy_data`` JSON (bindings + auditConfigs), scoped likewise;
-- ``google_*_iam_audit_config`` — Data Access logging (``DATA_READ`` / ``DATA_WRITE``);
+- ``google_*_iam_audit_config`` — Data Access logging (``ADMIN_READ`` / ``DATA_READ`` / ``DATA_WRITE``);
 - ``google_*_iam_custom_role`` — a role's ``permissions`` (added to the role catalog);
 - ``google_project`` / ``google_folder`` — resource hierarchy (best effort).
 
 What is kept honest rather than guessed matches :mod:`decnique.env.gcp_import`: members keep
 their audit-log spelling, opaque members stay markers, conditional bindings are kept
-unconditionally and noted, exempted audit members are noted.
+unconditionally and noted; audit categories and individual exemptions retain their resource scope.
 """
 
 from __future__ import annotations
@@ -128,7 +128,7 @@ def _handle(
     bindings: dict[str, list[dict]],
     roles: dict[str, tuple[str, ...]],
     hierarchy: dict[str, str],
-    da_services: set[str],
+    audit_configs: list[dict],
     notes: list[str],
 ) -> None:
     if not rtype.startswith("google_"):
@@ -155,7 +155,12 @@ def _handle(
             for c in (values.get("audit_log_config", []) or [])
         ]
         ac = {"service": values.get("service", ""), "auditLogConfigs": configs}
-        da_services.update(_logging_of([ac], notes)["data_access_services"])
+        scope = next((_prefixed(values[k], prefix) for k, prefix in
+                      (("project", "projects/"), ("folder", "folders/"), ("org_id", "organizations/"))
+                      if values.get(k)), "*")
+        if scope == "*":
+            notes.append(f"{rtype}: audit resource scope unknown; treated as global")
+        audit_configs.extend(_logging_of([ac], notes, scope)["audit_configs"])
         return
 
     if rtype.endswith("_iam_policy"):
@@ -169,7 +174,7 @@ def _handle(
             return
         scope = _scope_of(values) or "*"
         _bindings_into(bindings, notes, policy.get("bindings", []) or [], scope)
-        da_services.update(_logging_of(policy.get("auditConfigs", []) or [], notes)["data_access_services"])
+        audit_configs.extend(_logging_of(policy.get("auditConfigs", []) or [], notes, scope)["audit_configs"])
         return
 
     if rtype.endswith("_iam_member") or rtype.endswith("_iam_binding"):
@@ -210,19 +215,20 @@ def account_doc_from_terraform(doc: Any, *, name: str = "terraform") -> dict:
     bindings: dict[str, list[dict]] = {}
     roles: dict[str, tuple[str, ...]] = {}
     hierarchy: dict[str, str] = {}
-    da_services: set[str] = set()
+    audit_configs: list[dict] = []
     notes: list[str] = []
 
     resources = _all_resources(doc)
     for rtype, values in resources:
-        _handle(rtype, values, bindings, roles, hierarchy, da_services, notes)
+        _handle(rtype, values, bindings, roles, hierarchy, audit_configs, notes)
 
     if not bindings:
         notes.append("no google_*_iam_* grants found — is this a GCP Terraform state/config?")
 
     logging = {
         "admin_activity": True,
-        "data_access_services": sorted(da_services),
+        "data_access_services": sorted({c["service"] for c in audit_configs}),
+        "audit_configs": audit_configs,
         "disabled_methods": [],
     }
     return {

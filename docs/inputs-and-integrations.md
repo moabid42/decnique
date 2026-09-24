@@ -163,10 +163,35 @@ The UI separately retains the normalized document and its `attack` plan.
 
 ### Log semantics
 
-Admin Activity is on by default. A known Data Access method is logged only when its service or `*`
-appears in `data_access_services`. `disabled_methods` overrides either class. Unknown methods are
-treated as Admin Activity by the account model, while missing catalog knowledge still causes
-approximation in method/permission reasoning.
+Admin Activity is on by default. Native accounts may retain the legacy `data_access_services`
+list, which enables all Data Access categories for each listed service (`*` means all services).
+For precise logging, supply `logging.audit_configs` instead:
+
+```json
+"audit_configs": [
+  {
+    "service": "storage.googleapis.com",
+    "log_type": "DATA_READ",
+    "resource": "projects/demo",
+    "exempted_members": ["ci@example.com"]
+  }
+]
+```
+
+An explicit `audit_configs` list takes precedence over the legacy service list, even when empty.
+`ADMIN_READ`, `DATA_READ` and `DATA_WRITE` are separate categories. Configurations and exemptions
+are unioned across matching services and resource ancestors; a child cannot cancel an inherited
+exemption. Individual user/service-account exemptions are evaluated for each event. Group and
+other opaque exemptions remain assumptions because membership is unavailable. These semantics
+follow Google's [Data Access configuration reference](https://docs.cloud.google.com/logging/docs/audit/configure-data-access).
+
+Catalog `log_type` facts distinguish known method categories; missing category facts produce
+caveats and prevent exact proofs under precise audit configurations. Seed mappings use Google's
+[Storage](https://docs.cloud.google.com/storage/docs/audit-logging),
+[Service Account Credentials](https://docs.cloud.google.com/iam/docs/audit-logging/audit-logging-iamcreds),
+and [Secret Manager](https://docs.cloud.google.com/secret-manager/docs/audit-logging) references.
+`disabled_methods` overrides either logging class. Unknown methods retain the legacy Admin
+Activity assumption; missing method/permission knowledge still limits exact reasoning.
 
 ## Raw gcloud imports
 
@@ -182,9 +207,9 @@ Load with an explicit scope:
 account load policy.json projects/PROJECT
 ```
 
-Bindings become scoped grants. `auditConfigs` enables Data Read/Write logging per service or
-`allServices`. Conditional bindings are kept unconditionally and noted because CEL conditions are
-not evaluated. `exemptedMembers` are noted but not modeled.
+Bindings become scoped grants. `auditConfigs` retains all three Data Access categories, service,
+resource scope and exemptions in `logging.audit_configs`. Conditional bindings are kept
+unconditionally and noted because CEL conditions are not evaluated.
 
 ### Cloud Asset Inventory IAM search
 

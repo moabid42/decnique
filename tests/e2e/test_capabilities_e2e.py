@@ -285,8 +285,7 @@ def test_terraform_account_import_reaches_the_shell_and_solver(run_cli, tmp_path
         KEY_PERMISSION,
     )
     assert covered.code == 0, covered.err
-    assert covered.json()["items"][0]["verdict"] == "exhausted"
-    assert any("exempted" in c for c in covered.json()["items"][0]["caveats"])
+    assert covered.json()["items"][0]["verdict"] == "all_covered"
 
 
 def test_suggest_define_closes_a_gap_in_the_same_session(run_cli, tmp_path):

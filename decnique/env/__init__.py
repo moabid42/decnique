@@ -15,12 +15,13 @@ from decnique.env.ingest import (
     load_account,
     normalize_account_doc,
 )
-from decnique.env.model import Account, Deny, Grant, LogConfig
+from decnique.env.model import Account, AuditLogConfig, Deny, Grant, LogConfig
 from decnique.env.terraform_import import account_doc_from_terraform, looks_like_terraform
 
 __all__ = [
     "Account",
     "AccountSchemaError",
+    "AuditLogConfig",
     "Catalog",
     "Deny",
     "Grant",

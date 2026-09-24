@@ -124,6 +124,9 @@ def region_report(
     fp = candidate.footprint
     if account.assumptions:
         return _undetermined(candidate, "unresolved account assumptions: " + "; ".join(account.assumptions))
+    if account.logging.audit_configs:
+        return _undetermined(candidate, "category, actor and resource-scoped logging is enforced by stealth; "
+                             "the region projection does not yet model it")
     if candidate.actor is not None or candidate.context is not None or any(r.where is not None for r in candidate.required):
         return _undetermined(candidate, "actor, context and required-on constraints are enforced by stealth; "
                              "this region projection does not yet represent them")

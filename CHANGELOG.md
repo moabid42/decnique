@@ -7,6 +7,9 @@ and by date for older, unreleased work. `AGENTS.md` explains the concepts these 
 ## [Unreleased]
 
 ### Fixed
+- GCP and Terraform audit imports preserve ADMIN_READ/DATA_READ/DATA_WRITE categories, resource
+  scope and individual exemptions. Solvers and replay enforce them; unresolved categories and
+  opaque exemptions remain approximate rather than enabling an entire service silently.
 - Witness export includes nested check evidence, preserves repeated events and confidence
   caveats, and applies chain delays so exported plans match the whole-path replay.
 - Batch commands return input error 3 for rejected commands, missing prerequisites, load/check

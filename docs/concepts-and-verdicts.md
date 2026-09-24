@@ -13,7 +13,8 @@ Reach_p(e) and Log(e) and not ObservesAnyRule(e)
 - **Reach** comes from the account model: a principal has the permission on the event's resource,
   after grant scope, hierarchy, wildcard permissions, and deny policies are applied.
 - **Log** comes from the method catalog and account logging configuration. Admin Activity is on by
-  default; Data Access is service-configured and may be disabled for named methods.
+  default; Data Access is category-, service-, resource- and principal-configured. Native legacy
+  accounts can still enable whole services or explicitly disable named methods.
 - **Observes** comes from the loaded detection library and the concrete rule evaluator.
 
 A syntactically unobserved event is not a finding unless it is also reachable and logged.
@@ -138,7 +139,8 @@ class of events, observation semantics can be useful.
 
 - Unsupported native syntax becomes unknown; it is never silently true or false.
 - Reference-list tests remain unknown unless a caller supplies list contents through the library API.
-- IAM Conditions and audit-log exempted members are preserved as notes but not evaluated.
+- IAM Conditions and opaque audit-log exemptions (such as group membership) remain assumptions.
+  Individual audit exemptions, log categories and resource scopes are evaluated during replay.
 - Unresolved account notes and unknown role expansions also persist as result `caveats` and
   report `library.assumptions`. Findings are approximate; account-dependent proofs or vacuous
   passes become inconclusive. A pure rule `compare` check does not depend on account assumptions.

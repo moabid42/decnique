@@ -35,10 +35,11 @@ def test_terraform_show_state_import():
     assert not acct.reach("reader@demo.iam.gserviceaccount.com", "storage.objects.get", "projects/other")
     # data sources are not grants
     assert "ghost@demo.com" not in acct.bindings
-    # Data Access logging comes from the audit config; exempted member is a note
+    # Data Access categories and individual exemptions are retained with the project scope.
     assert acct.logged("storage.objects.get")
     doc = normalize_account_doc(_read_json(_SHOW))
-    assert any("exempted" in n for n in doc["notes"])
+    assert doc["logging"]["audit_configs"][0]["resource"] == "projects/demo"
+    assert not acct.logged("storage.objects.get", principal="ci@demo.com", resource="projects/demo")
 
 
 def test_terraform_native_config_import_flags_unresolved():

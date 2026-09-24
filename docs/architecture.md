@@ -87,8 +87,9 @@ upper-bound condition such as `#e < 5` would incorrectly “cover” every unrel
 
 `Account.reach` indexes exact and wildcard permission grants per principal. It checks resource
 scope against the target and its ancestors, then applies deny overrides. `Account.logged` combines
-method classification with Admin Activity, per-service Data Access configuration, and disabled
-methods.
+method classification with Admin Activity, Data Access categories, resource hierarchy, individual
+principal exemptions, and explicit disabled methods. `Account.event_logged` supplies the actor
+and resource during replay; `smt/encode_logging.py` encodes the same constraints for both solvers.
 
 The catalog bridges the account's permission world and the rule's method world. `MethodInfo`
 contains permissions, service, log class, product name, verification/source, and confidence.

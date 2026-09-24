@@ -255,6 +255,12 @@ class CoverageContext:
     ) -> list[z3.BoolRef]:
         ev, t = self.enc.ev, self.table
         out: list[z3.BoolRef] = []
+        if account.logging.audit_configs is not None:
+            from decnique.smt.encode_logging import logging_constraint
+
+            # Register audit atoms before constant-field determination and resource decoding.
+            out.extend(z3.Implies(t.eq("method", m), logging_constraint(self.enc, account, m)) for m in methods)
+            out.append(ev.present("resource"))
         for path, values in (("method", methods), ("principal", principals)):
             sel = [t.eq(path, v) for v in values]
             out.append(z3.Or(*sel))
@@ -398,15 +404,19 @@ def find_gap(
     *denied* attempts instead of successful calls; ``resource`` is the resource ``Reach`` is
     asked about (a grant scoped to a project reaches it, not ``*``)."""
     cat = account.catalog
+    methods = cat.methods_for(permission)
+    if account.logging.audit_configs is not None:
+        methods = tuple(m for m in methods if cat.verified(m)) or methods
+    account_caveats = account.assumptions + account.logging_caveats(methods)
 
     def no_gap(reason: str, covered_by: tuple[str, ...] = ()) -> NoGap:
-        if account.assumptions:
-            return NoGap(permission, "exhausted", caveats=account.assumptions)
+        if account_caveats:
+            return NoGap(permission, "exhausted", caveats=account_caveats)
         return NoGap(permission, reason, covered_by)
 
     if not account.reachable(permission, resource):
         return no_gap("unreachable")
-    logged = sorted(m for m in cat.methods_for(permission) if account.logged(m))
+    logged = sorted(m for m in methods if account.logged(m))
     if not logged:
         return no_gap("no_logged_method")
     # A method name the catalog cannot confirm in real audit logs must not be the *reason* a
@@ -455,10 +465,11 @@ def find_gap(
                     s.add(ctx.block(model))
                 continue
             principal = event["principal"]
-            if not account.logged(event["method"]) or not account.reach(
+            if not account.event_logged(event) or not account.reach(
                 principal, permission, event.get("resource", resource)
             ):
                 ctx.stats["blocked"] += 1
+                unproven = True  # a concrete resource refutes only this realization, not its whole atom region
                 s.add(ctx.block(model))
                 continue
             # The concrete oracle is authoritative: does ANY rule fire / is any uncertain?
@@ -470,7 +481,7 @@ def find_gap(
                 s.add(ctx.block(model))
                 continue
             unknown_rules = tuple(rid for rid, v in verdicts.items() if v is None)
-            caveats = account.assumptions
+            caveats = account_caveats
             if not cat.verified(event["method"]):
                 caveats += (
                     f"method {event['method']} is not confirmed to appear in audit logs "

@@ -16,7 +16,8 @@ What is kept honest rather than guessed:
   principal (a reach through them is reported approximate by the UI);
 - a binding with an IAM ``condition`` is kept **unconditionally** (Reach may be wider than
   reality) and listed in ``notes`` — nothing here evaluates CEL;
-- ``exemptedMembers`` of an audit config are listed in ``notes``, not modelled.
+- audit configs retain log categories, resource scopes and individual-principal exemptions;
+  group/domain exemptions cannot be enumerated and remain explicit assumptions.
 """
 
 from __future__ import annotations
@@ -71,16 +72,29 @@ def _bindings_into(out: dict[str, list[dict]], notes: list[str], bindings: list[
             out.setdefault(p, []).append({"role": role, "resource": resource})
 
 
-def _logging_of(audit_configs: list[dict], notes: list[str]) -> dict:
+def _logging_of(audit_configs: list[dict], notes: list[str], resource: str = "*") -> dict:
     services: set[str] = set()
+    configs: list[dict] = []
     for ac in audit_configs or []:
         svc = ac.get("service", "")
         for lc in ac.get("auditLogConfigs", []):
-            if lc.get("logType") in ("DATA_READ", "DATA_WRITE"):
-                services.add("*" if svc == "allServices" else svc)
-            for ex in lc.get("exemptedMembers", []) or []:
-                notes.append(f"{svc} {lc.get('logType')}: {ex} is exempted from logging (not modelled)")
-    return {"admin_activity": True, "data_access_services": sorted(services), "disabled_methods": []}
+            category = lc.get("logType")
+            if category not in ("ADMIN_READ", "DATA_READ", "DATA_WRITE"):
+                notes.append(f"{svc}: unsupported audit log category {category!r}")
+                continue
+            service = "*" if svc == "allServices" else svc
+            services.add(service)
+            members = []
+            for member in lc.get("exemptedMembers", []) or []:
+                if member.startswith(("user:", "serviceAccount:")):
+                    members.append(principal_of(member))
+                else:
+                    members.append(member)
+                    notes.append(f"{svc} {category}: audit exemption {member} cannot be enumerated")
+            configs.append({"service": service, "log_type": category, "resource": resource,
+                            "exempted_members": members})
+    return {"admin_activity": True, "data_access_services": sorted(services), "disabled_methods": [],
+            "audit_configs": configs}
 
 
 def account_doc_from_gcp(doc: Any, *, resource: str = "*", name: str = "gcp") -> dict:
@@ -90,19 +104,18 @@ def account_doc_from_gcp(doc: Any, *, resource: str = "*", name: str = "gcp") ->
     hierarchy: dict[str, str] = {}
     if looks_like_iam_policy(doc):
         _bindings_into(bindings, notes, doc["bindings"], resource)
-        logging = _logging_of(doc.get("auditConfigs", []), notes)
+        logging = _logging_of(doc.get("auditConfigs", []), notes, resource)
     elif looks_like_asset_search(doc):
-        logging = {"admin_activity": True, "data_access_services": [], "disabled_methods": []}
+        logging = _logging_of([], notes)
         for asset in doc:
             res = _resource_of_asset(asset["resource"])
             _bindings_into(bindings, notes, asset["policy"].get("bindings", []), res)
             proj = asset.get("project")
             if proj and proj != res:
                 hierarchy[res] = proj
-            for ac in asset["policy"].get("auditConfigs", []) or []:
-                for svc in _logging_of([ac], notes)["data_access_services"]:
-                    if svc not in logging["data_access_services"]:
-                        logging["data_access_services"].append(svc)
+            imported = _logging_of(asset["policy"].get("auditConfigs", []) or [], notes, res)
+            logging["audit_configs"].extend(imported["audit_configs"])
+            logging["data_access_services"] = sorted(set(logging["data_access_services"] + imported["data_access_services"]))
         if not any(a["policy"].get("auditConfigs") for a in doc):
             notes.append("asset search carries no auditConfigs: Data Access logging assumed OFF "
                          "(import the project IAM policy to get it)")

@@ -150,7 +150,7 @@ def _match_formula(occ: Occurrence, spec: TraceSpec) -> tuple[z3.BoolRef, bool]:
 
 
 def rule_evasion(
-    trace: SymTrace, spec: TraceSpec, *, visible: tuple[bool, ...] | None = None
+    trace: SymTrace, spec: TraceSpec, *, visible: tuple[bool | z3.BoolRef, ...] | None = None
 ) -> tuple[z3.BoolRef | None, bool]:
     """``¬Fires(R, τ)`` for a rate rule, encoded to match M0 exactly.
 
@@ -165,9 +165,11 @@ def rule_evasion(
     times: list[z3.ExprRef] = []
     exact = True
     for occ in trace.occs:
-        if visible is not None and not visible[occ.idx]:
+        if visible is not None and visible[occ.idx] is False:
             continue
         m, ok = _match_formula(occ, spec)
+        if visible is not None:
+            m = z3.And(m, visible[occ.idx])
         exact = exact and ok
         matched.append(m)
         times.append(occ.time)

@@ -34,6 +34,7 @@ class MethodInfo:
     verified: bool = True  # False: the name is plausible but not confirmed to appear in audit logs
     source: str = "seed"  # seed (hand-checked) | rules (a loaded rule names it) | generated (iam-dataset)
     low_confidence: tuple[str, ...] = ()  # permissions the dataset is unsure the method checks
+    log_type: str | None = None  # verified Data Access category; None is not a guessed read/write
 
 
 # UDM ``metadata.product_name`` a Cloud Audit Log carries, keyed by service.  Grounded in the
@@ -114,12 +115,14 @@ _SEED: tuple[MethodInfo, ...] = (
         ("iam.serviceAccounts.getAccessToken",),
         "iamcredentials.googleapis.com",
         data_access=True,
+        log_type="ADMIN_READ",
     ),
     MethodInfo(
         "iam.serviceAccounts.getAccessToken",
         ("iam.serviceAccounts.getAccessToken",),
         "iamcredentials.googleapis.com",
         data_access=True,
+        log_type="ADMIN_READ",
     ),
     MethodInfo(
         "google.iam.credentials.v1.SignBlob",
@@ -161,12 +164,21 @@ _SEED: tuple[MethodInfo, ...] = (
         ("storage.objects.get",),
         "storage.googleapis.com",
         data_access=True,
+        log_type="DATA_READ",
     ),
     MethodInfo(
         "storage.objects.list",
         ("storage.objects.list",),
         "storage.googleapis.com",
         data_access=True,
+        log_type="DATA_READ",
+    ),
+    MethodInfo(
+        "storage.objects.delete",
+        ("storage.objects.delete",),
+        "storage.googleapis.com",
+        data_access=True,
+        log_type="DATA_WRITE",
     ),
     MethodInfo(
         "storage.setIamPermissions",
@@ -190,6 +202,7 @@ _SEED: tuple[MethodInfo, ...] = (
         ("secretmanager.versions.access",),
         "secretmanager.googleapis.com",
         data_access=True,
+        log_type="DATA_READ",
     ),
 )
 
@@ -239,6 +252,7 @@ class Catalog:
                 service=info.get("service", _service_of(method)),
                 data_access=bool(info.get("data_access", False)),
                 product_name=info.get("product_name"),
+                log_type=info.get("log_type"),
             )
         return cls(by_method=merged)
 

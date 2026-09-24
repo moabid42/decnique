@@ -29,7 +29,9 @@ def test_iam_policy_import():
     assert acct.logged("storage.objects.get") and not acct.logged("iam.serviceAccounts.getAccessToken")
     doc = normalize_account_doc(_read_json(_POLICY), resource="projects/demo")
     notes = " ".join(doc["notes"])
-    assert "conditional binding" in notes and "exempted" in notes and "domain:demo.com" in notes
+    assert "conditional binding" in notes and "domain:demo.com" in notes
+    assert not acct.logged("storage.objects.get", principal="ci@demo.com", resource="projects/demo")
+    assert acct.logged("storage.objects.delete", principal="ci@demo.com", resource="projects/demo")
 
 
 def test_asset_search_import_scopes_grants_per_resource():

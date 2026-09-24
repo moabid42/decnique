@@ -153,7 +153,9 @@ def _realize(ctx: CoverageContext, model: z3.ModelRef, per: dict, account: Accou
     for p, (logged, principals) in per.items():
         if ctx._true(model, ctx.table.eq("permission", p)):
             event, _ = ctx.realize_event(model, p, logged, principals, account)
-            return event
+            return event if event is not None and account.event_logged(event) and account.reach(
+                event["principal"], p, event.get("resource", "*")
+            ) else None
     return None
 
 
@@ -166,8 +168,10 @@ def _coverage(check: Check, lib: DetectionLibrary, account: Account, ctx: Covera
     extra = _event_constraint(ctx, check.params["event"]) if "event" in check.params else ()
     rows: list[Row] = []
     approx = False
+    caveats: list[str] = []
     for p in _permissions(check, account):
         res = find_gap(p, lib, account, ctx=ctx, extra=extra)
+        caveats.extend(res.caveats)
         if isinstance(res, Gap):
             approx |= res.approximate
             rows.append(Row(p, "fail", "unobserved event exists" + (" (approximate)" if res.approximate else ""), res.event))
@@ -180,7 +184,8 @@ def _coverage(check: Check, lib: DetectionLibrary, account: Account, ctx: Covera
     if not rows:
         return CheckResult(check, "unknown", "no permission matched", rows=())
     v, d = _combine(rows, approximate=False, fail_word="permission(s) have a blind spot", pass_word="every probed event is observed")
-    return CheckResult(check, v, d, approximate=approx, rows=tuple(rows))
+    return CheckResult(check, v, d, approximate=approx or bool(caveats), rows=tuple(rows),
+                       caveats=tuple(dict.fromkeys(caveats)))
 
 
 def _candidate(check: Check, lib: DetectionLibrary, account: Account) -> CheckResult:
@@ -196,7 +201,7 @@ def _candidate(check: Check, lib: DetectionLibrary, account: Account) -> CheckRe
         note = f"{len(res.schedule)} event(s) as {res.principal} evade every rule"
         if res.unlogged:
             note += f"; not audit-logged: {', '.join(res.unlogged)} (a logging gap, not a rule gap)"
-        return CheckResult(check, "fail", note, approximate=res.approximate,
+        return CheckResult(check, "fail", note, approximate=res.approximate, caveats=res.caveats,
                            rows=(Row(str(cid), "fail", note, res.schedule),))
     if isinstance(res, AlwaysDetected):
         by = ("; caught by " + ", ".join(res.caught_by)) if res.caught_by else ""
@@ -204,7 +209,8 @@ def _candidate(check: Check, lib: DetectionLibrary, account: Account) -> CheckRe
     if isinstance(res, NotFeasible):
         note = "vacuous: " + res.reason
         return CheckResult(check, "pass", note, rows=(Row(str(cid), "pass", note),))
-    return CheckResult(check, "unknown", res.reason, rows=(Row(str(cid), "unknown", res.reason),))
+    return CheckResult(check, "unknown", res.reason, approximate=bool(res.caveats), caveats=res.caveats,
+                       rows=(Row(str(cid), "unknown", res.reason),))
 
 
 def _compare(check: Check, lib: DetectionLibrary, ctx: CoverageContext | None) -> CheckResult:
@@ -471,13 +477,19 @@ def run_check(
     ctx: CoverageContext | None = None,
 ) -> CheckResult:
     result = _run_check(check, lib, account, ctx=ctx)
-    if account is None or not account.assumptions or check.type == "compare":
+    if account is None or check.type == "compare":
+        return result
+    caveats = account.assumptions
+    if check.type not in ("coverage", "candidate"):
+        caveats += account.logging_caveats(m for p in account.catalog.all_permissions()
+                                           if account.reachable(p) for m in account.catalog.methods_for(p))
+    if not caveats:
         return result
     rows = tuple(replace(row, verdict="unknown", note="account assumptions prevent a proof: " + row.note)
                  if row.verdict == "pass" else row for row in result.rows)
     return replace(result, verdict="unknown" if result.verdict == "pass" else result.verdict,
                    detail=result.detail + "; unresolved account assumptions", approximate=True,
-                   rows=rows, caveats=result.caveats + account.assumptions)
+                   rows=rows, caveats=tuple(dict.fromkeys(result.caveats + caveats)))
 
 
 def _run_check(

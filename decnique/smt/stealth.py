@@ -170,12 +170,13 @@ def stealth_feasible(
     max_refine: int = 64,
 ) -> StealthResult:
     result = _stealth_feasible(candidate, lib, account, max_refine=max_refine)
-    if not account.assumptions:
+    caveats = account.assumptions + account.logging_caveats(s.method for s in candidate.footprint.steps)
+    if not caveats:
         return result
     if isinstance(result, Evasive):
-        return replace(result, approximate=True, caveats=result.caveats + account.assumptions)
+        return replace(result, approximate=True, caveats=result.caveats + caveats)
     return Exhausted(candidate.id, reason="unresolved account assumptions prevent an exact verdict",
-                     caveats=account.assumptions)
+                     caveats=caveats)
 
 
 def _stealth_feasible(
@@ -235,8 +236,9 @@ def _stealth_feasible(
         return Exhausted(candidate.id)
 
     # Log: an occurrence of an unlogged method never reaches a rule.
-    visible = tuple(account.logged(o.method) for o in trace.occs)
-    unlogged = tuple(sorted({o.method for o in trace.occs if not account.logged(o.method)}))
+    from decnique.smt.encode_logging import logging_constraint
+
+    visible = tuple(logging_constraint(Encoder(ev=o.ev), account, o.method) for o in trace.occs)
     # rules that fire on the empty trace observe nothing (see the module docstring)
     vacuous = {d.id for d in lib.detections if fires(d.spec, [], ref_lists=lib.ref_lists) is True}
     rules = [d for d in lib.detections if d.id not in vacuous]
@@ -282,7 +284,8 @@ def _stealth_feasible(
             unproven = unproven or realized is None  # "don't know" is not a refutation
             s.add(_block(trace, model, paths))
             continue
-        seen = [e for e, ok in zip(events, visible, strict=True) if ok]  # what the audit log carries
+        seen = [e for e in events if account.event_logged(e)]  # what the audit log carries
+        unlogged = tuple(sorted({e["method"] for e in events if not account.event_logged(e)}))
         verdicts = {d.id: fires(d.spec, seen, ref_lists=lib.ref_lists) for d in rules}
         if any(v is True for v in verdicts.values()):
             s.add(_block(trace, model, paths))

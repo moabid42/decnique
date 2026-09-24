@@ -101,7 +101,7 @@ def _path_replay(
     delays = [0] + ([max(windows) + 1] if windows else [])
     for delay in delays:
         whole = prior + _shift(schedule, (_span(prior) + delay) if prior else 0)
-        seen = [e for e in whole if account.logged(str(e.get("method", "")))]
+        seen = [e for e in whole if account.event_logged(e)]
         verdicts = {d.id: fires(d.spec, seen, ref_lists=lib.ref_lists) for d in lib.detections
                     if fires(d.spec, [], ref_lists=lib.ref_lists) is not True}
         if any(v is True for v in verdicts.values()):

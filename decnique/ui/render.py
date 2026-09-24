@@ -822,7 +822,7 @@ def _stealth(lib, account, cands, rep, *, show_region=False, backend="auto") -> 
         if isinstance(res, Evasive):
             with r.thinking(f"replay: realizing the footprint and firing all {len(lib.detections)} rules…"):
                 realized = matches_candidate(c, res.schedule, account, ref_lists=lib.ref_lists) is True
-                visible = [e for e in res.schedule if account.logged(e["method"])]
+                visible = [e for e in res.schedule if account.event_logged(e)]
                 verdicts = {d.id: fires(d.spec, visible, ref_lists=lib.ref_lists) for d in lib.detections}
             n_fire = sum(v is True for v in verdicts.values())
             n_unk = sum(v is None for v in verdicts.values())
@@ -987,7 +987,7 @@ def _chains(lib, account, attack, report) -> None:  # type: ignore[no-untyped-de
             r.note(f"waits {h['delay']} s after the previous hop (longer than every rule window)")
         start = max((int(e.get("time", 0)) for e in whole), default=0) + int(h.get("delay", 0))
         whole += [{**e, "time": int(e.get("time", 0)) + start} for e in sched]
-    seen = [e for e in whole if account.logged(str(e.get("method", "")))]
+    seen = [e for e in whole if account.event_logged(e)]
     with r.thinking(f"replay: firing all {len(lib.detections)} rules on the whole path ({len(seen)} logged event(s))…"):
         verdicts = {d.id: fires(d.spec, seen, ref_lists=lib.ref_lists) for d in lib.detections}
     n_fire = sum(v is True for v in verdicts.values())
@@ -1409,7 +1409,11 @@ def account_show(s: Session) -> None:
     _add(t, "grants", str(grants), "permission × resource pairs (Reach)")
     _add(t, "admin activity log", "on" if lg.admin_activity else "off", "Admin Activity audit log")
     _add(t, "data access log", ", ".join(sorted(lg.data_access_services)) or "off", "services with Data Access logging (Log)")
-    _add(t, "disabled methods", ", ".join(sorted(lg.disabled_methods)) or "—", "methods exempted from logging")
+    if lg.audit_configs is not None:
+        for c in lg.audit_configs:
+            _add(t, f"audit {c.log_type}", f"{c.service} on {c.resource}",
+                 "exempt: " + (", ".join(c.exempted_members) or "—"))
+    _add(t, "disabled methods", ", ".join(sorted(lg.disabled_methods)) or "—", "explicit method-wide logging overrides")
     _add(t, "deny rules", str(len(a.deny)), "deny policies that beat a grant")
     _add(t, "resources", ", ".join(sorted(a.hierarchy)) or "—", "known resource hierarchy")
     if s.account_doc.get("attack"):

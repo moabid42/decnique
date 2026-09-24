@@ -131,6 +131,24 @@ def test_a_script_can_export_the_preceding_ask_witness(run_cli, tmp_path, rules_
     assert entries[0]["protoPayload"]["methodName"] == "SetIamPolicy"
 
 
+def test_failed_checks_export_their_nested_witnesses(run_cli, tmp_path, rules_file):
+    """The check-to-SIEM workflow must export nested evidence even when CI exits on a finding."""
+    exported = tmp_path / "check-witness.json"
+    script = tmp_path / "checks.txt"
+    script.write_text(
+        "check gap { type coverage permission resourcemanager.projects.setIamPolicy }\n"
+        "ask check gap\n"
+        f"reports export {exported}\n"
+    )
+    result = run_cli("run.py", "--rules", rules_file, "--account", ACCOUNT,
+                     "--fail-on", "finding", "-f", str(script))
+    assert result.code == 2, result.err
+    entries = json.loads(exported.read_text())
+    assert entries[0]["protoPayload"]["methodName"] == "SetIamPolicy"
+    assert entries[0]["_decnique"]["label"] == "gap"
+    assert entries[0]["_decnique"]["row_verdict"] == "fail"
+
+
 def test_a_bad_account_file_is_an_input_error(run_cli, tmp_path, rules_file):
     bad = tmp_path / "acct.json"
     bad.write_text("{not json")

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -53,6 +54,39 @@ def _plain(o):  # type: ignore[no-untyped-def]
 
 def to_json(r: Report) -> str:
     return json.dumps(_plain(r.to_dict()), indent=2, ensure_ascii=False) + "\n"
+
+
+def witness_entries(r: Report, finding: int | None = None) -> Iterator[dict]:
+    """Export event and trace evidence, including check rows, without losing multiplicity."""
+    from decnique.detections import to_audit_log
+
+    if finding is not None and not 1 <= finding <= len(r.items):
+        raise ValueError(f"finding must be between 1 and {len(r.items)}")
+    clock = 0
+    for i, item in enumerate(r.items, 1):
+        base = clock + int(item.get("delay", 0)) if r.verb == "chains" else 0
+        if r.verb == "chains":
+            clock = base + max((int(e.get("time", 0)) for e in item.get("schedule", [])), default=0)
+        if finding is not None and i != finding:
+            continue
+        caveats = list(dict.fromkeys([*r.library.get("assumptions", []),
+                                     *r.summary.get("caveats", []), *item.get("caveats", [])]))
+        provenance = {"finding": i, "label": item["label"], "verdict": item["verdict"],
+                      "verb": r.verb, "caveats": caveats,
+                      "approximate": bool(caveats or item.get("approximate") or
+                                          r.summary.get("tag") == "approximate")}
+        sources = [(None, item), *enumerate(item.get("rows", []), 1)]
+        for row_number, source in sources:
+            metadata = dict(provenance)
+            if row_number is not None:
+                metadata.update(row=row_number, row_label=source["label"], row_verdict=source["verdict"])
+            for key in ("event", "schedule", "witness"):
+                evidence = source.get(key)
+                events = [evidence] if isinstance(evidence, dict) else evidence or []
+                for event in events:
+                    if r.verb == "chains":
+                        event = {**event, "time": int(event.get("time", 0)) + base}
+                    yield {**to_audit_log(event), "_decnique": dict(metadata)}
 
 
 def to_yaml(r: Report) -> str:

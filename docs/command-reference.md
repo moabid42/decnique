@@ -256,6 +256,8 @@ Compare two reports of the same verb. Show new, closed, and verdict-changed find
 Export witness events from the last in-memory `ask` run, or only finding `n`, as a JSON list of
 Cloud Audit Log entries. Each entry includes `_decnique` provenance. `reports show` is read-only and
 does not replace the in-memory run, so export before leaving the session that produced it.
+Check evidence includes nested row witnesses and complete traces; metadata retains row labels,
+approximation and caveats. Chain timestamps include inter-hop waits, even when selecting one hop.
 
 ## Shell words
 

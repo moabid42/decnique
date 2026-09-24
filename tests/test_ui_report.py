@@ -75,3 +75,39 @@ def test_help_covers_every_verb(tmp_path):
     assert dispatch(s, "config ask blindspots") is True  # verb help, not a setting lookup
     assert dispatch(s, "help nope") is True and dispatch(s, "rules nope") is True and dispatch(s, "nope") is True
     assert dispatch(s, "config report.format") is True
+
+
+def test_check_witness_export_keeps_rows_sequences_and_caveats():
+    """Check failures must export every occurrence and retain the row's confidence context."""
+    from decnique.ui.report import witness_entries
+
+    event = {"method": "SetIamPolicy", "time": 5, "principal": "alice@example.test"}
+    rep = Report("check", [])
+    rep.library = {"assumptions": ["conditional binding"]}
+    rep.add("coverage", "fail", rows=[{"label": "permission", "verdict": "fail", "witness": event}])
+    rep.add("candidate", "fail", approximate=True, caveats=["unknown rule"],
+            rows=[{"label": "technique", "verdict": "fail", "witness": (event, event)}])
+    entries = list(witness_entries(rep))
+    assert len(entries) == 3
+    assert entries[0]["_decnique"]["row_label"] == "permission"
+    assert entries[0]["_decnique"]["approximate"]
+    assert entries[1] == entries[2]  # repeated operations are not duplicates to discard
+    assert entries[1]["_decnique"]["caveats"] == ["conditional binding", "unknown rule"]
+    assert list(witness_entries(rep, 2)) == entries[1:]
+    with pytest.raises(ValueError, match="finding must"):
+        list(witness_entries(rep, 3))
+
+
+def test_chain_witness_export_preserves_absolute_replay_times():
+    """Exporting a later hop must not erase its wait and create a new correlation alert."""
+    from decnique.detections import event_from_audit_log
+    from decnique.ui.report import witness_entries
+
+    rep = Report("chains", [])
+    rep.summary = {"tag": "approximate"}
+    rep.add("first", "stealthy", schedule=[{"method": "SetIamPolicy", "time": 10}], delay=0)
+    rep.add("second", "stealthy", schedule=[{"method": "SetIamPolicy", "time": 5}], delay=601)
+    entries = list(witness_entries(rep))
+    assert [event_from_audit_log(e)["time"] for e in entries] == [10, 616]
+    assert list(witness_entries(rep, 2)) == entries[1:]
+    assert entries[1]["_decnique"]["approximate"]

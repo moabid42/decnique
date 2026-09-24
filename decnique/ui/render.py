@@ -602,7 +602,7 @@ def export(s: Session, args: list[str]) -> None:
     blind spot can be replayed in the real SIEM."""
     import json
 
-    from decnique.detections import to_audit_log
+    from .report import witness_entries
 
     rep = s.last_report
     if rep is None:
@@ -611,15 +611,9 @@ def export(s: Session, args: list[str]) -> None:
     if not args:
         s.error("[muted]usage:[/muted] reports export <file.json> [n]   (n = only the n-th finding)")
         return
-    events: list[dict] = []
-    for i, it in enumerate(rep.items, 1):
-        if len(args) > 1 and str(i) != args[1]:
-            continue
-        for ev in ([it["event"]] if it.get("event") else []) + list(it.get("schedule") or []) + \
-                  ([it["witness"]] if it.get("witness") else []):
-            entry = to_audit_log(ev)
-            entry["_decnique"] = {"finding": i, "label": it["label"], "verdict": it["verdict"], "verb": rep.verb}
-            events.append(entry)
+    if len(args) > 2:
+        raise ValueError("usage: reports export <file.json> [n]")
+    events = list(witness_entries(rep, int(args[1]) if len(args) == 2 else None))
     if not events:
         console.print("[muted]the last run has no witness events[/muted]")
         return

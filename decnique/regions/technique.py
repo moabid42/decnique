@@ -122,6 +122,8 @@ def region_report(
 ) -> RegionReport:
     """The whole evading set of one technique, over its free variables."""
     fp = candidate.footprint
+    if account.assumptions:
+        return _undetermined(candidate, "unresolved account assumptions: " + "; ".join(account.assumptions))
     if candidate.actor is not None or candidate.context is not None or any(r.where is not None for r in candidate.required):
         return _undetermined(candidate, "actor, context and required-on constraints are enforced by stealth; "
                              "this region projection does not yet represent them")

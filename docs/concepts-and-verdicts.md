@@ -139,6 +139,9 @@ class of events, observation semantics can be useful.
 - Unsupported native syntax becomes unknown; it is never silently true or false.
 - Reference-list tests remain unknown unless a caller supplies list contents through the library API.
 - IAM Conditions and audit-log exempted members are preserved as notes but not evaluated.
+- Unresolved account notes and unknown role expansions also persist as result `caveats` and
+  report `library.assumptions`. Findings are approximate; account-dependent proofs or vacuous
+  passes become inconclusive. A pure rule `compare` check does not depend on account assumptions.
 - Terraform `*.tf.json` may contain unresolved interpolation; it is retained and noted. Resolved
   `terraform show -json` is the stronger input.
 - Catalogued methods and field invariants model GCP Cloud Audit Logs; other clouds are not implemented.

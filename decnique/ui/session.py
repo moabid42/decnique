@@ -196,6 +196,7 @@ class Session:
             "candidates": len(self.lib.bundle.candidates) if self.lib is not None else 0,
             "paths": list(self.paths),
             "account": self.account.name if self.account else None,
+            "assumptions": list(self.account.assumptions) if self.account else [],
         }
         saving = self.settings.get("report.save") == "on"
         if saving:

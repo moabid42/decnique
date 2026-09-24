@@ -437,7 +437,7 @@ def _blindspots(s, lib, account, single, ctx, permissions, explain, show_raw, re
 
     for i, p in enumerate(permissions, 1):
         r.section(p, f"[{i}/{len(permissions)}]" if many else None)
-        if not account.reachable(p):
+        if not account.reachable(p) and not account.assumptions:
             r.no("unreachable — no principal in this account can exercise it")
             unreachable += 1
             rep.add(p, "unreachable", "no principal in this account can exercise it")
@@ -447,7 +447,7 @@ def _blindspots(s, lib, account, single, ctx, permissions, explain, show_raw, re
         r.ok(f"Reach: exercisable by {', '.join(principals)}")
         all_methods = sorted(account.catalog.methods_for(p))
         logged = [m for m in all_methods if account.logged(m)]
-        if not logged:
+        if not logged and not account.assumptions:
             r.no(f"Log: none of {len(all_methods)} method(s) is audit-logged → invisible regardless of rules")
             unlogged += 1
             rep.add(p, "unlogged", f"none of {len(all_methods)} method(s) is audit-logged")
@@ -463,12 +463,16 @@ def _blindspots(s, lib, account, single, ctx, permissions, explain, show_raw, re
                 r.verdict_safe("covered — every reachable+logged event trips a rule (UNSAT after refinement)")
                 covered += 1
             elif res.reason == "exhausted":
-                r.verdict_muted("inconclusive — refinement bound exhausted (not a proof of coverage)")
+                r.verdict_muted("inconclusive — " + ("unresolved account assumptions" if res.caveats
+                                else "refinement bound exhausted (not a proof of coverage)"))
                 inconclusive += 1
             else:
                 r.verdict_muted(res.reason)
                 inconclusive += 1
-            rep.add(p, res.reason, "covered by " + ", ".join(res.covered_by) if res.covered_by else "", covered_by=list(res.covered_by))
+            for caveat in res.caveats:
+                r.note(f"caveat: {caveat}")
+            rep.add(p, res.reason, "covered by " + ", ".join(res.covered_by) if res.covered_by else "",
+                    covered_by=list(res.covered_by), caveats=list(res.caveats))
             r.blank()
             continue
         # Gap: replay the witness through the concrete oracle, in view.
@@ -819,6 +823,8 @@ def _stealth(lib, account, cands, rep, *, show_region=False, backend="auto") -> 
         r.math("proposing a schedule that evades every exactly-encoded rate rule, refuting each with the oracle")
         with r.thinking("SMT: solving for an evasive schedule (≤64 refinements)…"):
             res = stealth_feasible(c, lib, account)
+        for caveat in getattr(res, "caveats", ()):
+            r.note(f"caveat: {caveat}")
         if isinstance(res, Evasive):
             with r.thinking(f"replay: realizing the footprint and firing all {len(lib.detections)} rules…"):
                 realized = matches_candidate(c, res.schedule, account, ref_lists=lib.ref_lists) is True
@@ -843,7 +849,7 @@ def _stealth(lib, account, cands, rep, *, show_region=False, backend="auto") -> 
                          + (" (unlogged step)" if res.unlogged else ""), approx_word(res.approximate)))
             rep.add(c.id, "evasive", f"{len(res.schedule)} event(s) as {res.principal} evade every rule",
                     approximate=res.approximate, principal=res.principal, schedule=list(res.schedule),
-                    unlogged=list(res.unlogged), **_region_fields(region))
+                    unlogged=list(res.unlogged), caveats=list(res.caveats), **_region_fields(region))
             evasive += 1
         elif isinstance(res, NotFeasible):
             r.verdict_muted("not feasible — " + res.reason)
@@ -858,7 +864,7 @@ def _stealth(lib, account, cands, rep, *, show_region=False, backend="auto") -> 
         else:
             r.verdict_muted("exhausted — " + res.reason)
             rows.append((c.id, ("exhausted", "muted"), "—", ("—", "muted")))
-            rep.add(c.id, "exhausted", res.reason)
+            rep.add(c.id, "exhausted", res.reason, caveats=list(res.caveats))
         r.blank()
 
     rep.summary = {"evasive": evasive, "techniques": len(cands)}
@@ -949,6 +955,7 @@ def _chains(lib, account, attack, report) -> None:  # type: ignore[no-untyped-de
                 "depth_bound": "the chain depth limit left states unexplored",
                 "unknown_edge": "at least one applicable technique could not be decided",
                 "schedule_bound": "selected hop schedules were caught; other schedules remain untested",
+                "account_assumptions": "unresolved account assumptions prevent an exact verdict",
             }[rep["reason"]]
             r.verdict_muted(f"inconclusive — no stealthy path found to {rep['goal']}")
             r.note(detail)
@@ -959,7 +966,9 @@ def _chains(lib, account, attack, report) -> None:  # type: ignore[no-untyped-de
             console.print(f"[safe]result[/safe]  no stealthy escalation in the modeled permission graph to {rep['goal']}")
         report.summary = {"found": False, "goal": rep["goal"], "states_explored": rep["states_explored"],
                           "reason": rep["reason"], "principal": principal,
-                          "inconclusive": rep["inconclusive"]}
+                          "inconclusive": rep["inconclusive"], "caveats": rep["caveats"]}
+        for caveat in rep["caveats"]:
+            r.note(f"caveat: {caveat}")
         return
 
     # Found: narrate each hop, then replay the whole path as one trace (hops laid end to end
@@ -984,10 +993,13 @@ def _chains(lib, account, attack, report) -> None:  # type: ignore[no-untyped-de
 
     tag = "approximate" if rep["tag"] == "approximate" else "stealthy"
     report.summary = {"found": True, "goal": rep["goal"], "hops": len(rep["hops"]), "tag": rep["tag"],
-                      "principal": principal}
+                      "principal": principal, "caveats": rep["caveats"]}
+    for caveat in rep["caveats"]:
+        r.note(f"caveat: {caveat}")
     for i, h in enumerate(rep["hops"]):
         report.add(f"hop {i + 1}: {h['technique']}", "stealthy", "gains " + (", ".join(h["gains"]) or "—"),
-                   gains=list(h["gains"]), schedule=list(h.get("schedule", [])), delay=h.get("delay", 0))
+                   gains=list(h["gains"]), schedule=list(h.get("schedule", [])), delay=h.get("delay", 0),
+                   caveats=h["caveats"])
     r.blank()
     r.verdict_gap(f"{tag.upper()} PATH to {rep['goal']} — {len(rep['hops'])} hop(s)")
     # the executable plan: one row per event, absolute time, method, principal, payload
@@ -1119,6 +1131,8 @@ def _check(lib, account, wanted, rep) -> None:  # type: ignore[no-untyped-def]
             else:
                 r.note(line)
         tag = " (~approx)" if res.approximate else ""
+        for caveat in res.caveats:
+            r.note(f"caveat: {caveat}")
         if res.verdict == "pass":
             r.verdict_safe(f"PASS{tag} — {res.detail}")
         elif res.verdict == "fail":
@@ -1128,6 +1142,7 @@ def _check(lib, account, wanted, rep) -> None:  # type: ignore[no-untyped-def]
         rows.append((c.id, c.type, (res.verdict, {"pass": "safe", "fail": "gap"}.get(res.verdict, "muted")),
                      res.detail))
         rep.add(c.id, res.verdict, res.detail, type=c.type, approximate=res.approximate,
+                caveats=list(res.caveats),
                 rows=[{"label": x.label, "verdict": x.verdict, "note": x.note, "witness": x.witness} for x in res.rows])
         r.blank()
     n_fail = sum(1 for _, _, v, _ in rows if v[0] == "fail")

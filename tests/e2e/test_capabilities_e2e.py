@@ -82,6 +82,26 @@ candidate wrong_resource {{
     assert [item["verdict"] for item in result.json()["items"]] == ["not_feasible", "not_feasible"]
 
 
+def test_import_assumptions_survive_batch_and_saved_reports(run_cli, tmp_path):
+    """A conditional IAM grant must not become an exact coverage claim after serialization."""
+    rules = _write(tmp_path / "keys.decn", 'detection keys { event method = "google.iam.admin.v1.CreateServiceAccountKey" }')
+    policy = tmp_path / "policy.json"
+    policy.write_text(json.dumps({"bindings": [{
+        "role": "roles/iam.serviceAccountKeyAdmin", "members": ["user:alice@example.com"],
+        "condition": {"title": "never", "expression": "false"},
+    }]}))
+    reports = tmp_path / "reports"
+    result = run_cli("run.py", "--rules", rules, "--account", str(policy),
+                     "--resource", "projects/demo", "--report", str(reports), "--format", "json",
+                     "--json", "--fail-on", "unknown", "ask", "blindspots", KEY_PERMISSION)
+    assert result.code == 4, result.err
+    document = result.json()
+    assert document["items"][0]["verdict"] == "exhausted"
+    assert document["items"][0]["caveats"] == document["library"]["assumptions"]
+    saved = json.loads(next(reports.glob("*.json")).read_text())
+    assert saved["items"][0]["caveats"] == document["items"][0]["caveats"]
+
+
 def test_raw_owner_grant_is_normalized_and_observed_by_its_payload(run_cli, tmp_path):
     """The raw-log importer must preserve the IAM delta that the translated rule reads."""
     rules = _write(
@@ -236,7 +256,7 @@ def test_chains_findings_exit_two_and_export_a_replayable_plan(run_cli, tmp_path
 
 
 def test_terraform_account_import_reaches_the_shell_and_solver(run_cli, tmp_path):
-    """A Terraform plan must become scoped grants before a subprocess asks coverage questions."""
+    """A Terraform plan must preserve scoped grants and unresolved imports in coverage results."""
     listed = run_cli(
         "run.py",
         "--account",
@@ -265,7 +285,8 @@ def test_terraform_account_import_reaches_the_shell_and_solver(run_cli, tmp_path
         KEY_PERMISSION,
     )
     assert covered.code == 0, covered.err
-    assert covered.json()["items"][0]["verdict"] == "all_covered"
+    assert covered.json()["items"][0]["verdict"] == "exhausted"
+    assert any("exempted" in c for c in covered.json()["items"][0]["caveats"])
 
 
 def test_suggest_define_closes_a_gap_in_the_same_session(run_cli, tmp_path):

@@ -7,6 +7,9 @@ and by date for older, unreleased work. `AGENTS.md` explains the concepts these 
 ## [Unreleased]
 
 ### Fixed
+- Account import assumptions and missing role expansions persist through blindspots, stealth,
+  checks, chains and saved reports. Findings carry caveats; uncertain proofs remain inconclusive.
+  Exhausted permissions are no longer included in the engine report's covered bucket.
 - Stealth enforces actor, context, required-on predicates and each step's resource grants/denies,
   then replays the complete candidate. Impossible candidates are infeasible; unsupported scopes
   stay inconclusive, including in the optional region view.

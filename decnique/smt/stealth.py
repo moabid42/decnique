@@ -24,7 +24,7 @@ Three honesty rules, mirroring the coverage engine:
 from __future__ import annotations
 
 import ipaddress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import z3
 
@@ -58,6 +58,7 @@ class Evasive:
     unknown_rules: tuple[str, ...] = ()
     unlogged: tuple[str, ...] = ()  # footprint methods the account never writes to the audit log
     verdict: str = "evasive"
+    caveats: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +81,7 @@ class Exhausted:
     candidate: str
     verdict: str = "exhausted"
     reason: str = "refinement bound exhausted or candidate constraints could not be decided"
+    caveats: tuple[str, ...] = ()
 
 
 StealthResult = Evasive | AlwaysDetected | NotFeasible | Exhausted
@@ -166,6 +168,18 @@ def stealth_feasible(
     account: Account,
     *,
     max_refine: int = 64,
+) -> StealthResult:
+    result = _stealth_feasible(candidate, lib, account, max_refine=max_refine)
+    if not account.assumptions:
+        return result
+    if isinstance(result, Evasive):
+        return replace(result, approximate=True, caveats=result.caveats + account.assumptions)
+    return Exhausted(candidate.id, reason="unresolved account assumptions prevent an exact verdict",
+                     caveats=account.assumptions)
+
+
+def _stealth_feasible(
+    candidate: Candidate, lib: DetectionLibrary, account: Account, *, max_refine: int,
 ) -> StealthResult:
     principals = feasible(candidate, account)
     if not principals:

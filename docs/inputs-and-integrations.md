@@ -157,8 +157,9 @@ The native account form is:
   custom expansions and takes precedence. An unknown role is retained as a marker grant.
 
 The core `Account` consumes `version`, `name`, roles/bindings, hierarchy, deny, logging, and access
-levels. The UI separately retains the normalized raw document so importer `notes` and the `attack`
-plan remain available.
+levels. Importer `notes`, explicit `assumptions`, and unknown role expansions become persistent
+account assumptions: findings carry caveats and account-dependent proofs remain inconclusive.
+The UI separately retains the normalized document and its `attack` plan.
 
 ### Log semantics
 

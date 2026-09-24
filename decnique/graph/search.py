@@ -37,16 +37,18 @@ class Hop:
     approximate: bool
     unknown_rules: tuple[str, ...] = ()
     delay: int = 0  # seconds waited after the previous hop before this one starts
+    caveats: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class StealthyPath:
     hops: tuple[Hop, ...]
     goal: str
+    caveats: tuple[str, ...] = ()
 
     @property
     def approximate(self) -> bool:
-        return any(h.approximate for h in self.hops)
+        return bool(self.caveats) or any(h.approximate for h in self.hops)
 
     @property
     def found(self) -> bool:
@@ -125,7 +127,7 @@ def search_stealth_path(
     goal_reached = _goal_pred(goal)
     start = frozenset(initial_state)
     if goal_reached(start):
-        return StealthyPath(hops=(), goal=str(goal))
+        return StealthyPath(hops=(), goal=str(goal), caveats=base_account.assumptions)
 
     visited: set[frozenset] = {start}
     # queue holds (state, path-of-hops)
@@ -167,17 +169,19 @@ def search_stealth_path(
                 approximate=result.approximate or bool(unknown),
                 unknown_rules=tuple(dict.fromkeys(result.unknown_rules + unknown)),
                 delay=delay,
+                caveats=result.caveats,
             )
             new_path = path + (hop,)
             if goal_reached(nxt):
-                return StealthyPath(hops=new_path, goal=str(goal))
+                return StealthyPath(hops=new_path, goal=str(goal), caveats=base_account.assumptions)
             visited.add(nxt)
             queue.append((nxt, new_path))
 
     return NoStealthyPath(
         goal=str(goal),
         states_explored=explored,
-        reason=("depth_bound" if truncated else "unknown_edge" if unknown_edge
+        reason=("depth_bound" if truncated else "account_assumptions" if base_account.assumptions
+                else "unknown_edge" if unknown_edge
                 else "schedule_bound" if schedule_bound else "exhausted"),
     )
 

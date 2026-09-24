@@ -56,6 +56,7 @@ class NoGap:
     permission: str
     reason: str  # unreachable | no_logged_method | all_covered | exhausted
     covered_by: tuple[str, ...] = ()  # rule ids in the UNSAT core: together they cover it
+    caveats: tuple[str, ...] = ()
 
     @property
     def found(self) -> bool:
@@ -397,11 +398,17 @@ def find_gap(
     *denied* attempts instead of successful calls; ``resource`` is the resource ``Reach`` is
     asked about (a grant scoped to a project reaches it, not ``*``)."""
     cat = account.catalog
+
+    def no_gap(reason: str, covered_by: tuple[str, ...] = ()) -> NoGap:
+        if account.assumptions:
+            return NoGap(permission, "exhausted", caveats=account.assumptions)
+        return NoGap(permission, reason, covered_by)
+
     if not account.reachable(permission, resource):
-        return NoGap(permission, "unreachable")
+        return no_gap("unreachable")
     logged = sorted(m for m in cat.methods_for(permission) if account.logged(m))
     if not logged:
-        return NoGap(permission, "no_logged_method")
+        return no_gap("no_logged_method")
     # A method name the catalog cannot confirm in real audit logs must not be the *reason* a
     # gap exists: it would let the solver dodge every rule that names the real method.  Search
     # over confirmed names when there are any; fall back to unverified ones (with a caveat).
@@ -410,7 +417,7 @@ def find_gap(
     holders = account.principals_with(permission, resource)
     principals = sorted(p for p in holders if principals is None or p in principals)
     if not principals:
-        return NoGap(permission, "unreachable")
+        return no_gap("unreachable")
 
     ctx = ctx or CoverageContext(lib)
     s = ctx.solver
@@ -432,7 +439,7 @@ def find_gap(
             ctx.stats["checks"] += 1
             if s.check(*ctx.tracks.values()) != z3.sat:
                 core = tuple(sorted(str(b)[5:] for b in s.unsat_core()))  # strip "rule."
-                return NoGap(permission, "exhausted" if unproven else "all_covered", core)
+                return no_gap("exhausted" if unproven else "all_covered", core)
             model = s.model()
             event, learned = ctx.realize_event(model, permission, logged, principals, account,
                                                granted=granted)
@@ -463,7 +470,7 @@ def find_gap(
                 s.add(ctx.block(model))
                 continue
             unknown_rules = tuple(rid for rid, v in verdicts.items() if v is None)
-            caveats: tuple[str, ...] = ()
+            caveats = account.assumptions
             if not cat.verified(event["method"]):
                 caveats += (
                     f"method {event['method']} is not confirmed to appear in audit logs "
@@ -476,7 +483,7 @@ def find_gap(
                 unknown_rules=unknown_rules,
                 caveats=caveats,
             )
-        return NoGap(permission, "exhausted")
+        return no_gap("exhausted")
     finally:
         s.pop()
         for c in learned_here:  # proven clauses survive the pop: they are library facts
@@ -498,7 +505,8 @@ class CoverageReport:
             "permissions_probed": len(self.gaps)
             + len(self.covered)
             + len(self.unreachable)
-            + len(self.unlogged),
+            + len(self.unlogged)
+            + len(self.exhausted),
             "gaps": len(self.gaps),
             "approximate": len(self.approximate),
             "covered": len(self.covered),
@@ -538,10 +546,10 @@ def probe_permissions(
             unreachable.append(p)
         elif r.reason == "no_logged_method":
             unlogged.append(p)
+        elif r.reason == "exhausted":
+            exhausted.append(p)
         else:
-            covered.append(p)  # all_covered, or exhausted (inconclusive; listed separately too)
-            if r.reason == "exhausted":
-                exhausted.append(p)
+            covered.append(p)
     return CoverageReport(
         gaps=tuple(gaps),
         covered=tuple(covered),

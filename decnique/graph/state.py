@@ -55,4 +55,5 @@ def account_for(base: Account, principal: str, state: State) -> Account:
         logging=base.logging,
         access_levels=base.access_levels,
         catalog=base.catalog,
+        assumptions=base.assumptions,
     )

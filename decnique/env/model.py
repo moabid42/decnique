@@ -64,6 +64,7 @@ class Account:
     logging: LogConfig = field(default_factory=LogConfig)
     access_levels: frozenset[str] = frozenset()
     catalog: Catalog = field(default_factory=Catalog.default)
+    assumptions: tuple[str, ...] = ()  # unresolved import facts carried into every account-based verdict
 
     # -- reachability ----------------------------------------------------------------------
 

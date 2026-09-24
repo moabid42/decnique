@@ -36,7 +36,7 @@ engine (``mode fires_bg``) answers ``unknown`` rather than guess (Invariant #1).
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from fnmatch import fnmatchcase
 from typing import Literal
 
@@ -76,6 +76,7 @@ class CheckResult:
     detail: str
     approximate: bool = False
     rows: tuple[Row, ...] = field(default_factory=tuple)
+    caveats: tuple[str, ...] = ()
 
     @property
     def id(self) -> str:
@@ -468,6 +469,20 @@ def run_check(
     account: Account | None = None,
     *,
     ctx: CoverageContext | None = None,
+) -> CheckResult:
+    result = _run_check(check, lib, account, ctx=ctx)
+    if account is None or not account.assumptions or check.type == "compare":
+        return result
+    rows = tuple(replace(row, verdict="unknown", note="account assumptions prevent a proof: " + row.note)
+                 if row.verdict == "pass" else row for row in result.rows)
+    return replace(result, verdict="unknown" if result.verdict == "pass" else result.verdict,
+                   detail=result.detail + "; unresolved account assumptions", approximate=True,
+                   rows=rows, caveats=result.caveats + account.assumptions)
+
+
+def _run_check(
+    check: Check, lib: DetectionLibrary, account: Account | None,
+    *, ctx: CoverageContext | None,
 ) -> CheckResult:
     """Answer one check.  Never raises on a sound-but-undecidable question; raises
     :class:`CheckError` only when the block cannot be run as written."""

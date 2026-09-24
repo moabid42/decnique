@@ -53,6 +53,7 @@ def account_from_dict(doc: Mapping[str, Any], *, catalog: Catalog | None = None)
         r: tuple(perms) for r, perms in (doc.get("roles") or {}).items()
     }
     cat = catalog or Catalog.default()
+    assumptions = list(doc.get("notes") or ()) + list(doc.get("assumptions") or ())
 
     bindings: dict[str, tuple[Grant, ...]] = {}
     for principal, grants in (doc.get("bindings") or {}).items():
@@ -67,6 +68,7 @@ def account_from_dict(doc: Mapping[str, Any], *, catalog: Catalog | None = None)
                     out.append(Grant(permission=perm, resource=resource))
                 if perms is None:  # unknown role → a single wildcard-ish marker
                     out.append(Grant(permission=g["role"], resource=resource))
+                    assumptions.append(f"role {g['role']} on {resource} has no known permission expansion")
             for perm in g.get("permissions", ()):
                 out.append(Grant(permission=perm, resource=resource))
             if "permission" in g:
@@ -95,6 +97,7 @@ def account_from_dict(doc: Mapping[str, Any], *, catalog: Catalog | None = None)
         logging=logging,
         access_levels=frozenset(doc.get("access_levels", ())),
         catalog=cat,
+        assumptions=tuple(dict.fromkeys(assumptions)),
     )
 
 

@@ -51,6 +51,8 @@ def blindspots_report(
         "covered": list(rep.covered),
         "unreachable": list(rep.unreachable),
         "unlogged": list(rep.unlogged),
+        "exhausted": list(rep.exhausted),
+        "caveats": list(account.assumptions),
     }
 
 
@@ -67,6 +69,8 @@ def stealth_report(
         entry: dict[str, Any] = {"candidate": c.id, "verdict": r.verdict}
         if hasattr(r, "reason"):
             entry["reason"] = r.reason
+        if getattr(r, "caveats", ()):
+            entry["caveats"] = list(r.caveats)
         if isinstance(r, Evasive):
             entry["tag"] = _tag(r.approximate)
             entry["principal"] = r.principal
@@ -135,6 +139,7 @@ def chains_report(
             "goal": goal,
             "found": True,
             "tag": _tag(result.approximate),
+            "caveats": list(result.caveats),
             "hops": [
                 {
                     "technique": h.technique,
@@ -143,6 +148,7 @@ def chains_report(
                     "schedule": list(h.schedule),
                     "unknown_rules": list(h.unknown_rules),
                     "delay": h.delay,
+                    "caveats": list(h.caveats),
                 }
                 for h in result.hops
             ],
@@ -153,6 +159,7 @@ def chains_report(
         "found": False,
         "reason": result.reason,
         "inconclusive": result.inconclusive,
+        "caveats": list(account.assumptions),
         "states_explored": result.states_explored,
     }
 

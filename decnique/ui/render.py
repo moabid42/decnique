@@ -915,8 +915,8 @@ def _chains(lib, account, attack, report) -> None:  # type: ignore[no-untyped-de
     r.header(
         "chains",
         formula="BFS over reachable states :  every hop ∃ an evasive schedule (M3), Reach grows per hop",
-        subtitle=f"from {attack['principal']} to the goal permission; the search is exhaustive over the "
-                 f"finite reachable state space",
+        subtitle=f"from {attack['principal']} to the goal permission; searches permission states "
+                 "and replays the selected schedules together",
     )
     from decnique.answers import _start
 
@@ -944,11 +944,22 @@ def _chains(lib, account, attack, report) -> None:  # type: ignore[no-untyped-de
 
     if not rep["found"]:
         r.blank()
-        r.verdict_safe(f"no stealthy path to {rep['goal']}")
-        r.note(f"proven by exhausting {rep['states_explored']} reachable state(s) ({rep['reason']})")
-        console.print(f"[safe]result[/safe]  no stealthy escalation to {rep['goal']}")
+        if rep["inconclusive"]:
+            detail = {
+                "depth_bound": "the chain depth limit left states unexplored",
+                "unknown_edge": "at least one applicable technique could not be decided",
+                "schedule_bound": "selected hop schedules were caught; other schedules remain untested",
+            }[rep["reason"]]
+            r.verdict_muted(f"inconclusive — no stealthy path found to {rep['goal']}")
+            r.note(detail)
+            console.print(f"[warn]result[/warn]  inconclusive after {rep['states_explored']} state(s)")
+        else:
+            r.verdict_safe(f"no stealthy path to {rep['goal']} in the modeled permission graph")
+            r.note(f"exhausted {rep['states_explored']} reachable state(s) without undecided transitions")
+            console.print(f"[safe]result[/safe]  no stealthy escalation in the modeled permission graph to {rep['goal']}")
         report.summary = {"found": False, "goal": rep["goal"], "states_explored": rep["states_explored"],
-                          "reason": rep["reason"], "principal": principal}
+                          "reason": rep["reason"], "principal": principal,
+                          "inconclusive": rep["inconclusive"]}
         return
 
     # Found: narrate each hop, then replay the whole path as one trace (hops laid end to end

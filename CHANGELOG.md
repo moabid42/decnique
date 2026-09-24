@@ -4,6 +4,13 @@ All notable changes to decnique. The format is loosely based on
 [Keep a Changelog](https://keepachangelog.com/); entries are grouped by release where possible
 and by date for older, unreleased work. `AGENTS.md` explains the concepts these changes touch.
 
+## [Unreleased]
+
+### Fixed
+- Chain searches preserve undecided techniques, depth limits, and rejected schedule alternatives
+  as inconclusive results. Strict CI exits 4 instead of treating an incomplete search as a proof
+  that no stealthy escalation exists.
+
 ## [Planned]
 
 Coverage as a **measure**, not a yes/no — the next block of work. None of this touches the

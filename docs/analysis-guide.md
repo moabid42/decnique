@@ -138,10 +138,12 @@ The account can carry defaults:
 Candidate `gains` are used unless `effects` overrides that candidate. Command flags override the
 principal/start/goal plan assembled by the UI.
 
-A found path is replay-backed. A no-path result with reason `depth_bound` is explicitly truncated.
-Reason `exhausted` means the finite permission-state graph was exhausted using the one schedule
-chosen by stealth analysis for each edge and the two cross-hop delay strategies; it is not a proof
-over every imaginable schedule for each technique.
+A found path is replay-backed. A no-path result is inconclusive when its reason is `depth_bound`
+(unexplored states), `unknown_edge` (an undecided technique), or `schedule_bound` (the selected
+schedules failed cross-hop replay, but alternatives remain untested). These results set
+`inconclusive: true` and exit 4 with `--fail-on unknown`. Reason `exhausted` means the modeled
+permission graph was exhausted without an undecided transition or rejected schedule. It is not a
+claim about techniques outside the loaded library or undeclared privilege effects.
 
 ## Checks: executable policy assertions
 

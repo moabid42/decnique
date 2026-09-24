@@ -25,6 +25,36 @@ IAM_PERMISSION = "resourcemanager.projects.setIamPolicy"
 DELTA = 'udm("target.resource.attribute.labels[ser_binding_deltas_%s]")'
 
 
+@pytest.mark.parametrize(("payload", "depth", "reason"), [
+    ('where unknown("payload")', None, "unknown_edge"),
+    ("", 0, "depth_bound"),
+])
+def test_incomplete_chain_search_fails_strict_ci(run_cli, tmp_path, payload, depth, reason):
+    """CI must reject an uncertain or truncated chain instead of reporting a safe account."""
+    rules = tmp_path / "chain.decn"
+    rules.write_text(f'''
+candidate hop {{
+  required {{ {KEY_PERMISSION} }}
+  footprint {{ act: "google.iam.admin.v1.CreateServiceAccountKey" {payload} }}
+  gains {{ {IAM_PERMISSION} }}
+}}
+''')
+    account = tmp_path / "account.json"
+    attack = {"principal": "alice@example.com", "goal": IAM_PERMISSION}
+    if depth is not None:
+        attack["max_depth"] = depth
+    account.write_text(json.dumps({
+        "bindings": {"alice@example.com": [{"permission": KEY_PERMISSION}]},
+        "attack": attack,
+    }))
+    result = run_cli("run.py", "--rules", str(rules), "--account", str(account),
+                     "--json", "--fail-on", "unknown", "ask", "chains")
+    assert result.code == 4, result.err
+    assert result.json()["summary"]["inconclusive"] is True
+    assert result.json()["summary"]["reason"] == reason
+    assert "proven" not in result.err
+
+
 def _write(path, text):
     path.write_text(text, encoding="utf-8")
     return str(path)

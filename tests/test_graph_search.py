@@ -114,6 +114,7 @@ def test_no_stealthy_path_when_a_rule_fires_on_every_route():
     )
     assert isinstance(r, NoStealthyPath), r
     assert r.reason == "exhausted"  # a real proof, not a truncated bound
+    assert not r.inconclusive
     assert r.states_explored >= 1
 
 
@@ -189,3 +190,31 @@ detection key_then_token_ever {{
     res = search_stealth_path(_techniques(), lib, _account(), "a@x.com",
                               frozenset({"iam.serviceAccountKeys.create"}), "resourcemanager.projects.setIamPolicy")
     assert isinstance(res, NoStealthyPath)
+    assert res.inconclusive and res.reason == "schedule_bound"
+
+
+def test_unknown_hop_cannot_prove_that_no_stealthy_path_exists():
+    """An untranslated technique must leave the chain undecided instead of closing its edge."""
+    candidate = parse_text(f'''
+candidate uncertain {{
+  required {{ iam.serviceAccountKeys.create }}
+  footprint {{ act: "{_KEY}" where unknown("payload") }}
+}}
+''').candidates[0]
+    result = search_stealth_path(
+        [Technique(candidate, gains=("goal.permission",))], _lib(), _account(), "a@x.com",
+        frozenset({"iam.serviceAccountKeys.create"}), "goal.permission",
+    )
+    assert isinstance(result, NoStealthyPath)
+    assert result.inconclusive and result.reason == "unknown_edge"
+
+
+def test_depth_limit_cannot_prove_that_no_stealthy_path_exists():
+    """A truncated chain search must not certify the unvisited path as detected."""
+    result = search_stealth_path(
+        _techniques(), _lib(), _account(), "a@x.com",
+        frozenset({"iam.serviceAccountKeys.create"}), "resourcemanager.projects.setIamPolicy",
+        max_depth=1,
+    )
+    assert isinstance(result, NoStealthyPath)
+    assert result.inconclusive and result.reason == "depth_bound"

@@ -81,7 +81,7 @@ The main engines return these outcomes:
 |---|---|---|---|
 | blindspots | `gap` / **BLIND SPOT** | `all_covered` | `exhausted` |
 | stealth | `evasive` | `always_detected` | `exhausted` |
-| chains | `found: true` | `found: false`, reason `exhausted` after full finite search | reason `depth_bound` when explicitly capped |
+| chains | `found: true` | `found: false`, reason `exhausted` over the modeled graph | `inconclusive: true`: `depth_bound`, `unknown_edge`, or `schedule_bound` |
 | checks | `fail` | `pass` | `unknown` |
 
 Other blind-spot non-findings are `unreachable` and `no_logged_method`. They are vacuous with

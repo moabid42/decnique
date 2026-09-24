@@ -24,7 +24,7 @@ from decnique.detections import DetectionLibrary
 from decnique.env.model import Account
 from decnique.eval import fires
 from decnique.graph.state import State, Technique, account_for
-from decnique.smt.stealth import Evasive, StealthResult, stealth_feasible
+from decnique.smt.stealth import Evasive, Exhausted, StealthResult, stealth_feasible
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,7 +57,11 @@ class StealthyPath:
 class NoStealthyPath:
     goal: str
     states_explored: int
-    reason: str = "exhausted"  # exhausted | depth_bound
+    reason: str = "exhausted"  # exhausted | depth_bound | unknown_edge | schedule_bound
+
+    @property
+    def inconclusive(self) -> bool:
+        return self.reason != "exhausted"
 
     @property
     def found(self) -> bool:
@@ -128,6 +132,8 @@ def search_stealth_path(
     queue: deque[tuple[frozenset, tuple[Hop, ...]]] = deque([(start, ())])
     explored = 0
     truncated = False
+    unknown_edge = False
+    schedule_bound = False
 
     while queue:
         state, path = queue.popleft()
@@ -143,10 +149,13 @@ def search_stealth_path(
             if nxt == state or nxt in visited:
                 continue
             result: StealthResult = stealth_feasible(tech.candidate, lib, account)
+            if isinstance(result, Exhausted):
+                unknown_edge = True
             if not isinstance(result, Evasive):
-                continue  # this hop is not stealthy in this state
+                continue  # an undecided hop is not evidence that it is detected
             whole = _path_replay(lib, account, path, result.schedule)
             if whole is None:
+                schedule_bound = True
                 continue  # stealthy alone, but a rule correlates it with an earlier hop
             delay, unknown = whole
             hop = Hop(
@@ -168,7 +177,8 @@ def search_stealth_path(
     return NoStealthyPath(
         goal=str(goal),
         states_explored=explored,
-        reason="depth_bound" if truncated else "exhausted",
+        reason=("depth_bound" if truncated else "unknown_edge" if unknown_edge
+                else "schedule_bound" if schedule_bound else "exhausted"),
     )
 
 

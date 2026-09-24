@@ -150,6 +150,7 @@ def chains_report(
         "goal": goal,
         "found": False,
         "reason": result.reason,
+        "inconclusive": result.inconclusive,
         "states_explored": result.states_explored,
     }
 

@@ -17,7 +17,6 @@ from dataclasses import dataclass, field
 
 from . import browse, render
 from .session import Session
-from .theme import console
 
 Run = Callable[[Session, list[str]], None]
 
@@ -45,7 +44,7 @@ class Obj:
 
 
 def _usage(text: str) -> None:
-    console.print(f"[muted]usage:[/muted] {text}")
+    raise ValueError(f"usage: {text}")
 
 
 def _first(args: list[str]) -> str | None:

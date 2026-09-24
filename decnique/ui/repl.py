@@ -91,16 +91,17 @@ def resolve(words: list[str]) -> tuple[Obj, Verb, list[str]] | str:
 
 def dispatch(s: Session, line: str) -> bool:
     """Run one command line (or a whole DSL block). Returns False to exit the REPL."""
+    s.command_failed = False
     if is_dsl(line):
         try:
             s.define(line)
         except DslError as e:
-            console.print(f"[err]dsl error:[/err] {e}")
+            s.error(f"[err]dsl error:[/err] {e}")
         return True
     try:
         parts = shlex.split(line)
     except ValueError as e:
-        console.print(f"[err]parse error:[/err] {e}")
+        s.error(f"[err]parse error:[/err] {e}")
         return True
     if not parts:
         return True
@@ -122,20 +123,20 @@ def dispatch(s: Session, line: str) -> bool:
         else:
             hit = resolve(parts)
             if isinstance(hit, str):
-                console.print(f"[warn]{hit}[/warn]")
+                s.error(f"[warn]{hit}[/warn]")
             else:
                 _obj, verb, rest = hit
                 verb.run(s, rest)
     except (OSError, json.JSONDecodeError, ValueError) as e:  # ValueError: bad account / schema
-        console.print(f"[err]input error:[/err] {e}")
+        s.error(f"[err]input error:[/err] {e}")
     except DslError as e:
-        console.print(f"[err]dsl error:[/err] {e}")
+        s.error(f"[err]dsl error:[/err] {e}")
     except KeyError as e:
-        console.print(f"[err]not found:[/err] {e}")
+        s.error(f"[err]not found:[/err] {e}")
     except KeyboardInterrupt:
-        console.print("[warn]interrupted[/warn] — the session is intact")
+        s.error("[warn]interrupted[/warn] — the session is intact")
     except Exception as e:
-        console.print(f"[err]{type(e).__name__}:[/err] {e}   (the session is intact; please report this)")
+        s.error(f"[err]{type(e).__name__}:[/err] {e}   (the session is intact; please report this)")
         if os.environ.get("DECNIQUE_DEBUG"):
             raise
     return True
@@ -210,7 +211,7 @@ def print_help(s: Session, args: list[str] | None = None) -> None:
         return
     obj = OBJECTS.get(name)
     if obj is None:
-        console.print(f"[warn]unknown object {name!r}[/warn] — type [key]help[/key]")
+        s.error(f"[warn]unknown object {name!r}[/warn] — type [key]help[/key]")
         return
     if len(args) == 1:
         console.print(Text(f"{BULLET} {obj.name} — {obj.help}", style="title"))
@@ -221,7 +222,7 @@ def print_help(s: Session, args: list[str] | None = None) -> None:
         return
     verb = obj.verb(args[1])
     if verb is None:
-        console.print(f"[warn]{obj.name} has no verb {args[1]!r}[/warn] — " + ", ".join(obj.verbs))
+        s.error(f"[warn]{obj.name} has no verb {args[1]!r}[/warn] — " + ", ".join(obj.verbs))
         return
     _panel(f"{obj.name} {verb.name}", verb.help, verb.detail or f"{obj.name} {verb.name} {verb.hint}")
     _settings(s, settings_prefix(obj, verb))
@@ -472,9 +473,13 @@ def _parser() -> argparse.ArgumentParser:
 
 def _outcome(s: Session, verb: str, fail_on: str | None) -> int:
     rep = s.last_report
-    if rep is None or not fail_on:
+    if rep is None:
         return EXIT_CLEAN
     verdicts = [it["verdict"] for it in rep.items]
+    if "error" in verdicts:
+        return EXIT_INPUT
+    if not fail_on:
+        return EXIT_CLEAN
     if rep.verb == "chains" and rep.summary.get("found"):
         verdicts.append("stealthy")
     if any(v in _FINDING.get(rep.verb, ()) for v in verdicts):
@@ -494,8 +499,8 @@ def _batch(s: Session, ns: argparse.Namespace) -> tuple[int, list[dict]]:
     try:
         if ns.rules:
             s.load((["--all"] if ns.all else []) + list(ns.rules))
-            if s.lib is None:
-                return EXIT_INPUT
+            if s.lib is None or s.command_failed:
+                return EXIT_INPUT, []
         if ns.account:
             s.account_load(ns.account, ns.resource)
     except (OSError, ValueError, DslError) as e:
@@ -505,8 +510,16 @@ def _batch(s: Session, ns: argparse.Namespace) -> tuple[int, list[dict]]:
     reports: list[dict] = []
     lines: list[str] = []
     if ns.file:
-        text = sys.stdin.read() if ns.file == "-" else Path(ns.file).read_text(encoding="utf-8")
-        lines += [ln for ln in text.splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
+        try:
+            text = sys.stdin.read() if ns.file == "-" else Path(ns.file).read_text(encoding="utf-8")
+        except (OSError, ValueError) as e:
+            s.error(f"[err]input error:[/err] {e}")
+            return EXIT_INPUT, []
+        script = iter(text.splitlines())
+        for line in script:
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            lines.append(read_block(line, lambda: next(script, None)) if is_dsl(line) else line)
     if ns.verb:
         lines.append(" ".join(shlex.quote(a) for a in ns.verb))
     if not lines:
@@ -522,7 +535,12 @@ def _batch(s: Session, ns: argparse.Namespace) -> tuple[int, list[dict]]:
             from .report import to_json
 
             reports.append(json.loads(to_json(s.last_report)))
-            worst = max(worst, _outcome(s, line.split()[0], ns.fail_on))
+            outcome = _outcome(s, line.split()[0], ns.fail_on)
+            if outcome == EXIT_INPUT:
+                return EXIT_INPUT, reports
+            worst = max(worst, outcome)
+        if s.command_failed:
+            return EXIT_INPUT, reports
     return worst, reports
 
 

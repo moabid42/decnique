@@ -84,6 +84,12 @@ class Session:
         self.account = None
         self.account_doc: dict = {}
         self.last_report: Report | None = None  # the most recent verb's findings (batch mode reads it)
+        self.command_failed = False
+
+    def error(self, message: str) -> None:
+        """Report a command failure without terminating an interactive session."""
+        self.command_failed = True
+        console.print(message)
 
     # -- loading ---------------------------------------------------------------------------
 
@@ -93,10 +99,12 @@ class Session:
         hint when the load brought none of that kind depend on it."""
         # flags mirror the CLI: --all (every platform, not just GCP), --deprecated
         flags = {a for a in paths if a.startswith("--")}
+        if flags - {"--all", "--all-platforms", "--deprecated"}:
+            raise ValueError("unknown load option: " + ", ".join(sorted(flags - {"--all", "--all-platforms", "--deprecated"})))
         paths = [a for a in paths if not a.startswith("--")]
         if not paths:
             obj = {"detections": "rules", "candidates": "candidates", "checks": "checks"}[want]
-            console.print(
+            self.error(
                 f"[muted]usage:[/muted] {obj} load [--all] [--deprecated] <path> [path …]   "
                 "(dirs or .decn/native rule files; default = GCP rules only, _deprecated skipped)"
             )
@@ -123,7 +131,7 @@ class Session:
             + (f"  [err]{len(errs)} errors[/err]" if errs else "")
         )
         for i in errs:
-            console.print(f"    [err]error[/err] {i.file}: {i.message}")
+            self.error(f"    [err]error[/err] {i.file}: {i.message}")
         if not getattr(this, want) and not errs:
             console.print(f"    [warn]note[/warn] these paths brought no {want}")
 
@@ -213,24 +221,24 @@ class Session:
                     path = save(rep, self.settings.get("report.dir"), self.settings.get("report.format"))
                     console.print(f"[muted]saved report → [key]{path}[/key]  (reopen: reports show {path})[/muted]")
                 except OSError as e:
-                    console.print(f"[err]could not save report:[/err] {e}")
+                    self.error(f"[err]could not save report:[/err] {e}")
 
     # -- guards ----------------------------------------------------------------------------
 
     def need_lib(self) -> bool:
         if self.lib is None:
-            console.print("[warn]no rules loaded[/warn] — run: [key]rules load <paths…>[/key]")
+            self.error("[warn]no rules loaded[/warn] — run: [key]rules load <paths…>[/key]")
             return False
         return True
 
     def need_events(self) -> bool:
         if not self.events:
-            console.print("[warn]no events loaded[/warn] — run: [key]events load <file.json>[/key]")
+            self.error("[warn]no events loaded[/warn] — run: [key]events load <file.json>[/key]")
             return False
         return True
 
     def need_account(self) -> bool:
         if self.account is None:
-            console.print("[warn]no account loaded[/warn] — run: [key]account load <file.json>[/key]")
+            self.error("[warn]no account loaded[/warn] — run: [key]account load <file.json>[/key]")
             return False
         return True

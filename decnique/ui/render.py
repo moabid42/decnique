@@ -203,7 +203,7 @@ def _print_untranslated(d) -> None:
 
 def admits(s: Session, method: str | None) -> None:
     if not s.need_lib() or not method:
-        console.print("[muted]usage:[/muted] rules admits <method>")
+        s.error("[muted]usage:[/muted] rules admits <method>")
         return
     hits = list(s.lib.admitting(method))
     if not hits:
@@ -251,7 +251,7 @@ def summary(s: Session) -> None:
 
 def event(s: Session, file: str | None) -> None:
     if not s.need_lib() or not file:
-        console.print("[muted]usage:[/muted] events observe <file.json>   (a single audit-log entry or event dict)")
+        s.error("[muted]usage:[/muted] events observe <file.json>   (a single audit-log entry or event dict)")
         return
     import json
     from pathlib import Path
@@ -369,7 +369,7 @@ def config(s: Session, args: list[str]) -> None:
         try:
             console.print(f"{key} = [title]{st.get(key)}[/title]")
         except KeyError:
-            console.print(f"[err]unknown setting[/err] {key}")
+            s.error(f"[err]unknown setting[/err] {key}")
         return
     try:
         if args[1] == "reset":
@@ -378,7 +378,7 @@ def config(s: Session, args: list[str]) -> None:
             st.set(key, args[1])
         console.print(f"[ok]{CHECK}[/ok] {key} = [title]{st.get(key)}[/title]")
     except (KeyError, ValueError) as e:
-        console.print(f"[err]{e}[/err]")
+        s.error(f"[err]{e}[/err]")
 
 
 def blindspots(s: Session, perms: list[str]) -> None:
@@ -606,10 +606,10 @@ def export(s: Session, args: list[str]) -> None:
 
     rep = s.last_report
     if rep is None:
-        console.print("[warn]nothing to export[/warn] — run an `ask` verb first (ask blindspots / stealth / chains / check)")
+        s.error("[warn]nothing to export[/warn] — run an `ask` verb first (ask blindspots / stealth / chains / check)")
         return
     if not args:
-        console.print("[muted]usage:[/muted] reports export <file.json> [n]   (n = only the n-th finding)")
+        s.error("[muted]usage:[/muted] reports export <file.json> [n]   (n = only the n-th finding)")
         return
     events: list[dict] = []
     for i, it in enumerate(rep.items, 1):
@@ -640,7 +640,7 @@ def suggest(s: Session, args: list[str]) -> None:
     define = "define" in args
     perms = [a for a in args if a != "define"]
     if not perms:
-        console.print("[muted]usage:[/muted] ask suggest <permission> [permission …] [define]")
+        s.error("[muted]usage:[/muted] ask suggest <permission> [permission …] [define]")
         return
     lib, account = s.lib, s.account
     ctx = CoverageContext(lib)
@@ -744,7 +744,7 @@ def stealth(s: Session, ident: str | None) -> None:
     lib, account = s.lib, s.account
     cands = [c for c in lib.bundle.candidates if not ident or c.id == ident]
     if not cands:
-        console.print("[muted]no candidates to evaluate" + (f" for {ident!r}" if ident else "") + "[/muted]")
+        s.error("[muted]no candidates to evaluate" + (f" for {ident!r}" if ident else "") + "[/muted]")
         return
 
     show_region = s.settings.get("stealth.region") == "on"
@@ -889,15 +889,25 @@ def chains(s: Session, args: list[str]) -> None:
     it = iter(args)
     for a in it:
         if a in ("--from", "--goal"):
-            attack["principal" if a == "--from" else "goal"] = next(it, "")
+            value = next(it, "")
+            if not value or value.startswith("--"):
+                raise ValueError(f"{a} needs a value")
+            attack["principal" if a == "--from" else "goal"] = value
         elif a == "--start":
-            attack["initial_state"] = [x for x in next(it, "").split(",") if x]
+            value = next(it, "")
+            if not value or value.startswith("--"):
+                raise ValueError("--start needs a comma-separated permission list")
+            attack["initial_state"] = [x for x in value.split(",") if x]
+        elif a.startswith("--"):
+            raise ValueError(f"unknown chains option: {a}")
         else:
             rest.append(a)
     if rest:
+        if len(rest) > 1:
+            raise ValueError("chains accepts one goal permission")
         attack["goal"] = rest[0]
-    if "goal" not in attack:
-        console.print(
+    if not attack.get("goal"):
+        s.error(
             "[warn]chains needs a goal permission[/warn] — `chains <permission>`, or `--goal`, "
             "or a `goal` in the account's `attack` block.\n"
             "  optional: `--from <principal>` `--start p1,p2` (default: the account's most "
@@ -905,8 +915,8 @@ def chains(s: Session, args: list[str]) -> None:
         )
         return
     if not techniques_for(lib, account):
-        console.print("[warn]no techniques with an effect[/warn] — a candidate needs a `gains { … }` "
-                      "clause (or an `effects` table in the account) to advance a chain.")
+        s.error("[warn]no techniques with an effect[/warn] — a candidate needs a `gains { … }` "
+                "clause (or an `effects` table in the account) to advance a chain.")
         return
 
     with s.report("chains", args) as rep:
@@ -1075,15 +1085,15 @@ def check(s: Session, args: list[str]) -> None:
         hit = [c for c in s.lib.bundle.checks if c.id == a]
         if not hit:
             if Path(a).is_file():
-                console.print(f"[warn]{a} is a file[/warn] — load it first: [key]checks load {a}[/key], then [key]ask check[/key]")
+                s.error(f"[warn]{a} is a file[/warn] — load it first: [key]checks load {a}[/key], then [key]ask check[/key]")
             else:
-                console.print(f"[warn]no check named {a!r}[/warn] — see [key]checks list[/key]")
+                s.error(f"[warn]no check named {a!r}[/warn] — see [key]checks list[/key]")
             return
         wanted.extend(hit)
     if not args:
         wanted = list(s.lib.bundle.checks)
     if not wanted:
-        console.print("[muted]no checks to run — [key]checks load <file.decn>[/key] or type a block at the prompt[/muted]")
+        s.error("[muted]no checks to run — [key]checks load <file.decn>[/key] or type a block at the prompt[/muted]")
         return
 
     lib, account = s.lib, s.account
@@ -1182,7 +1192,7 @@ def reports(s: Session) -> None:
 def report(s: Session, file: str | None, *more: str) -> None:
     if file == "diff":
         if len(more) != 2:
-            console.print("[muted]usage:[/muted] reports diff <a> <b>")
+            s.error("[muted]usage:[/muted] reports diff <a> <b>")
             return
         report_diff(s, more[0], more[1])
         return
@@ -1196,7 +1206,7 @@ def _report_one(s: Session, file: str | None) -> None:
     from .report import load
 
     if not file:
-        console.print("[muted]usage:[/muted] reports show <file>   (see [key]reports list[/key])")
+        s.error("[muted]usage:[/muted] reports show <file>   (see [key]reports list[/key])")
         return
     path = Path(file)
     if not path.is_file():  # allow a bare name from the reports folder
@@ -1239,14 +1249,14 @@ def _find(s: Session, kind: str, ident: str | None):  # type: ignore[no-untyped-
         return None
     obj = {"detection": "rules", "candidate": "candidates", "check": "checks"}[kind]
     if not ident:
-        console.print(f"[muted]usage:[/muted] {obj} inspect <id> | {obj} dsl <id>   (see [key]{obj} list[/key])")
+        s.error(f"[muted]usage:[/muted] {obj} inspect <id> | {obj} dsl <id>   (see [key]{obj} list[/key])")
         return None
     items = {"detection": s.lib.detections, "candidate": s.lib.bundle.candidates,
              "check": s.lib.bundle.checks}[kind]
     for it in items:
         if it.id == ident:
             return it
-    console.print(f"[warn]no {kind} named {ident!r}[/warn] — see [key]{obj} list[/key]")
+    s.error(f"[warn]no {kind} named {ident!r}[/warn] — see [key]{obj} list[/key]")
     return None
 
 
@@ -1381,7 +1391,7 @@ def event_inspect(s: Session, which: str | None) -> None:
         if n < 1:
             raise IndexError
     except (ValueError, IndexError):
-        console.print(f"[muted]usage:[/muted] events inspect <n>   (1 … {len(s.events)})")
+        s.error(f"[muted]usage:[/muted] events inspect <n>   (1 … {len(s.events)})")
         return
     console.print(Panel(Text(json.dumps(ev, indent=2, sort_keys=True, default=str)),
                         title=Text(f"event {n}", style="brand"), title_align="left",

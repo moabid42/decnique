@@ -144,6 +144,18 @@ def test_a_missing_rules_path_is_an_input_error(run_cli):
     assert r.code == 3
 
 
+@pytest.mark.parametrize("args", [
+    ("ask", "missing"), ("ask", "check", "missing"), ("ask", "stealth", "missing"),
+    ("-f", "no/such/script"), ("account", "load"),
+])
+def test_rejected_batch_commands_exit_three_and_keep_json_valid(run_cli, rules_file, args):
+    """CI must distinguish a rejected command from an analysis with no findings."""
+    r = run_cli("run.py", "--json", "--rules", rules_file, "--account", ACCOUNT, *args)
+    assert r.code == 3
+    assert r.json() == []
+    assert "Traceback" not in r.err
+
+
 def test_an_unknown_verb_does_not_crash_the_process(run_cli, rules_file):
     r = run_cli("run.py", "--rules", rules_file, "rules", "frobnicate")
     assert r.code in (0, 3)

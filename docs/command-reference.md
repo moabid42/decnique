@@ -304,6 +304,10 @@ ask check policy_covered
 
 ## Batch launcher
 
+Command errors, missing prerequisites, failed loads, and missing scripts return 3 regardless
+of `--fail-on`. Scripts stop at the first such failure; findings do not stop later commands.
+Inline DSL blocks can span multiple lines, as in the interactive prompt.
+
 ```text
 decnique [GLOBAL OPTIONS] <object> <verb> [arguments...]
 python run.py [GLOBAL OPTIONS] <object> <verb> [arguments...]

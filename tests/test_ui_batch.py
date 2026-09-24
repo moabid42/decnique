@@ -75,6 +75,54 @@ def test_batch_input_errors(tmp_path):
         main(["--help"])
 
 
+@pytest.mark.parametrize("command", [
+    ["ask"], ["ask", "missing"], ["ask", "blindspots"],
+    ["ask", "stealth", "missing"], ["ask", "check", "missing"],
+    ["events", "load"], ["rules", "load"], ["rules", "inspect", "missing"],
+    ["config", "not.a.setting"], ["help", "missing"], ["reports", "export", "unused.json"],
+])
+def test_rejected_commands_cannot_pass_batch_ci(command):
+    """A command that never ran is an input failure, even without --fail-on."""
+    assert main(command) == EXIT_INPUT
+
+
+def test_missing_script_is_an_input_error_with_valid_json(tmp_path, capsys):
+    """A missing script must not leak a traceback or corrupt machine-readable stdout."""
+    assert main(["--json", "-f", str(tmp_path / "missing.txt")]) == EXIT_INPUT
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == []
+    assert "input error" in captured.err and "Traceback" not in captured.err
+
+
+def test_script_stops_at_first_error_and_keeps_the_last_report(tmp_path, capsys):
+    """Later export/config commands must not run after a rejected script instruction."""
+    script = tmp_path / "run.txt"
+    script.write_text('detection keys {\n event method = "key"\n}\n'
+                      'check diff { type compare left keys right keys }\n'
+                      'ask check diff\nask check missing\nconfig report.save on\n')
+    assert main(["--json", "-f", str(script)]) == EXIT_INPUT
+    assert json.loads(capsys.readouterr().out)["items"][0]["label"] == "diff"
+    assert Session().settings.get("report.save") == "off"
+
+
+def test_check_engine_errors_are_fatal_without_fail_on(tmp_path):
+    """A missing account in a coverage check cannot look like a clean CI result."""
+    rules = tmp_path / "r.decn"
+    rules.write_text('check missing_account { type coverage permission iam.serviceAccountKeys.create }')
+    assert main(["--rules", str(rules), "ask", "check"]) == EXIT_INPUT
+
+
+def test_parse_failures_are_fatal_but_do_not_poison_the_session(tmp_path):
+    """Interactive recovery resets command failure state without accepting bad batch input."""
+    rules = tmp_path / "broken.decn"
+    rules.write_text('detection broken { this is invalid }')
+    assert main(["--rules", str(rules), "rules", "list"]) == EXIT_INPUT
+    s = Session()
+    assert dispatch(s, 'rules "') is True and s.command_failed
+    assert dispatch(s, 'detection broken { nonsense }') is True and s.command_failed
+    assert dispatch(s, "help") is True and not s.command_failed
+
+
 def test_inconclusive_exit_code(tmp_path, monkeypatch):
     import decnique.smt.coverage as cov
 

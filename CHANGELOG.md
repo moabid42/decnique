@@ -7,6 +7,8 @@ and by date for older, unreleased work. `AGENTS.md` explains the concepts these 
 ## [Unreleased]
 
 ### Fixed
+- Batch commands return input error 3 for rejected commands, missing prerequisites, load/check
+  failures and unreadable scripts. Scripts stop on errors and accept multiline DSL blocks.
 - Account import assumptions and missing role expansions persist through blindspots, stealth,
   checks, chains and saved reports. Findings carry caveats; uncertain proofs remain inconclusive.
   Exhausted permissions are no longer included in the engine report's covered bucket.

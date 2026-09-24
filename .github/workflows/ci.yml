@@ -97,7 +97,7 @@ jobs:
           --cov=decnique --cov-report=term-missing --cov-report=xml
       - name: upload coverage
         if: matrix.python-version == '3.12'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-xml
           path: coverage.xml
@@ -143,7 +143,7 @@ jobs:
           # Run outside the checkout so source files cannot mask an incomplete wheel. The grammar,
           # GCP catalogs, and every Python subpackage must come from the installed artifact.
           bin/python "$GITHUB_WORKSPACE/tools/smoke_install.py" "$package_version"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/

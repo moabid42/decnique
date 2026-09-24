@@ -122,6 +122,14 @@ def region_report(
 ) -> RegionReport:
     """The whole evading set of one technique, over its free variables."""
     fp = candidate.footprint
+    if candidate.actor is not None or candidate.context is not None or any(r.where is not None for r in candidate.required):
+        return _undetermined(candidate, "actor, context and required-on constraints are enforced by stealth; "
+                             "this region projection does not yet represent them")
+    permissions = {r.permission for r in candidate.required}
+    if account.deny or any(g.resource != "*" for grants in account.bindings.values() for g in grants
+                           if g.permission in permissions or "*" in g.permission):
+        return _undetermined(candidate, "resource-scoped grants and denies are enforced by stealth; "
+                             "this region projection does not yet represent them")
     if len(fp.steps) != 1:
         return _undetermined(
             candidate,

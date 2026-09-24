@@ -60,6 +60,28 @@ def _write(path, text):
     return str(path)
 
 
+def test_impossible_actor_and_resource_are_reported_as_infeasible(run_cli, tmp_path):
+    """The shell must preserve candidate infeasibility rather than mislabeling it exhausted or evasive."""
+    rules = _write(tmp_path / "scoped.decn", f'''
+candidate wrong_actor {{
+  actor principal = "nobody@example.com"
+  required {{ {KEY_PERMISSION} }}
+  footprint {{ key: "google.iam.admin.v1.CreateServiceAccountKey" }}
+}}
+candidate wrong_resource {{
+  required {{ {KEY_PERMISSION} }}
+  footprint {{ key: "google.iam.admin.v1.CreateServiceAccountKey" where resource = "projects/forbidden" }}
+}}
+''')
+    account = tmp_path / "account.json"
+    account.write_text(json.dumps({"bindings": {"alice@example.com": [
+        {"permission": KEY_PERMISSION, "resource": "projects/allowed"},
+    ]}}))
+    result = run_cli("run.py", "--rules", rules, "--account", str(account), "--json", "ask", "stealth")
+    assert result.code == 0, result.err
+    assert [item["verdict"] for item in result.json()["items"]] == ["not_feasible", "not_feasible"]
+
+
 def test_raw_owner_grant_is_normalized_and_observed_by_its_payload(run_cli, tmp_path):
     """The raw-log importer must preserve the IAM delta that the translated rule reads."""
     rules = _write(

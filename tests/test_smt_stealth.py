@@ -3,10 +3,13 @@ case resolves both directions."""
 
 from __future__ import annotations
 
+import pytest
+
 from decnique.detections import DetectionLibrary
 from decnique.dsl.parser import parse_text
-from decnique.env.model import Account, Grant, LogConfig
+from decnique.env.model import Account, Deny, Grant, LogConfig
 from decnique.eval import fires, matches_footprint
+from decnique.eval.candidate import matches_candidate
 from decnique.smt.stealth import AlwaysDetected, Evasive, NotFeasible, feasible, stealth_feasible
 
 _TOKEN = "iam.serviceAccounts.getAccessToken"
@@ -314,3 +317,101 @@ def test_unknown_footprint_payload_is_exhausted_not_proof():
                    logging=LogConfig(data_access_services=frozenset({"iamcredentials.googleapis.com"})))
     r = stealth_feasible(c, lib, acct)
     assert isinstance(r, Exhausted)
+
+
+@pytest.mark.parametrize(("actor", "required", "payload", "context"), [
+    ('actor principal = "nobody@example.com"', _TOKEN, "", ""),
+    ("", _TOKEN, "", "context false"),
+    ("", f'{_TOKEN} on resource = "projects/forbidden"', "", ""),
+    ("", _TOKEN, 'where resource = "projects/forbidden"', ""),
+    ("", _TOKEN, "where false", ""),
+])
+def test_impossible_candidate_is_not_reported_as_evasion_or_detection(actor, required, payload, context):
+    """Ignoring an actor, context or target scope must never invent an exact attack schedule."""
+    candidate = _candidate(f'''
+candidate scoped {{
+  {actor}
+  required {{ {required} }}
+  footprint {{ use: "{_TOKEN}" {payload} }}
+  {context}
+}}
+''')
+    account = _account(_TOKEN)
+    account.bindings = {"attacker@x.com": (Grant(_TOKEN, "projects/allowed"),)}
+    assert isinstance(stealth_feasible(candidate, _lib(""), account), NotFeasible)
+
+
+def test_scoped_candidate_replays_on_a_granted_descendant():
+    """Project grants must allow real descendants while retaining all candidate predicates."""
+    resource = "//example.googleapis.com/projects/p/resources/child"
+    candidate = _candidate(f'''
+candidate scoped {{
+  actor principal_type = "USER"
+  required {{ {_TOKEN} on resource = "{resource}" }}
+  footprint {{ use: "{_TOKEN}" }}
+  context tags.environment = "prod"
+}}
+''')
+    account = _account(_TOKEN)
+    account.bindings = {"attacker@x.com": (Grant(_TOKEN, "projects/p"),)}
+    account.hierarchy = {resource: "projects/p"}
+    result = stealth_feasible(candidate, _lib(""), account)
+    assert isinstance(result, Evasive), result
+    assert matches_candidate(candidate, result.schedule, account) is True
+    assert result.schedule[0]["resource"] == resource
+    assert result.schedule[0]["tags"]["environment"] == "prod"
+    forged = [{**result.schedule[0], "resource": "projects/forbidden"}]
+    assert matches_candidate(candidate, forged, account) is False
+
+
+def test_scoped_deny_prevents_a_candidate_on_the_denied_resource():
+    """Possessing a permission elsewhere must not bypass a deny on the attack's target."""
+    candidate = _candidate(f'''candidate denied {{
+      required {{ {_TOKEN} }}
+      footprint {{ use: "{_TOKEN}" where resource = "projects/denied" }}
+    }}''')
+    account = _account(_TOKEN)
+    account.deny = (Deny("attacker@x.com", _TOKEN, "projects/denied"),)
+    assert isinstance(stealth_feasible(candidate, _lib(""), account), NotFeasible)
+
+
+def test_actor_type_cannot_be_fabricated_for_a_service_account():
+    """A service account cannot satisfy a human-only technique by changing its event type."""
+    candidate = _candidate(f'''candidate human {{
+      actor principal_type = "USER"
+      required {{ {_TOKEN} }}
+      footprint {{ use: "{_TOKEN}" }}
+    }}''')
+    account = _account(_TOKEN)
+    account.bindings = {"robot@p.iam.gserviceaccount.com": (Grant(_TOKEN),)}
+    assert isinstance(stealth_feasible(candidate, _lib(""), account), NotFeasible)
+
+
+def test_unknown_context_remains_inconclusive():
+    """An unsupported candidate guard cannot certify evasion or always-detected coverage."""
+    from decnique.smt.stealth import Exhausted
+
+    candidate = _candidate(f'''candidate unknown_context {{
+      required {{ {_TOKEN} }}
+      footprint {{ use: "{_TOKEN}" }}
+      context unknown("environment")
+    }}''')
+    assert isinstance(stealth_feasible(candidate, _lib(""), _account(_TOKEN)), Exhausted)
+
+
+def test_each_step_uses_its_own_permission_scope():
+    """A technique using two services need not hold both permissions on both resources."""
+    key = "iam.serviceAccountKeys.create"
+    candidate = _candidate(f'''candidate two_targets {{
+      required {{ {key} on resource = "projects/keys" {_TOKEN} on resource = "projects/tokens" }}
+      footprint {{
+        key: "google.iam.admin.v1.CreateServiceAccountKey"
+        token: "{_TOKEN}"
+      }}
+    }}''')
+    account = _account(key, _TOKEN)
+    account.bindings = {"attacker@x.com": (Grant(key, "projects/keys"), Grant(_TOKEN, "projects/tokens"))}
+    result = stealth_feasible(candidate, _lib(""), account)
+    assert isinstance(result, Evasive), result
+    assert [e["resource"] for e in result.schedule] == ["projects/keys", "projects/tokens"]
+    assert matches_candidate(candidate, result.schedule, account) is True

@@ -65,6 +65,8 @@ def stealth_report(
     for c in lib.bundle.candidates:
         r = stealth_feasible(c, lib, account)
         entry: dict[str, Any] = {"candidate": c.id, "verdict": r.verdict}
+        if hasattr(r, "reason"):
+            entry["reason"] = r.reason
         if isinstance(r, Evasive):
             entry["tag"] = _tag(r.approximate)
             entry["principal"] = r.principal

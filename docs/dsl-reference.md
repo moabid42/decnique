@@ -297,10 +297,9 @@ candidate grant_self_owner {
 
 ### `actor`
 
-Describes a constraint on the actor using the normal event predicate language. It is parsed,
-formatted, inspected, and serialized. The current stealth feasibility engine selects principals
-from `required` permissions and does not yet add `actor` as a solver constraint, so do not rely on
-it to narrow an `ask stealth` result.
+Constrains the actor using the normal event predicate language. Stealth enforces it on every
+generated occurrence and checks it again during concrete replay. Principal type is derived from
+the selected principal, so a service account cannot satisfy a human-only actor constraint.
 
 ### `required`
 
@@ -313,8 +312,10 @@ required {
 }
 ```
 
-The AST preserves this resource/condition predicate. Current feasibility checks use the permission
-set and account grant scope; do not assume `on` is a complete IAM Conditions engine.
+The `on` predicate constrains each footprint step whose catalog method uses that permission.
+Stealth checks the principal's grant and denies on each step's concrete resource, including known
+hierarchy descendants. If a scoped requirement cannot be tied to a step, analysis is inconclusive.
+This DSL predicate does not evaluate imported IAM Conditions (CEL).
 
 ### Footprint steps
 
@@ -342,9 +343,10 @@ Python `ParseOptions`, not a shell setting.
 
 ### `context`, `share`, and `gains`
 
-`context` records an extra technique constraint. Like `actor`, it currently survives parsing,
-formatting, inspection, and serialization but is not yet added to the stealth solver. Put payload
-conditions that must affect the current result on the relevant step's `where` clause.
+`context` constrains every generated occurrence and is checked again during concrete replay.
+Use a step's `where` clause for conditions that apply to just that step. Contradictory constraints
+return `not_feasible`; untranslated constraints remain inconclusive. Region projection reports
+`undetermined` when it cannot represent actor, context, scoped requirements, or account scopes.
 
 `share` lists fields constrained equal across the symbolic schedule. It defaults to `principal`;
 allowed fields are `principal`,

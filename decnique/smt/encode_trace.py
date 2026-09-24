@@ -62,7 +62,7 @@ def _abs_le(d: z3.ExprRef, w: int) -> z3.BoolRef:
     return z3.And(d <= z3.IntVal(w), d >= z3.IntVal(-w))
 
 
-def footprint_constraints(trace: SymTrace, fp, catalog=None) -> list[z3.BoolRef]:  # type: ignore[no-untyped-def]
+def footprint_constraints(trace: SymTrace, fp, catalog=None, *, approximations=None) -> list[z3.BoolRef]:  # type: ignore[no-untyped-def]
     cons: list[z3.BoolRef] = []
     for occ in trace.occs:
         cons.append(occ.ev.term("method") == z3.StringVal(occ.method))
@@ -88,6 +88,8 @@ def footprint_constraints(trace: SymTrace, fp, catalog=None) -> list[z3.BoolRef]
             for occ in group:
                 enc = Encoder(ev=occ.ev)
                 cons.append(enc.pred(step.where))
+                if approximations is not None:
+                    approximations.extend(a.label for a in enc.approx)
                 for _, path in referenced_fields(step.where):
                     cons.append(occ.ev.present(path))
         for qf in step.distinct:

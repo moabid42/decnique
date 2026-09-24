@@ -7,6 +7,9 @@ and by date for older, unreleased work. `AGENTS.md` explains the concepts these 
 ## [Unreleased]
 
 ### Fixed
+- Stealth enforces actor, context, required-on predicates and each step's resource grants/denies,
+  then replays the complete candidate. Impossible candidates are infeasible; unsupported scopes
+  stay inconclusive, including in the optional region view.
 - Chain searches preserve undecided techniques, depth limits, and rejected schedule alternatives
   as inconclusive results. Strict CI exits 4 instead of treating an incomplete search as a proof
   that no stealthy escalation exists.

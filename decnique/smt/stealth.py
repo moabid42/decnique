@@ -30,10 +30,14 @@ import z3
 
 from decnique.detections import DetectionLibrary
 from decnique.dsl.ast import Candidate
+from decnique.dsl.interpret import evaluate
 from decnique.env.model import Account
-from decnique.eval import fires, matches_footprint
+from decnique.eval import fires
+from decnique.eval.candidate import matches_candidate, principal_fields, step_requirements
 from decnique.model import event_fields as ef
 from decnique.model.predicates import referenced_fields
+from decnique.smt.encode_pred import Encoder
+from decnique.smt.encode_reach import reach_constraint
 from decnique.smt.encode_trace import (
     Occurrence,
     SymTrace,
@@ -68,12 +72,14 @@ class NotFeasible:
     candidate: str
     missing: tuple[str, ...] = ()
     verdict: str = "not_feasible"
+    reason: str = "no principal satisfies the required permissions and candidate constraints"
 
 
 @dataclass(frozen=True, slots=True)
 class Exhausted:
     candidate: str
     verdict: str = "exhausted"
+    reason: str = "refinement bound exhausted or candidate constraints could not be decided"
 
 
 StealthResult = Evasive | AlwaysDetected | NotFeasible | Exhausted
@@ -82,7 +88,9 @@ StealthResult = Evasive | AlwaysDetected | NotFeasible | Exhausted
 def feasible(candidate: Candidate, account: Account) -> tuple[str, ...]:
     """Principals holding *every* Required permission of the candidate."""
     perms = tuple(r.permission for r in candidate.required)
-    return account.principals_with_all(perms)
+    return tuple(p for p in account.principals_with_all(perms)
+                 if all(evaluate(pred, principal_fields(p), partial=True) is not False
+                        for pred in (candidate.actor, candidate.context) if pred is not None))
 
 
 def _relevant_paths(candidate: Candidate, lib: DetectionLibrary) -> tuple[str, ...]:
@@ -90,6 +98,9 @@ def _relevant_paths(candidate: Candidate, lib: DetectionLibrary) -> tuple[str, .
     field any detection reads, plus the invariant fields, so the concrete replay that decides
     ``Evasive`` sees faithful events (not ones missing ``granted``/``product_name``)."""
     paths = set(ef.FIELD_NAMES)  # every closed-vocabulary field, so each schedule event is complete
+    for pred in (candidate.actor, candidate.context, *(r.where for r in candidate.required)):
+        if pred is not None:
+            paths.update(p for _, p in referenced_fields(pred))
     for step in candidate.footprint.steps:
         for qf in step.distinct:
             paths.add(qf[1])
@@ -142,8 +153,10 @@ def _block(trace: SymTrace, model: z3.ModelRef, paths: tuple[str, ...]) -> z3.Bo
     diffs: list[z3.BoolRef] = []
     for occ in trace.occs:
         for path in paths:
+            present = occ.ev.present(path)
+            diffs.append(present != model.eval(present, model_completion=True))
             term = occ.ev.term(path)
-            diffs.append(term != model.eval(term, model_completion=True))
+            diffs.append(z3.And(present, term != model.eval(term, model_completion=True)))
     return z3.Or(*diffs) if diffs else z3.BoolVal(False)
 
 
@@ -162,10 +175,17 @@ def stealth_feasible(
         return NotFeasible(candidate.id, missing=missing)
     fp = candidate.footprint
     fp_methods = {s.method for s in fp.steps}
+    requirements = {m: step_requirements(candidate, m, account) for m in fp_methods}
+    if any(not required for required in requirements.values()):
+        return Exhausted(candidate.id, reason="catalog does not tie every footprint method to a required permission")
+    used = {r.permission for required in requirements.values() for r in required}
+    if any(r.where is not None and r.permission not in used for r in candidate.required):
+        return Exhausted(candidate.id, reason="a scoped requirement is not tied to a footprint step")
     trace = build_trace(fp, share=candidate.share)
     s = z3.Solver()
     s.set("random_seed", 0)  # reproducible schedules (plan §4)
-    for c in footprint_constraints(trace, fp, account.catalog):
+    approximations: list[str] = []
+    for c in footprint_constraints(trace, fp, account.catalog, approximations=approximations):
         s.add(c)
     # The technique is existential over its actor, not over the first actor returned by the
     # account.  Keep each actor choice symbolic over the feasible set so SAT may find any actor
@@ -173,8 +193,32 @@ def stealth_feasible(
     # omitting it permits different feasible actors across occurrences, never invented actors.
     for occ in trace.occs:
         actor = occ.ev.term("principal")
-        s.add(z3.Or(*(actor == z3.StringVal(p) for p in principals)))
+        choices = []
+        for principal in principals:
+            clauses = [actor == principal,
+                       occ.ev.term("principal_type") == principal_fields(principal)["principal_type"]]
+            for req in requirements[occ.method]:
+                reach, exact = reach_constraint(occ.ev, account, principal, req.permission)
+                clauses.append(reach)
+                if not exact:
+                    approximations.append("resource scope")
+            choices.append(z3.And(*clauses))
+        s.add(z3.Or(*choices))
         s.add(occ.ev.present("principal"))
+        s.add(occ.ev.present("principal_type"))
+        s.add(occ.ev.term("resource") != "", occ.ev.term("resource") != "*")
+        enc = Encoder(ev=occ.ev)
+        for pred in (candidate.actor, candidate.context, *(r.where for r in requirements[occ.method])):
+            if pred is not None:
+                s.add(enc.pred(pred))
+        approximations.extend(a.label for a in enc.approx)
+
+    base_status = s.check()
+    if base_status == z3.unsat:
+        return (Exhausted(candidate.id) if approximations else
+                NotFeasible(candidate.id, reason="no authorized schedule satisfies the candidate constraints"))
+    if base_status != z3.sat:
+        return Exhausted(candidate.id)
 
     # Log: an occurrence of an unlogged method never reaches a rule.
     visible = tuple(account.logged(o.method) for o in trace.occs)
@@ -208,17 +252,18 @@ def stealth_feasible(
 
     track_lits = list(track_of.values())
     by_track = {str(t): rid for rid, t in track_of.items()}
-    unproven = False
+    unproven = bool(approximations)
     for _ in range(max_refine):
-        if s.check(*track_lits) != z3.sat:
-            if unproven:
+        status = s.check(*track_lits)
+        if status != z3.sat:
+            if unproven or status != z3.unsat:
                 return Exhausted(candidate.id)
             core = {str(b) for b in s.unsat_core()}
             caught = tuple(sorted(rid for t, rid in by_track.items() if t in core))
             return AlwaysDetected(candidate.id, caught_by=caught)
         model = s.model()
         events = [_decode_event(o, model, paths) for o in trace.occs]
-        realized = matches_footprint(fp, events, ref_lists=lib.ref_lists)
+        realized = matches_candidate(candidate, events, account, ref_lists=lib.ref_lists)
         if realized is not True:
             unproven = unproven or realized is None  # "don't know" is not a refutation
             s.add(_block(trace, model, paths))

@@ -93,9 +93,10 @@ support an `always_detected` proof.
 If a footprint method is not logged, its occurrences are hidden from detection replay and listed
 under `unlogged`. That is an audit-configuration gap, not a weakness in the rules.
 
-`actor`, candidate-level `context`, and `required ... on` are currently descriptive/preserved
-fields rather than stealth solver constraints. Put payload conditions that must affect the result
-on step `where` clauses.
+`actor` and candidate-level `context` constrain every occurrence. `required ... on` constrains
+steps tied to that permission by the catalog. Both symbolic search and concrete replay enforce
+resource grants and denies. A contradictory candidate is `not_feasible`, rather than a vacuous
+detection proof; unresolved candidate constraints remain inconclusive.
 
 ## Chains: search privilege transitions
 

@@ -28,6 +28,17 @@ TOKEN = "iam.serviceAccounts.getAccessToken"
 BACKENDS = ("interval", "smt")
 
 
+def test_region_does_not_silently_drop_candidate_context():
+    """A broad region must not be advertised as verified when it omits the candidate's guard."""
+    lib = _lib(f'''candidate constrained {{
+      required {{ {TOKEN} }} footprint {{ use: "{TOKEN}" }} context false
+    }}''')
+    result = region_report(lib.bundle.candidates[0], lib, _account())
+    assert result.status == UNDETERMINED
+    assert result.approximate and result.caveats
+    assert not result.holes
+
+
 def _lib(src: str) -> DetectionLibrary:
     return DetectionLibrary(parse_text(src, "t.decn"))
 

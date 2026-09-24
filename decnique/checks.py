@@ -201,9 +201,9 @@ def _candidate(check: Check, lib: DetectionLibrary, account: Account) -> CheckRe
         by = ("; caught by " + ", ".join(res.caught_by)) if res.caught_by else ""
         return CheckResult(check, "pass", "always detected (UNSAT proof)" + by, rows=(Row(str(cid), "pass", "always detected" + by),))
     if isinstance(res, NotFeasible):
-        note = "vacuous: no principal can run it (" + (", ".join(res.missing) or "no one holds all permissions") + ")"
+        note = "vacuous: " + res.reason
         return CheckResult(check, "pass", note, rows=(Row(str(cid), "pass", note),))
-    return CheckResult(check, "unknown", "refinement bound exhausted", rows=(Row(str(cid), "unknown", "exhausted"),))
+    return CheckResult(check, "unknown", res.reason, rows=(Row(str(cid), "unknown", res.reason),))
 
 
 def _compare(check: Check, lib: DetectionLibrary, ctx: CoverageContext | None) -> CheckResult:

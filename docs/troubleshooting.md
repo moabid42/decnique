@@ -103,8 +103,9 @@ seed fact with evidence. Do not mark it verified merely to remove a warning.
 All required permissions must be held by the same principal. `account who` on each permission may
 show different holders, which is still infeasible.
 
-Candidate `actor`, `context`, and required-`on` predicates are not current feasibility constraints.
-The missing-permission list is based on the `required` permission strings and account Reach.
+Also check candidate `actor`, `context`, required-`on` predicates, step payloads, and resource
+denies. A contradictory predicate or a target outside the principal's grant is infeasible even
+when the principal holds every permission somewhere else.
 
 ## `ask stealth` or blindspots says `exhausted`
 
@@ -115,12 +116,13 @@ Reduce the question to fewer rules/fields, inspect approximate rules, simplify c
 or reproduce it through the Python API with diagnostic instrumentation. Raising a refinement bound
 is an API-level change; there is no shell setting for it.
 
-## A candidate ignores `actor` or `context`
+## A candidate's scoped constraints are inconclusive
 
-Those fields are implemented in the language, formatter, serializer, and inspector, but not yet
-added to `stealth_feasible` constraints. Put conditions that must affect analysis into each
-relevant footprint step's `where`. Likewise, `required PERMISSION on EXPR` is preserved but current
-feasibility is permission-based.
+`actor` and `context` apply to every generated occurrence; required-`on` applies to steps whose
+catalog methods use the permission. Unknown predicates or a missing method/permission relationship
+can prevent an exact answer. Inspect the reported reason and the catalog mapping. The optional
+region view may be undetermined even when stealth finds a schedule, because its axes do not yet
+represent these constraints.
 
 ## A candidate footprint does not match loaded events
 

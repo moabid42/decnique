@@ -796,7 +796,8 @@ def _region_fields(reg) -> dict:  # type: ignore[no-untyped-def]
 
 
 def _stealth(lib, account, cands, rep, *, show_region=False, backend="auto") -> None:  # type: ignore[no-untyped-def]
-    from decnique.smt.stealth import Evasive, feasible, stealth_feasible
+    from decnique.eval.candidate import matches_candidate
+    from decnique.smt.stealth import Evasive, NotFeasible, feasible, stealth_feasible
 
     r = Reasoner()
     r.header(
@@ -813,21 +814,16 @@ def _stealth(lib, account, cands, rep, *, show_region=False, backend="auto") -> 
         req = [rq.permission for rq in c.required]
         r.note(f"requires: {', '.join(req) or '—'}")
         principals = feasible(c, account)
-        if not principals:
-            missing = [rq.permission for rq in c.required if not account.reachable(rq.permission)]
-            r.no(f"not feasible — actor cannot obtain: {', '.join(missing) or '(no single principal holds all)'}")
-            rows.append((c.id, ("not_feasible", "muted"), ", ".join(missing) or "—", ("—", "muted")))
-            rep.add(c.id, "not_feasible", "actor cannot obtain: " + (", ".join(missing) or "no single principal holds all"))
-            r.blank()
-            continue
-        r.ok(f"feasible as {', '.join(principals)}")
+        if principals:
+            r.note(f"principals holding the requirements: {', '.join(principals)}")
         r.math("proposing a schedule that evades every exactly-encoded rate rule, refuting each with the oracle")
         with r.thinking("SMT: solving for an evasive schedule (≤64 refinements)…"):
             res = stealth_feasible(c, lib, account)
         if isinstance(res, Evasive):
             with r.thinking(f"replay: realizing the footprint and firing all {len(lib.detections)} rules…"):
-                realized = matches_footprint(c.footprint, res.schedule, ref_lists=lib.ref_lists) is True
-                verdicts = {d.id: fires(d.spec, res.schedule, ref_lists=lib.ref_lists) for d in lib.detections}
+                realized = matches_candidate(c, res.schedule, account, ref_lists=lib.ref_lists) is True
+                visible = [e for e in res.schedule if account.logged(e["method"])]
+                verdicts = {d.id: fires(d.spec, visible, ref_lists=lib.ref_lists) for d in lib.detections}
             n_fire = sum(v is True for v in verdicts.values())
             n_unk = sum(v is None for v in verdicts.values())
             r.note(f"schedule: {len(res.schedule)} event(s), method {res.schedule[0].get('method', '—')}")
@@ -849,6 +845,10 @@ def _stealth(lib, account, cands, rep, *, show_region=False, backend="auto") -> 
                     approximate=res.approximate, principal=res.principal, schedule=list(res.schedule),
                     unlogged=list(res.unlogged), **_region_fields(region))
             evasive += 1
+        elif isinstance(res, NotFeasible):
+            r.verdict_muted("not feasible — " + res.reason)
+            rows.append((c.id, ("not_feasible", "muted"), res.reason, ("—", "muted")))
+            rep.add(c.id, "not_feasible", res.reason, missing=list(res.missing))
         elif res.verdict == "always_detected":
             caught = ", ".join(_title(lib, rid) for rid in res.caught_by)
             r.verdict_safe("always detected — UNSAT: every schedule trips a rule (proof over the encoded class)"
@@ -856,9 +856,9 @@ def _stealth(lib, account, cands, rep, *, show_region=False, backend="auto") -> 
             rows.append((c.id, ("always_detected", "safe"), caught or "—", ("—", "muted")))
             rep.add(c.id, "always_detected", "every schedule trips a rule (UNSAT proof)", caught_by=list(res.caught_by))
         else:
-            r.verdict_muted("exhausted — refinement bound reached without a schedule")
+            r.verdict_muted("exhausted — " + res.reason)
             rows.append((c.id, ("exhausted", "muted"), "—", ("—", "muted")))
-            rep.add(c.id, "exhausted", "refinement bound reached without a schedule")
+            rep.add(c.id, "exhausted", res.reason)
         r.blank()
 
     rep.summary = {"evasive": evasive, "techniques": len(cands)}

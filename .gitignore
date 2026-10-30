@@ -1,3 +1,7 @@
+# mine
+talk/
+paper/
+
 .venv/
 __pycache__/
 *.pyc

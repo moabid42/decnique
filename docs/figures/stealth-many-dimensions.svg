@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="748.8pt" height="147.6pt" viewBox="0 0 748.8 147.6" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:date>2026-10-30T22:54:01.969502</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.6.3, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 147.6
+L 748.8 147.6
+L 748.8 0
+L 0 0
+L 0 147.6
+z
+" style="fill: none"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 12.624768 100.05907
+L 149.116032 100.05907
+L 149.116032 50.630233
+L 12.624768 50.630233
+z
+" clip-path="url(#pc18dd3988a)" style="fill: #e4ebe4"/>
+   </g>
+   <g id="patch_3">
+    <path d="M 159.389568 100.05907
+L 295.880832 100.05907
+L 295.880832 50.630233
+L 159.389568 50.630233
+z
+" clip-path="url(#pc18dd3988a)" style="fill: #e4ebe4"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 306.154368 100.05907
+L 442.645632 100.05907
+L 442.645632 50.630233
+L 306.154368 50.630233
+z
+" clip-path="url(#pc18dd3988a)" style="fill: #f4ddd3"/>
+   </g>
+   <g id="patch_5">
+    <path d="M 452.919168 100.05907
+L 589.410432 100.05907
+L 589.410432 50.630233
+L 452.919168 50.630233
+z
+" clip-path="url(#pc18dd3988a)" style="fill: #e4ebf1"/>
+   </g>
+   <g id="patch_6">
+    <path d="M 599.683968 100.05907
+L 736.175232 100.05907
+L 736.175232 50.630233
+L 599.683968 50.630233
+z
+" clip-path="url(#pc18dd3988a)" style="fill: #e4ebf1"/>
+   </g>
+   <g id="text_1">
+    <text style="fill: #25231f; font: 700 12px 'DejaVu Sans'; text-anchor: middle" x="80.8704" y="78.655901" transform="rotate(-0 80.8704 78.655901)">INSIDE</text>
+   </g>
+   <g id="text_2">
+    <text style="fill: #77736c; font: 10px 'DejaVu Sans'; text-anchor: middle" x="80.8704" y="31.476558" transform="rotate(-0 80.8704 31.476558)">coordinate 1</text>
+   </g>
+   <g id="text_3">
+    <text style="fill: #25231f; font: 700 12px 'DejaVu Sans'; text-anchor: middle" x="227.6352" y="78.655901" transform="rotate(-0 227.6352 78.655901)">INSIDE</text>
+   </g>
+   <g id="text_4">
+    <text style="fill: #77736c; font: 10px 'DejaVu Sans'; text-anchor: middle" x="227.6352" y="31.476558" transform="rotate(-0 227.6352 31.476558)">coordinate 2</text>
+   </g>
+   <g id="text_5">
+    <text style="fill: #25231f; font: 700 12px 'DejaVu Sans'; text-anchor: middle" x="374.4" y="78.655901" transform="rotate(-0 374.4 78.655901)">OUTSIDE</text>
+   </g>
+   <g id="text_6">
+    <text style="fill: #77736c; font: 10px 'DejaVu Sans'; text-anchor: middle" x="374.4" y="31.476558" transform="rotate(-0 374.4 31.476558)">coordinate 3</text>
+   </g>
+   <g id="text_7">
+    <text style="fill: #25231f; font: 700 12px 'DejaVu Sans'; text-anchor: middle" x="521.1648" y="78.655901" transform="rotate(-0 521.1648 78.655901)">ANY</text>
+   </g>
+   <g id="text_8">
+    <text style="fill: #77736c; font: 10px 'DejaVu Sans'; text-anchor: middle" x="521.1648" y="31.476558" transform="rotate(-0 521.1648 31.476558)">coordinate 4</text>
+   </g>
+   <g id="text_9">
+    <text style="fill: #25231f; font: 700 12px 'DejaVu Sans'; text-anchor: middle" x="667.9296" y="78.655901" transform="rotate(-0 667.9296 78.655901)">ANY</text>
+   </g>
+   <g id="text_10">
+    <text style="fill: #77736c; font: 10px 'DejaVu Sans'; text-anchor: middle" x="667.9296" y="31.476558" transform="rotate(-0 667.9296 31.476558)">coordinate 5</text>
+   </g>
+   <g id="text_11">
+    <text style="fill: #25231f; font: 11px 'DejaVu Sans'; text-anchor: middle" x="374.4" y="127.862791" transform="rotate(-0 374.4 127.862791)">Assign this uncovered point to its first failing coordinate: number 3.</text>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="pc18dd3988a">
+   <rect x="7.488" y="7.38" width="733.824" height="132.84"/>
+  </clipPath>
+ </defs>
+</svg>

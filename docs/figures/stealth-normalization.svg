@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="748.8pt" height="252pt" viewBox="0 0 748.8 252" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:date>2026-10-30T22:54:01.952343</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.6.3, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 252
+L 748.8 252
+L 748.8 0
+L 0 0
+L 0 252
+z
+" style="fill: none"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 14.82624 206.486341
+L 733.97376 206.486341
+L 733.97376 139.337561
+L 14.82624 139.337561
+z
+" clip-path="url(#p814a8be5f1)" style="fill: #f5f2ec"/>
+   </g>
+   <g id="text_1">
+    <text style="fill: #bd4b2b; font: 700 12px 'DejaVu Sans'; text-anchor: middle" x="183.60576" y="22.557073" transform="rotate(-0 183.60576 22.557073)">DETECTION</text>
+   </g>
+   <g id="text_2">
+    <text style="fill: #25231f; font: 14px 'DejaVu Sans'" transform="translate(106.164979 55.471607)">What evidence makes</text>
+    <text style="fill: #25231f; font: 14px 'DejaVu Sans'" transform="translate(132.939979 73.276107)">this rule alert?</text>
+   </g>
+   <g id="patch_3">
+    <path d="M 183.60576 94.626116
+Q 183.60576 113.063468 183.60576 130.047376
+" style="fill: none; stroke: #bd4b2b; stroke-width: 1.3; stroke-linecap: round"/>
+    <path d="M 185.80576 125.647376
+L 183.60576 130.047376
+L 181.40576 125.647376
+" style="fill: none; stroke: #bd4b2b; stroke-width: 1.3; stroke-linecap: round"/>
+   </g>
+   <g id="text_3">
+    <text style="fill: #4c6d8f; font: 700 12px 'DejaVu Sans'; text-anchor: middle" x="565.19424" y="22.557073" transform="rotate(-0 565.19424 22.557073)">TECHNIQUE</text>
+   </g>
+   <g id="text_4">
+    <text style="fill: #25231f; font: 14px 'DejaVu Sans'" transform="translate(486.501115 55.471607)">What must happen for</text>
+    <text style="fill: #25231f; font: 14px 'DejaVu Sans'" transform="translate(471.261896 73.276107)">this technique to succeed?</text>
+   </g>
+   <g id="patch_4">
+    <path d="M 565.19424 94.626116
+Q 565.19424 113.063468 565.19424 130.047376
+" style="fill: none; stroke: #4c6d8f; stroke-width: 1.3; stroke-linecap: round"/>
+    <path d="M 567.39424 125.647376
+L 565.19424 130.047376
+L 562.99424 125.647376
+" style="fill: none; stroke: #4c6d8f; stroke-width: 1.3; stroke-linecap: round"/>
+   </g>
+   <g id="text_5">
+    <text style="fill: #25231f; font: 700 12px 'DejaVu Sans'; text-anchor: middle" x="374.4" y="165.613171" transform="rotate(-0 374.4 165.613171)">ONE SHARED DESCRIPTION OF BEHAVIOR</text>
+   </g>
+   <g id="text_6">
+    <text style="fill: #77736c; font: 12px 'DejaVu Sans'; text-anchor: middle" x="374.4" y="190.720976" transform="rotate(-0 374.4 190.720976)">method   ·   number of events   ·   elapsed time   ·   payload fields</text>
+   </g>
+   <g id="text_7">
+    <text style="fill: #25231f; font: 12px 'DejaVu Sans'; text-anchor: middle" x="374.4" y="235.681463" transform="rotate(-0 374.4 235.681463)">Different questions. The same coordinates.</text>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p814a8be5f1">
+   <rect x="7.488" y="5.04" width="733.824" height="239.4"/>
+  </clipPath>
+ </defs>
+</svg>

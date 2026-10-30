@@ -54,6 +54,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+          cache-dependency-glob: pyproject.toml
       - name: ruff
         # the version pinned in the dev extra, so CI and the pre-commit hook agree
         run: uv tool run ruff@0.16.6 check --output-format=github .
@@ -84,6 +85,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+          cache-dependency-glob: pyproject.toml
       - run: uv pip install -e ".[test]"
       - name: pytest (unit)
         # no rule corpus here, and none is wanted: the corpus exercises the four front-ends, so
@@ -114,6 +116,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+          cache-dependency-glob: pyproject.toml
       # a real install, not editable: the e2e suite also checks the console script
       - run: uv pip install ".[test]"
       - name: pytest (end to end)
@@ -130,6 +133,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+          cache-dependency-glob: pyproject.toml
       - run: uv build
       - run: uv tool run twine check dist/*
       - name: the wheel installs and runs on its own

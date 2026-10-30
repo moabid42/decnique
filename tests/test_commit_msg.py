@@ -20,7 +20,24 @@ import pytest
 # otherwise this file only imports when pytest happens to have done it for us.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tools.commit_msg import EXAMPLE, check, clean, main
+from tools.commit_msg import DEPENDABOT_AUTHOR, EXAMPLE, check, clean, main
+
+DEPENDABOT_MESSAGE = """chore(ci): bump actions/cache from 4 to 6
+
+Bumps [actions/cache](https://github.com/actions/cache) from 4 to 6.
+- [Release notes](https://github.com/actions/cache/releases)
+- [Changelog](https://github.com/actions/cache/blob/main/RELEASES.md)
+- [Commits](https://github.com/actions/cache/compare/v4...v6)
+
+---
+updated-dependencies:
+- dependency-name: actions/cache
+  dependency-version: '6'
+  dependency-type: direct:production
+  update-type: version-update:semver-major
+...
+
+Signed-off-by: dependabot[bot] <support@github.com>"""
 
 # Subjects taken from `git log`: whatever else changes, these must not start failing.
 REAL = [
@@ -172,8 +189,8 @@ def test_a_failure_shows_an_example_that_would_have_worked(tmp_path, capsys):
     assert check(EXAMPLE) == []  # the example it prints must itself pass
 
 
-def test_checking_a_range_is_what_ci_does(tmp_path, capsys, monkeypatch):
-    """CI runs `--range base..head`; a repository of its own keeps the test hermetic."""
+@pytest.fixture
+def commit_repo(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
     repo.mkdir()
 
@@ -188,14 +205,70 @@ def test_checking_a_range_is_what_ci_does(tmp_path, capsys, monkeypatch):
     run("git", "add", "-A")
     run("git", "commit", "-q", "--no-verify", "-m", "feat: add a")
     base = run("git", "rev-parse", "HEAD")
+    monkeypatch.chdir(repo)
+    return repo, run, base
+
+
+def test_checking_a_range_is_what_ci_does(commit_repo, capsys):
+    """CI must reject invalid commits while ignoring commits outside the PR's range."""
+    repo, run, base = commit_repo
     (repo / "b.txt").write_text("b")
     run("git", "add", "-A")
     run("git", "commit", "-q", "--no-verify", "-m", "added stuff")
 
-    monkeypatch.chdir(repo)
     assert main(["--range", f"{base}..HEAD"]) == 1  # only the second commit is bad
     assert main(["--range", f"{base}..{base}"]) == 0
     assert "1 of 1 commit message(s) need a rewrite" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("author", "expected"),
+    [
+        (DEPENDABOT_AUTHOR, 0),
+        ("Contributor <contributor@example.com>", 1),
+        ("dependabot[bot] <contributor@example.com>", 1),
+        ("Contributor <49699333+dependabot[bot]@users.noreply.github.com>", 1),
+    ],
+)
+def test_dependabot_metadata_is_allowed_only_for_its_commit_author(commit_repo, author, expected):
+    """Dependabot updates must pass CI without letting a human's copied bot message bypass it."""
+    _, run, base = commit_repo
+    run("git", "commit", "--allow-empty", "--no-verify", "--author", author, "-m", DEPENDABOT_MESSAGE)
+    assert main(["--range", f"{base}..HEAD"]) == expected
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        "bump actions/cache from 4 to 6",
+        "chore(ci): Bump actions/cache from 4 to 6",
+        "chore(ci): bump actions/cache from 4 to 6.",
+        "chore(ci): " + "x" * 100,
+    ],
+)
+def test_dependabot_headers_still_follow_the_convention(header):
+    """The generated-body exception must never exempt Dependabot's subject from the convention."""
+    _, body = DEPENDABOT_MESSAGE.split("\n", 1)
+    assert check(header + "\n" + body, dependabot=True)
+
+
+def test_human_commits_in_a_dependabot_range_remain_strict(commit_repo, capsys):
+    """Adding a human commit to a bot PR must not make the whole range exempt from the rules."""
+    _, run, base = commit_repo
+    run(
+        "git", "commit", "--allow-empty", "--no-verify", "--author", DEPENDABOT_AUTHOR,
+        "-m", DEPENDABOT_MESSAGE,
+    )
+    run("git", "commit", "--allow-empty", "--no-verify", "-m", "fix(ci): adjust the update\n\nextra body")
+    assert main(["--range", f"{base}..HEAD"]) == 1
+    assert "1 of 2 commit message(s) need a rewrite" in capsys.readouterr().err
+
+
+def test_the_commit_hook_cannot_infer_a_bot_author_from_message_text(tmp_path):
+    """A local commit copying Dependabot's sign-off still has to follow the human rules."""
+    path = tmp_path / "COMMIT_EDITMSG"
+    path.write_text(DEPENDABOT_MESSAGE, encoding="utf-8")
+    assert main([str(path)]) == 1
 
 
 def test_the_throwaway_repository_really_is_throwaway(tmp_path):

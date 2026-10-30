@@ -99,6 +99,12 @@ and no `Co-authored-by:` / `Signed-off-by:` style trailers. Merges, reverts and 
 commits pass untouched, and the `#` comments and diff that `git commit -v` puts in the file are
 not mistaken for a body.
 
+Dependabot always adds dependency metadata and a sign-off to its commits. In `--range` mode,
+the checker allows that generated body only for commits with Dependabot's author name and
+GitHub noreply email; it still checks their headers. Human commits in the same PR and all
+local commit-hook messages keep the full one-line, no-trailers rule. The `chore(ci)` prefix
+in `.github/dependabot.yml` supplies the required header format.
+
 ```
 test: cover the CLI, yaml_io and the predicate model          ✓
 fix(yaml_io): tag AST nodes under node so InList reads back   ✓

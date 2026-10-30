@@ -249,7 +249,9 @@ rule across hops is caught); stealth reports the rules that always catch a techn
 
 - Commits: one line, `type(scope): what and why`; atomic; no trailers.  Enforced by
   `tools/commit_msg.py` — at the `commit-msg` hook (`pre-commit install`) and again over every
-  pull request in CI.  It is tested (`tests/test_commit_msg.py`); change the rule there.
+  pull request in CI.  In range mode only, commits authored by Dependabot may keep their generated
+  body and sign-off; their headers still follow the convention, and human commits in the same
+  PR remain strict.  It is tested (`tests/test_commit_msg.py`); change the rule there.
 - No new *runtime* dependencies (lark, pyyaml, z3-solver, rich, prompt_toolkit).  Test and lint
   tooling lives in the `test` / `dev` extras and is never imported by the package.
 - Tests for every behaviour change; corpus-dependent tests must skip cleanly without the corpus.

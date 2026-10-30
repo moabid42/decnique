@@ -9,6 +9,10 @@ Run two ways:
 Deliberately a plain script with no dependencies.  The convention is short enough to state in
 thirty lines, and the project's own rule is that a tool says *why* it refuses something — so
 each failure names the rule it broke and shows a message that would have passed.
+
+In range mode, Dependabot's generated body and sign-off are allowed; its header must still
+pass. The exception uses each commit's author identity, never the pull request's author or
+text inside the message, so human commits in the same range remain strict.
 """
 
 from __future__ import annotations
@@ -20,6 +24,7 @@ import sys
 
 TYPES = ("feat", "fix", "docs", "test", "refactor", "perf", "chore", "ci", "build", "revert")
 MAX_HEADER = 100
+DEPENDABOT_AUTHOR = "dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>"
 
 # `type(scope)!: subject` — scope and the breaking-change `!` are optional.
 HEADER = re.compile(rf"^(?P<type>{'|'.join(TYPES)})(?P<scope>\([^()]+\))?!?: (?P<subject>.+)$")
@@ -51,7 +56,7 @@ def is_exempt(message: str) -> bool:
     return first.startswith(("Merge ", "Revert ", "revert:", "fixup!", "squash!"))
 
 
-def check(message: str) -> list[str]:
+def check(message: str, *, dependabot: bool = False) -> list[str]:
     """Every rule the message breaks, in the order a reader would notice them."""
     text = clean(message)
     if not text:
@@ -81,9 +86,9 @@ def check(message: str) -> list[str]:
         problems.append(f"the header is {len(header)} characters; the limit is {MAX_HEADER}")
 
     body = "\n".join(lines[1:]).strip()
-    if body:
+    if body and not dependabot:
         problems.append("the message is one line — say what and why in the subject, or split the commit")
-    if TRAILER.search(text):
+    if not dependabot and TRAILER.search(text):
         name = TRAILER.search(text).group(1)  # type: ignore[union-attr]
         problems.append(f"commits carry no trailers — drop the {name!r} line")
     return problems
@@ -97,14 +102,16 @@ def report(message: str, problems: list[str]) -> None:
     print(f"\n  the convention is AGENTS.md §8, for example:\n    {EXAMPLE}\n", file=sys.stderr)
 
 
-def messages_in(rev_range: str) -> list[str]:
+def commits_in(rev_range: str) -> list[tuple[str, str]]:
+    """Each commit's author and message, kept together so only that author gets an exception."""
     out = subprocess.run(
-        ["git", "log", "--format=%B%x00", "--no-merges", rev_range],
+        ["git", "log", "--format=%an <%ae>%x00%B%x00", "--no-merges", rev_range],
         capture_output=True,
         text=True,
         check=True,
     ).stdout
-    return [m.strip() for m in out.split("\0") if m.strip()]
+    parts = out.split("\0")
+    return [(parts[i].strip(), parts[i + 1].strip()) for i in range(0, len(parts) - 1, 2)]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -114,21 +121,21 @@ def main(argv: list[str] | None = None) -> int:
     ns = ap.parse_args(argv)
 
     if ns.rev_range:
-        texts = messages_in(ns.rev_range)
+        commits = commits_in(ns.rev_range)
     elif ns.file:
         with open(ns.file, encoding="utf-8") as fh:
-            texts = [fh.read()]
+            commits = [("", fh.read())]
     else:
-        texts = [sys.stdin.read()]
+        commits = [("", sys.stdin.read())]
 
     bad = 0
-    for text in texts:
-        problems = check(text)
+    for author, text in commits:
+        problems = check(text, dependabot=author == DEPENDABOT_AUTHOR)
         if problems:
             bad += 1
             report(text, problems)
     if bad:
-        print(f"{bad} of {len(texts)} commit message(s) need a rewrite", file=sys.stderr)
+        print(f"{bad} of {len(commits)} commit message(s) need a rewrite", file=sys.stderr)
         return 1
     return 0
 
